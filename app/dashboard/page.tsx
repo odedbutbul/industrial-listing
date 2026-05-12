@@ -69,6 +69,12 @@ export default function DashboardPage() {
           <p className="text-white/50 text-sm">י.פ. פתרונות טכניים — ניהול ציוד תעשייתי</p>
         </div>
         <div className="flex gap-3">
+          <button
+            onClick={async () => { await fetch('/api/auth/logout', { method: 'POST' }); window.location.href = '/login' }}
+            className="px-4 py-2 rounded-lg border border-white/10 text-white/40 hover:text-white/70 text-sm transition-colors"
+          >
+            יציאה
+          </button>
           <Link href="/settings" className="px-4 py-2 rounded-lg border border-white/20 text-white/60 hover:text-white text-sm transition-colors">
             ⚙️ הגדרות
           </Link>
