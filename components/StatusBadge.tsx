@@ -4,64 +4,38 @@ type EbayStatus = 'pending' | 'published' | 'failed' | 'sold'
 type FacebookStatus = 'pending' | 'published' | 'copied'
 type GeneralStatus = 'active' | 'sold' | 'archived'
 
-const ebayLabels: Record<EbayStatus, string> = {
-  pending: '⏳ ממתין',
-  published: '✅ פורסם',
-  failed: '❌ נכשל',
-  sold: '🏷️ נמכר',
+const ebay: Record<EbayStatus, { label: string; cls: string }> = {
+  pending:   { label: '⏳ ממתין',  cls: 'bg-gray-100 dark:bg-white/10 text-gray-500 dark:text-white/50' },
+  published: { label: '✅ פורסם',  cls: 'bg-green-100 dark:bg-green-500/15 text-green-700 dark:text-green-400' },
+  failed:    { label: '❌ נכשל',   cls: 'bg-red-100 dark:bg-red-500/15 text-red-700 dark:text-red-400' },
+  sold:      { label: '🏷️ נמכר',  cls: 'bg-purple-100 dark:bg-purple-500/15 text-purple-700 dark:text-purple-400' },
 }
 
-const facebookLabels: Record<FacebookStatus, string> = {
-  pending: '⏳ ממתין',
-  published: '✅ פורסם',
-  copied: '📋 הועתק',
+const facebook: Record<FacebookStatus, { label: string; cls: string }> = {
+  pending:   { label: '⏳ ממתין',   cls: 'bg-gray-100 dark:bg-white/10 text-gray-500 dark:text-white/50' },
+  published: { label: '✅ פורסם',   cls: 'bg-green-100 dark:bg-green-500/15 text-green-700 dark:text-green-400' },
+  copied:    { label: '📋 הועתק',   cls: 'bg-blue-100 dark:bg-blue-500/15 text-blue-700 dark:text-blue-400' },
 }
 
-const generalLabels: Record<GeneralStatus, string> = {
-  active: '🟢 פעיל',
-  sold: '🏷️ נמכר',
-  archived: '📦 ארכיון',
+const general: Record<GeneralStatus, { label: string; cls: string }> = {
+  active:   { label: '🟢 פעיל',   cls: 'bg-emerald-100 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-400' },
+  sold:     { label: '🏷️ נמכר',  cls: 'bg-purple-100 dark:bg-purple-500/15 text-purple-700 dark:text-purple-400' },
+  archived: { label: '📦 ארכיון', cls: 'bg-gray-100 dark:bg-white/10 text-gray-500 dark:text-white/40' },
 }
 
-const ebayColors: Record<EbayStatus, string> = {
-  pending: 'bg-gray-700 text-gray-300',
-  published: 'bg-green-800 text-green-200',
-  failed: 'bg-red-800 text-red-200',
-  sold: 'bg-purple-800 text-purple-200',
-}
-
-const facebookColors: Record<FacebookStatus, string> = {
-  pending: 'bg-gray-700 text-gray-300',
-  published: 'bg-green-800 text-green-200',
-  copied: 'bg-blue-800 text-blue-200',
-}
-
-const generalColors: Record<GeneralStatus, string> = {
-  active: 'bg-green-900 text-green-300',
-  sold: 'bg-purple-900 text-purple-300',
-  archived: 'bg-gray-800 text-gray-400',
-}
+const base = 'inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap'
 
 export function EbayBadge({ status }: { status: EbayStatus }) {
-  return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${ebayColors[status]}`}>
-      {ebayLabels[status]}
-    </span>
-  )
+  const { label, cls } = ebay[status]
+  return <span className={`${base} ${cls}`}>{label}</span>
 }
 
 export function FacebookBadge({ status }: { status: FacebookStatus }) {
-  return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${facebookColors[status]}`}>
-      {facebookLabels[status]}
-    </span>
-  )
+  const { label, cls } = facebook[status]
+  return <span className={`${base} ${cls}`}>{label}</span>
 }
 
 export function GeneralBadge({ status }: { status: GeneralStatus }) {
-  return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${generalColors[status]}`}>
-      {generalLabels[status]}
-    </span>
-  )
+  const { label, cls } = general[status]
+  return <span className={`${base} ${cls}`}>{label}</span>
 }

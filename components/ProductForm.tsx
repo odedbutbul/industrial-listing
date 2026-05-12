@@ -28,11 +28,7 @@ type FormData = {
   notes: string | null
 }
 
-interface Props {
-  product?: Product
-}
-
-export default function ProductForm({ product }: Props) {
+export default function ProductForm({ product }: { product?: Product }) {
   const router = useRouter()
   const isEdit = !!product
 
@@ -63,7 +59,6 @@ export default function ProductForm({ product }: Props) {
       return
     }
     setSaving(true)
-
     try {
       if (isEdit) {
         const res = await fetch(`/api/products/${product.id}`, {
@@ -92,108 +87,135 @@ export default function ProductForm({ product }: Props) {
     }
   }
 
-  const inputClass = 'w-full bg-[#1a1d24] border border-white/10 rounded-lg px-3 py-2 text-white placeholder-white/30 focus:outline-none focus:border-orange-500 transition-colors'
-  const labelClass = 'block text-sm text-white/60 mb-1'
-
   return (
-    <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      {/* טופס - 2 עמודות */}
-      <div className="lg:col-span-2 space-y-5">
-        <div className="grid grid-cols-2 gap-4">
+    <form onSubmit={handleSubmit} className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+      {/* שדות */}
+      <div className="xl:col-span-2 space-y-5">
+
+        {/* יצרן + דגם */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <label className={labelClass}>יצרן *</label>
-            <input className={inputClass} value={form.manufacturer} onChange={(e) => update('manufacturer', e.target.value)} placeholder="Siemens, Fanuc..." required />
+            <label className="label-base">יצרן <span className="text-orange-500">*</span></label>
+            <input className="input-base" value={form.manufacturer}
+              onChange={(e) => update('manufacturer', e.target.value)}
+              placeholder="Siemens, Fanuc, ABB..." required />
           </div>
           <div>
-            <label className={labelClass}>דגם *</label>
-            <input className={inputClass} value={form.model} onChange={(e) => update('model', e.target.value)} placeholder="S7-300, 0i-MF..." required />
+            <label className="label-base">דגם <span className="text-orange-500">*</span></label>
+            <input className="input-base" value={form.model}
+              onChange={(e) => update('model', e.target.value)}
+              placeholder="S7-300, 0i-MF..." required />
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        {/* קטגוריה + שנה */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <label className={labelClass}>קטגוריה</label>
-            <select className={inputClass} value={form.category ?? ''} onChange={(e) => update('category', e.target.value)}>
+            <label className="label-base">קטגוריה</label>
+            <select className="input-base" value={form.category ?? ''}
+              onChange={(e) => update('category', e.target.value)}>
               <option value="">בחר קטגוריה</option>
               {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
           <div>
-            <label className={labelClass}>שנת ייצור</label>
-            <input type="number" className={inputClass} value={form.year ?? ''} onChange={(e) => update('year', e.target.value ? parseInt(e.target.value) : undefined)} placeholder="2018" min={1950} max={2030} />
+            <label className="label-base">שנת ייצור</label>
+            <input type="number" className="input-base" value={form.year ?? ''}
+              onChange={(e) => update('year', e.target.value ? parseInt(e.target.value) : undefined)}
+              placeholder="2018" min={1950} max={2030} />
           </div>
         </div>
 
+        {/* מצב */}
         <div>
-          <label className={labelClass}>מצב</label>
-          <div className="flex gap-2 flex-wrap">
+          <label className="label-base">מצב המוצר</label>
+          <div className="flex flex-wrap gap-2 mt-1">
             {CONDITIONS.map((c) => (
-              <button key={c} type="button"
-                onClick={() => update('condition', c)}
-                className={`px-3 py-1.5 rounded-lg text-sm border transition-colors ${form.condition === c ? 'bg-orange-500 border-orange-500 text-white' : 'bg-transparent border-white/20 text-white/60 hover:border-white/40'}`}>
+              <button key={c} type="button" onClick={() => update('condition', c)}
+                className={`min-h-[44px] px-4 rounded-xl text-sm font-medium border transition-all duration-150
+                  ${form.condition === c
+                    ? 'bg-orange-500 border-orange-500 text-white shadow-md shadow-orange-500/20'
+                    : 'bg-transparent border-gray-200 dark:border-white/15 text-gray-600 dark:text-white/60 hover:border-orange-400 dark:hover:border-orange-500/50'
+                  }`}>
                 {c}
               </button>
             ))}
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        {/* מחיר + מיקום */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <label className={labelClass}>מחיר (₪)</label>
-            <input type="number" className={inputClass} value={form.price ?? ''} onChange={(e) => update('price', e.target.value ? parseFloat(e.target.value) : undefined)} placeholder="5000" />
+            <label className="label-base">מחיר (₪)</label>
+            <input type="number" className="input-base" value={form.price ?? ''}
+              onChange={(e) => update('price', e.target.value ? parseFloat(e.target.value) : undefined)}
+              placeholder="5,000" />
           </div>
           <div>
-            <label className={labelClass}>מיקום</label>
-            <input className={inputClass} value={form.location ?? ''} onChange={(e) => update('location', e.target.value)} placeholder="תל אביב" />
+            <label className="label-base">מיקום</label>
+            <input className="input-base" value={form.location ?? ''}
+              onChange={(e) => update('location', e.target.value)} placeholder="תל אביב" />
           </div>
         </div>
 
+        {/* טלפון */}
         <div>
-          <label className={labelClass}>טלפון</label>
-          <input className={inputClass} value={form.phone ?? ''} onChange={(e) => update('phone', e.target.value)} placeholder="054-2333651" />
+          <label className="label-base">טלפון</label>
+          <input className="input-base" value={form.phone ?? ''}
+            onChange={(e) => update('phone', e.target.value)} placeholder="054-2333651" />
         </div>
 
+        {/* תיאור */}
         <div>
-          <label className={labelClass}>תיאור ומפרט טכני</label>
-          <textarea className={`${inputClass} resize-none`} rows={5} value={form.description ?? ''} onChange={(e) => update('description', e.target.value)} placeholder="פירוט טכני, מצב, הערות..." />
+          <label className="label-base">תיאור ומפרט טכני</label>
+          <textarea className="input-base resize-none" rows={5}
+            value={form.description ?? ''}
+            onChange={(e) => update('description', e.target.value)}
+            placeholder="פירוט טכני, מצב, הערות, מה כלול במכירה..." />
         </div>
 
+        {/* הערות פנימיות */}
         <div>
-          <label className={labelClass}>הערות פנימיות</label>
-          <input className={inputClass} value={form.notes ?? ''} onChange={(e) => update('notes', e.target.value)} placeholder="הערות לשימוש פנימי בלבד" />
+          <label className="label-base">הערות פנימיות</label>
+          <input className="input-base" value={form.notes ?? ''}
+            onChange={(e) => update('notes', e.target.value)}
+            placeholder="הערות לשימוש פנימי בלבד" />
         </div>
 
+        {/* תמונות */}
         <div>
-          <label className={labelClass}>תמונות</label>
-          <ImageUploader productId={productId} images={form.images} onChange={(imgs) => update('images', imgs)} />
+          <label className="label-base">תמונות</label>
+          <ImageUploader productId={productId} images={form.images}
+            onChange={(imgs) => update('images', imgs)} />
         </div>
 
-        <div className="flex gap-3">
-          <button type="submit" disabled={saving}
-            className="flex-1 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-medium py-3 rounded-lg transition-colors">
+        {/* כפתורים */}
+        <div className="flex gap-3 pt-2">
+          <button type="submit" disabled={saving} className="btn-primary flex-1 py-3 text-base">
             {saving ? 'שומר...' : isEdit ? 'עדכן מוצר' : 'שמור מוצר'}
           </button>
-          <button type="button" onClick={() => router.back()}
-            className="px-6 py-3 rounded-lg border border-white/20 text-white/60 hover:text-white hover:border-white/40 transition-colors">
+          <button type="button" onClick={() => router.back()} className="btn-ghost py-3 px-6">
             ביטול
           </button>
         </div>
       </div>
 
       {/* תצוגה מקדימה */}
-      <div className="lg:col-span-1">
-        <p className="text-sm text-white/60 mb-2">תצוגה מקדימה — פוסט פייסבוק</p>
-        <PostPreview
-          manufacturer={form.manufacturer}
-          model={form.model}
-          category={form.category ?? ''}
-          condition={form.condition}
-          year={form.year}
-          location={form.location ?? ''}
-          price={form.price}
-          description={form.description ?? ''}
-          phone={form.phone ?? ''}
-        />
+      <div className="xl:col-span-1">
+        <label className="label-base">תצוגה מקדימה — פייסבוק</label>
+        <div className="mt-1 sticky top-6">
+          <PostPreview
+            manufacturer={form.manufacturer}
+            model={form.model}
+            category={form.category ?? ''}
+            condition={form.condition}
+            year={form.year}
+            location={form.location ?? ''}
+            price={form.price}
+            description={form.description ?? ''}
+            phone={form.phone ?? ''}
+          />
+        </div>
       </div>
     </form>
   )
