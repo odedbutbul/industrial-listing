@@ -3,6 +3,11 @@ import type { NextRequest } from 'next/server'
 
 const PUBLIC_PATHS = ['/login', '/api/auth']
 
+function getSessionSecret(request: NextRequest): string {
+  if (process.env.SESSION_SECRET) return process.env.SESSION_SECRET
+  return `auth-${process.env.ADMIN_USERNAME}-${process.env.ADMIN_PASSWORD}`
+}
+
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
@@ -11,9 +16,9 @@ export function middleware(request: NextRequest) {
   }
 
   const token = request.cookies.get('auth-token')?.value
-  const secret = process.env.SESSION_SECRET
+  const secret = getSessionSecret(request)
 
-  if (!secret || !token || token !== secret) {
+  if (!token || token !== secret) {
     const loginUrl = new URL('/login', request.url)
     loginUrl.searchParams.set('from', pathname)
     return NextResponse.redirect(loginUrl)
