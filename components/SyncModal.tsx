@@ -332,7 +332,7 @@ export default function SyncModal({ onClose, onSuccess }: { onClose: () => void;
                 </p>
                 {syncState.totalItems > 0 && (
                   <p className="text-xs text-gray-400 dark:text-white/40 mt-1">
-                    סה"כ {syncState.totalItems} מוצרים ב-eBay
+                    סה&quot;כ {syncState.totalItems} מוצרים ב-eBay
                   </p>
                 )}
               </div>
