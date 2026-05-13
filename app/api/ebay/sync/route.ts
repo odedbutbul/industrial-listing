@@ -164,13 +164,24 @@ function mapDetailedItem(item: EbayItemDetail, images: string[]) {
 }
 
 export async function POST() {
+  const debug: Record<string, unknown> = {}
   const supabase = getClient()
   const settings = await loadSettings(supabase)
   const { EBAY_APP_ID, EBAY_CERT_ID, EBAY_DEV_ID, EBAY_USER_TOKEN, EBAY_SANDBOX } = settings
 
+  // בדיקת credentials
+  debug.has_app_id = !!EBAY_APP_ID
+  debug.has_cert_id = !!EBAY_CERT_ID
+  debug.has_dev_id = !!EBAY_DEV_ID
+  debug.has_user_token = !!EBAY_USER_TOKEN
+  debug.token_length = EBAY_USER_TOKEN?.length ?? 0
+  debug.token_prefix = EBAY_USER_TOKEN ? EBAY_USER_TOKEN.slice(0, 10) + '...' : null
+  debug.sandbox = EBAY_SANDBOX
+  console.log('[eBay sync] credentials:', debug)
+
   if (!EBAY_APP_ID || !EBAY_USER_TOKEN) {
     return NextResponse.json(
-      { error: 'פרטי eBay API חסרים — הגדר App ID ו-User Token בהגדרות' },
+      { error: 'פרטי eBay API חסרים — הגדר App ID ו-User Token בהגדרות', debug },
       { status: 400 }
     )
   }
@@ -179,6 +190,7 @@ export async function POST() {
   const cloudKey = process.env.CLOUDINARY_API_KEY || settings.CLOUDINARY_API_KEY
   const cloudSecret = process.env.CLOUDINARY_API_SECRET || settings.CLOUDINARY_API_SECRET
   const useCloudinary = !!(cloudName && cloudKey && cloudSecret)
+  debug.cloudinary = useCloudinary
   if (useCloudinary) {
     cloudinary.config({ cloud_name: cloudName, api_key: cloudKey, api_secret: cloudSecret })
   }
@@ -187,15 +199,20 @@ export async function POST() {
   const endpoint = isSandbox
     ? 'https://api.sandbox.ebay.com/ws/api.dll'
     : 'https://api.ebay.com/ws/api.dll'
+  debug.endpoint = endpoint
+  console.log('[eBay sync] endpoint:', endpoint)
+
   const headers = buildHeaders(EBAY_APP_ID, EBAY_DEV_ID ?? '', EBAY_CERT_ID ?? '', 'GetMyeBaySelling')
 
   // שלב 1 — GetMyeBaySelling עם pagination מלא
   const allItems: EbayListItem[] = []
   let page = 1
   let totalPages = 1
+  const pageDebug: unknown[] = []
 
   while (page <= totalPages) {
     let xml: string
+    let httpStatus: number
     try {
       const res = await fetch(endpoint, {
         method: 'POST',
@@ -203,37 +220,64 @@ export async function POST() {
         body: buildGetMyeBaySellingXml(EBAY_USER_TOKEN, page),
         signal: AbortSignal.timeout(20000),
       })
+      httpStatus = res.status
       xml = await res.text()
-    } catch {
-      return NextResponse.json({ error: 'לא ניתן להתחבר ל-eBay API' }, { status: 502 })
+      console.log(`[eBay sync] page ${page} HTTP status:`, httpStatus)
+      console.log(`[eBay sync] page ${page} raw XML (first 600):`, xml.slice(0, 600))
+    } catch (err) {
+      debug.fetch_error = String(err)
+      console.error('[eBay sync] fetch error:', err)
+      return NextResponse.json({ error: 'לא ניתן להתחבר ל-eBay API', debug }, { status: 502 })
     }
 
     const parsed = parser.parse(xml)
     const response = parsed?.GetMyeBaySellingResponse
 
     if (!response) {
-      return NextResponse.json({ error: 'תגובה לא תקינה מ-eBay', raw: xml.slice(0, 400) }, { status: 502 })
+      debug.raw_xml_snippet = xml.slice(0, 600)
+      debug.parsed_keys = Object.keys(parsed ?? {})
+      console.error('[eBay sync] no GetMyeBaySellingResponse in parsed XML, keys:', Object.keys(parsed ?? {}))
+      return NextResponse.json({ error: 'תגובה לא תקינה מ-eBay', debug }, { status: 502 })
     }
 
+    const ack = String(response.Ack ?? '')
+    const paginationResult = response?.ActiveList?.PaginationResult
+    const pageItems: EbayListItem[] = response?.ActiveList?.ItemArray?.Item ?? []
+
+    pageDebug.push({
+      page,
+      ack,
+      totalPages: paginationResult?.TotalNumberOfPages,
+      totalEntries: paginationResult?.TotalNumberOfEntries,
+      itemsOnPage: pageItems.length,
+      activeListKeys: Object.keys(response?.ActiveList ?? {}),
+    })
+    console.log(`[eBay sync] page ${page} ack:`, ack, '| items:', pageItems.length, '| pagination:', paginationResult)
+
     if (page === 1) {
-      const ack = String(response.Ack ?? '')
       if (ack !== 'Success' && ack !== 'Warning') {
         const errors = response.Errors ?? []
         const firstError = Array.isArray(errors) ? errors[0] : errors
         const msg = firstError?.LongMessage ?? firstError?.ShortMessage ?? `eBay Ack: ${ack}`
-        return NextResponse.json({ error: msg }, { status: 200 })
+        debug.ebay_errors = errors
+        debug.pages = pageDebug
+        console.error('[eBay sync] eBay error:', msg, errors)
+        return NextResponse.json({ error: msg, debug }, { status: 200 })
       }
-      totalPages = Number(response?.ActiveList?.PaginationResult?.TotalNumberOfPages ?? 1)
+      totalPages = Number(paginationResult?.TotalNumberOfPages ?? 1)
     }
 
-    const pageItems: EbayListItem[] = response?.ActiveList?.ItemArray?.Item ?? []
     allItems.push(...pageItems)
     page++
   }
 
+  debug.pages = pageDebug
+  debug.total_items_from_ebay = allItems.length
+  console.log('[eBay sync] total items fetched:', allItems.length)
+
   if (allItems.length === 0) {
     return NextResponse.json({
-      imported: 0, updated: 0, total: 0,
+      imported: 0, updated: 0, total: 0, debug,
       message: isSandbox
         ? 'אין מוצרים פעילים בחשבון ה-Sandbox.'
         : 'אין מוצרים פעילים ב-eBay',
@@ -250,6 +294,9 @@ export async function POST() {
   const existingMap = new Map((existing ?? []).map((p) => [p.ebay_item_number, p.id]))
   const toInsertIds = allItems.filter((i) => !existingMap.has(String(i.ItemID))).map((i) => String(i.ItemID))
   const toUpdateIds = allItems.filter((i) => existingMap.has(String(i.ItemID))).map((i) => String(i.ItemID))
+  debug.to_insert = toInsertIds.length
+  debug.to_update = toUpdateIds.length
+  console.log('[eBay sync] to insert:', toInsertIds.length, '| to update:', toUpdateIds.length)
 
   // שלב 3 — GetItem במקביל לכל הפריטים
   const allIds = [...toInsertIds, ...toUpdateIds]
@@ -265,13 +312,21 @@ export async function POST() {
       })
       const xml = await res.text()
       const parsed = parser.parse(xml)
-      return parsed?.GetItemResponse?.Item as EbayItemDetail | null
+      const item = parsed?.GetItemResponse?.Item as EbayItemDetail | null
+      if (!item) {
+        console.warn(`[eBay sync] GetItem ${itemId} returned no item. XML snippet:`, xml.slice(0, 300))
+      }
+      return item
     })
   )
 
   const detailedItems: EbayItemDetail[] = detailResults
     .filter((r): r is PromiseFulfilledResult<EbayItemDetail> => r.status === 'fulfilled' && !!r.value)
     .map((r) => r.value)
+
+  debug.get_item_success = detailedItems.length
+  debug.get_item_failed = detailResults.filter((r) => r.status === 'rejected' || (r.status === 'fulfilled' && !r.value)).length
+  console.log('[eBay sync] GetItem success:', detailedItems.length, '| failed:', debug.get_item_failed)
 
   // שלב 4 — העלאת תמונות ל-Cloudinary (או ישירות)
   const folder = 'industrial-listing/ebay'
@@ -299,8 +354,13 @@ export async function POST() {
 
   if (toInsert.length > 0) {
     const { error } = await supabase.from('products').insert(toInsert)
-    if (error) return NextResponse.json({ error: `שגיאת INSERT: ${error.message}` }, { status: 500 })
+    if (error) {
+      debug.insert_error = error.message
+      console.error('[eBay sync] INSERT error:', error.message)
+      return NextResponse.json({ error: `שגיאת INSERT: ${error.message}`, debug }, { status: 500 })
+    }
     inserted = toInsert.length
+    console.log('[eBay sync] inserted:', inserted)
   }
 
   if (toUpdate.length > 0) {
@@ -311,6 +371,7 @@ export async function POST() {
       })
     )
     updated = updateResults.filter((r) => r.status === 'fulfilled').length
+    console.log('[eBay sync] updated:', updated)
   }
 
   const total = inserted + updated
@@ -318,11 +379,16 @@ export async function POST() {
   if (inserted > 0) parts.push(`${inserted} חדשים`)
   if (updated > 0) parts.push(`${updated} עודכנו`)
 
+  debug.inserted = inserted
+  debug.updated = updated
+  debug.total = total
+
   return NextResponse.json({
     imported: inserted,
     updated,
     total,
     cloudinary: useCloudinary,
+    debug,
     message: total > 0
       ? `סונכרנו ${total} מוצרים (${parts.join(', ')})${useCloudinary ? ' — תמונות ב-Cloudinary' : ''}`
       : 'לא היו שינויים',
