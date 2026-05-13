@@ -12,7 +12,17 @@ interface Props {
   phone?: string
 }
 
+const conditionHe: Record<string, string> = {
+  'New': 'חדש',
+  'Like New': 'כמו חדש',
+  'Very Good': 'טוב מאוד',
+  'Good': 'טוב',
+  'Acceptable': 'סביר',
+  'For parts or not working': 'לחלקים',
+}
+
 export default function PostPreview({ manufacturer, model, category, condition, year, location, price, description, phone }: Props) {
+  const conditionDisplay = conditionHe[condition] ?? condition
   if (!manufacturer && !model) {
     return (
       <div className="card p-6 text-center">
@@ -41,7 +51,7 @@ export default function PostPreview({ manufacturer, model, category, condition, 
       </div>
 
       <div className="space-y-1.5 text-gray-700 dark:text-white/70">
-        <p>📌 מצב: <span className="text-gray-900 dark:text-white font-medium">{condition}</span></p>
+        <p>📌 מצב: <span className="text-gray-900 dark:text-white font-medium">{conditionDisplay}</span></p>
         <p>📅 שנת ייצור: <span className="text-gray-900 dark:text-white font-medium">{year || 'לא צוין'}</span></p>
         <p>📍 מיקום: <span className="text-gray-900 dark:text-white font-medium">{location || 'לא צוין'}</span></p>
         <p>💰 מחיר: <span className="text-orange-500 font-bold">₪{price?.toLocaleString() || 'לא צוין'}</span></p>

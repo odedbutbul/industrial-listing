@@ -9,6 +9,7 @@ export type Product = {
   id: string
   created_at: string
   updated_at: string
+  title: string | null
   manufacturer: string
   model: string
   category: string | null
@@ -19,7 +20,17 @@ export type Product = {
   location: string | null
   phone: string | null
   images: string[]
-  status_ebay: 'pending' | 'published' | 'failed' | 'sold'
+  // eBay-specific fields
+  sku: string | null
+  ebay_category: string | null
+  brand: string | null
+  mpn: string | null
+  country_of_origin: string | null
+  quantity: number | null
+  shipping_domestic: { method: string; price: number } | null
+  shipping_international: { method: string; price: number } | null
+  ebay_item_number: string | null
+  status_ebay: 'pending' | 'active' | 'ended' | 'sold' | 'unsold' | 'failed'
   ebay_listing_id: string | null
   ebay_url: string | null
   ebay_published_at: string | null

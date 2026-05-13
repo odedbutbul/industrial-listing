@@ -45,6 +45,7 @@ const parser = new XMLParser({
 type EbayItem = {
   ItemID: string | number
   Title: string
+  Quantity?: number
   SellingStatus?: { CurrentPrice?: { '#text'?: number } | number }
   ListingDetails?: { ViewItemURL?: string; StartTime?: string }
   PictureDetails?: { PictureURL?: string | string[] }
@@ -56,12 +57,6 @@ type EbayItem = {
 function mapEbayItem(item: EbayItem) {
   const title = String(item.Title ?? '').trim()
 
-  // מנסים לפצל את הכותרת: מילה ראשונה = יצרן, שאר = דגם
-  const spaceIndex = title.indexOf(' ')
-  const manufacturer = spaceIndex > 0 ? title.slice(0, spaceIndex) : title
-  const model = spaceIndex > 0 ? title.slice(spaceIndex + 1) : ''
-
-  // מחיר — יכול להגיע כ-object עם #text או כמספר ישיר
   const priceRaw = item.SellingStatus?.CurrentPrice
   const price =
     typeof priceRaw === 'object' && priceRaw !== null
@@ -70,7 +65,6 @@ function mapEbayItem(item: EbayItem) {
       ? priceRaw
       : null
 
-  // תמונות — יכול להיות string אחד או מערך
   const picField = item.PictureDetails?.PictureURL
   const images: string[] = Array.isArray(picField)
     ? picField.filter(Boolean)
@@ -78,29 +72,21 @@ function mapEbayItem(item: EbayItem) {
     ? [picField]
     : []
 
-  // מצב — eBay מחזיר ConditionDisplayName
-  const conditionMap: Record<string, string> = {
-    'New': 'חדש',
-    'Like New': 'משומש - מצוין',
-    'Very Good': 'משומש - מצוין',
-    'Good': 'משומש - טוב',
-    'Acceptable': 'משומש - בינוני',
-    'For parts or not working': 'לחלקים',
-  }
-  const condition = conditionMap[item.ConditionDisplayName ?? ''] ?? 'משומש - טוב'
-
   return {
-    manufacturer,
-    model: model || manufacturer,
+    title,
+    manufacturer: '',
+    model: '',
     description: item.Description ?? null,
     price: price ? Number(price) : null,
     location: item.Location ?? null,
-    condition,
+    condition: item.ConditionDisplayName ?? 'Good',
+    quantity: item.Quantity ?? 1,
     images,
     ebay_listing_id: String(item.ItemID),
+    ebay_item_number: String(item.ItemID),
     ebay_url: item.ListingDetails?.ViewItemURL ?? null,
     ebay_published_at: item.ListingDetails?.StartTime ?? new Date().toISOString(),
-    status_ebay: 'published' as const,
+    status_ebay: 'active' as const,
     status: 'active' as const,
     status_facebook: 'pending' as const,
   }
@@ -177,36 +163,19 @@ export async function POST() {
     })
   }
 
-  // בדוק אילו כבר קיימים (לפי ebay_listing_id)
-  const ebayIds = items.map((i) => String(i.ItemID))
-  const { data: existing } = await supabase
+  // upsert לפי ebay_listing_id (מעדכן קיימים, מוסיף חדשים)
+  const products = items.map(mapEbayItem)
+  const { error: upsertError } = await supabase
     .from('products')
-    .select('ebay_listing_id')
-    .in('ebay_listing_id', ebayIds)
+    .upsert(products, { onConflict: 'ebay_listing_id' })
 
-  const existingIds = new Set((existing ?? []).map((p) => p.ebay_listing_id))
-  const newItems = items.filter((item) => !existingIds.has(String(item.ItemID)))
-  const skipped = items.length - newItems.length
-
-  if (newItems.length === 0) {
-    return NextResponse.json({
-      imported: 0,
-      skipped,
-      message: `כל ${skipped} המוצרים כבר קיימים במערכת`,
-    })
-  }
-
-  // הכנס לסופאבייס
-  const products = newItems.map(mapEbayItem)
-  const { error: insertError } = await supabase.from('products').insert(products)
-
-  if (insertError) {
-    return NextResponse.json({ error: insertError.message }, { status: 500 })
+  if (upsertError) {
+    return NextResponse.json({ error: upsertError.message }, { status: 500 })
   }
 
   return NextResponse.json({
-    imported: newItems.length,
-    skipped,
-    message: `יובאו ${newItems.length} מוצרים בהצלחה${skipped > 0 ? ` (${skipped} כבר קיימים)` : ''}`,
+    imported: items.length,
+    skipped: 0,
+    message: `סונכרנו ${items.length} מוצרים מ-eBay בהצלחה`,
   })
 }

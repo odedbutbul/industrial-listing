@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import type { Product } from '@/lib/supabase'
 import { EbayBadge, FacebookBadge, GeneralBadge } from '@/components/StatusBadge'
@@ -21,9 +22,11 @@ const STATS = [
 ]
 
 export default function DashboardPage() {
+  const router = useRouter()
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
+  const [deletingAll, setDeletingAll] = useState(false)
   const [filters, setFilters] = useState({ status_ebay: '', status_facebook: '', category: '', search: '' })
 
   async function loadProducts() {
@@ -70,6 +73,23 @@ export default function DashboardPage() {
     }
   }
 
+  async function deleteAll() {
+    if (!confirm('האם אתה בטוח? פעולה זו תמחק את כל המוצרים ולא ניתן לשחזר אותם.')) return
+    if (!confirm('אישור אחרון — למחוק את כל המוצרים לצמיתות?')) return
+    setDeletingAll(true)
+    try {
+      const res = await fetch('/api/products', { method: 'DELETE' })
+      if (res.ok) {
+        toast.success('כל המוצרים נמחקו')
+        loadProducts()
+      } else {
+        toast.error('שגיאה במחיקת המוצרים')
+      }
+    } finally {
+      setDeletingAll(false)
+    }
+  }
+
   async function markSold(id: string) {
     await fetch(`/api/products/${id}`, {
       method: 'PATCH',
@@ -83,7 +103,7 @@ export default function DashboardPage() {
   const stats = {
     total:   products.length,
     pending: products.filter((p) => p.status_ebay === 'pending' && p.status === 'active').length,
-    ebay:    products.filter((p) => p.status_ebay === 'published').length,
+    ebay:    products.filter((p) => p.status_ebay === 'active').length,
     fb:      products.filter((p) => p.status_facebook !== 'pending').length,
     sold:    products.filter((p) => p.status === 'sold').length,
   }
@@ -122,6 +142,18 @@ export default function DashboardPage() {
             <Link href="/settings" className="btn-ghost hidden sm:flex items-center h-9 px-3 text-xs">
               ⚙️ הגדרות
             </Link>
+            <button
+              onClick={deleteAll}
+              disabled={deletingAll}
+              title="מחק את כל המוצרים"
+              className="btn-ghost hidden sm:flex items-center gap-1.5 h-9 px-3 text-xs text-red-500 hover:text-red-600 disabled:opacity-50">
+              {deletingAll ? '...' : (
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-4 h-4">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              )}
+              <span className="hidden sm:inline">מחק הכל</span>
+            </button>
             <button
               onClick={syncFromEbay}
               disabled={syncing}
@@ -192,7 +224,10 @@ export default function DashboardPage() {
             onChange={(e) => setFilters((f) => ({ ...f, status_ebay: e.target.value }))}>
             <option value="">eBay — הכל</option>
             <option value="pending">ממתין</option>
-            <option value="published">פורסם</option>
+            <option value="active">פעיל</option>
+            <option value="ended">הסתיים</option>
+            <option value="sold">נמכר</option>
+            <option value="unsold">לא נמכר</option>
             <option value="failed">נכשל</option>
           </select>
 
@@ -250,9 +285,10 @@ export default function DashboardPage() {
                   <tbody>
                     {products.map((p) => (
                       <tr key={p.id}
+                        onClick={() => router.push(`/products/${p.id}`)}
                         className="group border-b border-gray-50 dark:border-white/[0.04] last:border-0
                                    hover:bg-orange-500/[0.02] dark:hover:bg-orange-500/[0.04]
-                                   transition-colors duration-100">
+                                   transition-colors duration-100 cursor-pointer">
                         <td className="px-4 py-3 w-14">
                           {p.images[0] ? (
                             <img src={p.images[0]} alt="" className="w-11 h-11 object-cover rounded-xl" />
@@ -263,8 +299,12 @@ export default function DashboardPage() {
                           )}
                         </td>
                         <td className="px-4 py-3">
-                          <p className="font-semibold text-gray-900 dark:text-white text-sm">{p.manufacturer}</p>
-                          <p className="text-gray-400 dark:text-white/40 text-xs">{p.model}</p>
+                          <p className="font-semibold text-gray-900 dark:text-white text-sm">
+                            {p.title || p.manufacturer}
+                          </p>
+                          <p className="text-gray-400 dark:text-white/40 text-xs">
+                            {p.manufacturer && p.model ? `${p.manufacturer} ${p.model}` : p.model || p.manufacturer || '—'}
+                          </p>
                         </td>
                         <td className="px-4 py-3 text-gray-500 dark:text-white/50 text-sm">{p.category || '—'}</td>
                         <td className="px-4 py-3 font-medium text-gray-700 dark:text-white/70 text-sm">
@@ -276,12 +316,8 @@ export default function DashboardPage() {
                         <td className="px-4 py-3 text-gray-400 dark:text-white/30 text-xs whitespace-nowrap">
                           {new Date(p.created_at).toLocaleDateString('he-IL')}
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                           <div className="flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <Link href={`/products/${p.id}`}
-                              className="min-h-[32px] px-3 rounded-lg bg-orange-500/10 text-orange-600 dark:text-orange-400 hover:bg-orange-500/20 text-xs font-medium flex items-center transition-colors">
-                              עריכה
-                            </Link>
                             {p.status !== 'sold' && (
                               <button onClick={() => markSold(p.id)}
                                 className="min-h-[32px] px-3 rounded-lg bg-purple-500/10 text-purple-600 dark:text-purple-400 hover:bg-purple-500/20 text-xs font-medium transition-colors">
@@ -303,7 +339,9 @@ export default function DashboardPage() {
               {/* Mobile cards */}
               <div className="md:hidden divide-y divide-gray-100 dark:divide-white/[0.06]">
                 {products.map((p) => (
-                  <div key={p.id} className="p-4 hover:bg-orange-500/[0.02] transition-colors">
+                  <div key={p.id}
+                    onClick={() => router.push(`/products/${p.id}`)}
+                    className="p-4 hover:bg-orange-500/[0.02] transition-colors cursor-pointer">
                     <div className="flex gap-3">
                       {p.images[0] ? (
                         <img src={p.images[0]} alt="" className="w-14 h-14 object-cover rounded-xl shrink-0" />
@@ -313,7 +351,9 @@ export default function DashboardPage() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-start justify-between gap-2">
                           <div>
-                            <p className="font-semibold text-gray-900 dark:text-white text-sm leading-tight">{p.manufacturer} {p.model}</p>
+                            <p className="font-semibold text-gray-900 dark:text-white text-sm leading-tight">
+                              {p.title || `${p.manufacturer} ${p.model}`.trim()}
+                            </p>
                             <p className="text-gray-400 dark:text-white/40 text-xs mt-0.5">{p.category || '—'}</p>
                           </div>
                           {p.price && (
@@ -325,11 +365,7 @@ export default function DashboardPage() {
                           <FacebookBadge status={p.status_facebook} />
                           <GeneralBadge status={p.status} />
                         </div>
-                        <div className="flex gap-2 mt-3">
-                          <Link href={`/products/${p.id}`}
-                            className="flex-1 min-h-[44px] flex items-center justify-center rounded-xl bg-orange-500/10 text-orange-600 dark:text-orange-400 text-sm font-medium hover:bg-orange-500/20 transition-colors">
-                            עריכה
-                          </Link>
+                        <div className="flex gap-2 mt-3" onClick={(e) => e.stopPropagation()}>
                           {p.status !== 'sold' && (
                             <button onClick={() => markSold(p.id)}
                               className="flex-1 min-h-[44px] rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400 text-sm font-medium hover:bg-purple-500/20 transition-colors">
