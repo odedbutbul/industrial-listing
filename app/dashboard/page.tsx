@@ -28,13 +28,14 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true)
   const [showSyncModal, setShowSyncModal] = useState(false)
   const [deletingAll, setDeletingAll] = useState(false)
-  const [filters, setFilters] = useState({ status_ebay: '', status_facebook: '', category: '', search: '' })
+  const [filters, setFilters] = useState({ status_ebay: '', status_facebook: '', status: '', category: '', search: '' })
 
   async function loadProducts() {
     setLoading(true)
     const params = new URLSearchParams()
     if (filters.status_ebay) params.set('status_ebay', filters.status_ebay)
     if (filters.status_facebook) params.set('status_facebook', filters.status_facebook)
+    if (filters.status) params.set('status', filters.status)
     if (filters.category) params.set('category', filters.category)
     if (filters.search) params.set('search', filters.search)
     const res = await fetch(`/api/products?${params}`)
@@ -87,7 +88,7 @@ export default function DashboardPage() {
     sold:    products.filter((p) => p.status === 'sold').length,
   }
 
-  const hasFilters = !!(filters.search || filters.category || filters.status_ebay || filters.status_facebook)
+  const hasFilters = !!(filters.search || filters.category || filters.status_ebay || filters.status_facebook || filters.status)
 
   const selectClass = 'bg-white dark:bg-[#1a1d27] border border-gray-200 dark:border-white/10 rounded-xl px-3 h-[44px] text-sm text-gray-700 dark:text-white/70 focus:outline-none focus:ring-2 focus:ring-orange-500/40 focus:border-orange-500 transition-all'
 
@@ -210,8 +211,18 @@ export default function DashboardPage() {
             <option value="copied">הועתק</option>
           </select>
 
+          <button
+            onClick={() => setFilters((f) => ({ ...f, status: f.status === 'sold' ? '' : 'sold' }))}
+            className={`h-[44px] px-4 rounded-xl text-sm font-medium border transition-all ${
+              filters.status === 'sold'
+                ? 'bg-green-500 border-green-500 text-white'
+                : 'bg-white dark:bg-[#1a1d27] border-gray-200 dark:border-white/10 text-gray-700 dark:text-white/70 hover:border-green-400'
+            }`}>
+            נמכרים בלבד
+          </button>
+
           {hasFilters && (
-            <button onClick={() => setFilters({ status_ebay: '', status_facebook: '', category: '', search: '' })}
+            <button onClick={() => setFilters({ status_ebay: '', status_facebook: '', status: '', category: '', search: '' })}
               className="btn-ghost h-[44px] px-3 text-xs flex items-center gap-1">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-3.5 h-3.5">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -257,9 +268,11 @@ export default function DashboardPage() {
                     {products.map((p) => (
                       <tr key={p.id}
                         onClick={() => router.push(`/products/${p.id}`)}
-                        className="group border-b border-gray-50 dark:border-white/[0.04] last:border-0
-                                   hover:bg-orange-500/[0.02] dark:hover:bg-orange-500/[0.04]
-                                   transition-colors duration-100 cursor-pointer">
+                        className={`group border-b last:border-0 transition-colors duration-100 cursor-pointer ${
+                          p.status === 'sold'
+                            ? 'border-green-100 dark:border-green-900/30 bg-green-50/60 dark:bg-green-900/10 hover:bg-green-50 dark:hover:bg-green-900/15'
+                            : 'border-gray-50 dark:border-white/[0.04] hover:bg-orange-500/[0.02] dark:hover:bg-orange-500/[0.04]'
+                        }`}>
                         <td className="px-4 py-3 w-14">
                           {p.images[0] ? (
                             <img src={p.images[0]} alt="" className="w-11 h-11 object-cover rounded-xl" />
@@ -281,11 +294,19 @@ export default function DashboardPage() {
                         <td className="px-4 py-3 font-medium text-gray-700 dark:text-white/70 text-sm">
                           {p.price ? `$${p.price.toLocaleString()}` : '—'}
                         </td>
-                        <td className="px-4 py-3"><EbayBadge status={p.status_ebay} /></td>
+                        <td className="px-4 py-3">
+                          {p.status === 'sold'
+                            ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 text-xs font-medium">נמכר ב-eBay ✅</span>
+                            : <EbayBadge status={p.status_ebay} />
+                          }
+                        </td>
                         <td className="px-4 py-3"><FacebookBadge status={p.status_facebook} /></td>
                         <td className="px-4 py-3"><GeneralBadge status={p.status} /></td>
                         <td className="px-4 py-3 text-gray-400 dark:text-white/30 text-xs whitespace-nowrap">
-                          {new Date(p.created_at).toLocaleDateString('he-IL')}
+                          {p.status === 'sold' && p.sold_at
+                            ? <span className="text-green-600 dark:text-green-400">נמכר {new Date(p.sold_at).toLocaleDateString('he-IL')}</span>
+                            : new Date(p.created_at).toLocaleDateString('he-IL')
+                          }
                         </td>
                         <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                           <div className="flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -312,7 +333,11 @@ export default function DashboardPage() {
                 {products.map((p) => (
                   <div key={p.id}
                     onClick={() => router.push(`/products/${p.id}`)}
-                    className="p-4 hover:bg-orange-500/[0.02] transition-colors cursor-pointer">
+                    className={`p-4 transition-colors cursor-pointer ${
+                      p.status === 'sold'
+                        ? 'bg-green-50/60 dark:bg-green-900/10 hover:bg-green-50 dark:hover:bg-green-900/15'
+                        : 'hover:bg-orange-500/[0.02]'
+                    }`}>
                     <div className="flex gap-3">
                       {p.images[0] ? (
                         <img src={p.images[0]} alt="" className="w-14 h-14 object-cover rounded-xl shrink-0" />
@@ -332,10 +357,16 @@ export default function DashboardPage() {
                           )}
                         </div>
                         <div className="flex flex-wrap gap-1.5 mt-2">
-                          <EbayBadge status={p.status_ebay} />
+                          {p.status === 'sold'
+                            ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 text-xs font-medium">נמכר ב-eBay ✅</span>
+                            : <EbayBadge status={p.status_ebay} />
+                          }
                           <FacebookBadge status={p.status_facebook} />
                           <GeneralBadge status={p.status} />
                         </div>
+                        {p.status === 'sold' && p.sold_at && (
+                          <p className="text-xs text-green-600 dark:text-green-400 mt-1">נמכר {new Date(p.sold_at).toLocaleDateString('he-IL')}</p>
+                        )}
                         <div className="flex gap-2 mt-3" onClick={(e) => e.stopPropagation()}>
                           {p.status !== 'sold' && (
                             <button onClick={() => markSold(p.id)}

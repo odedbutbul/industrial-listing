@@ -13,6 +13,7 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
   const status_ebay = searchParams.get('status_ebay')
   const status_facebook = searchParams.get('status_facebook')
+  const status = searchParams.get('status')
   const category = searchParams.get('category')
   const search = searchParams.get('search')
 
@@ -20,6 +21,7 @@ export async function GET(request: NextRequest) {
 
   if (status_ebay) query = query.eq('status_ebay', status_ebay)
   if (status_facebook) query = query.eq('status_facebook', status_facebook)
+  if (status) query = query.eq('status', status)
   if (category) query = query.eq('category', category)
   if (search) query = query.or(`title.ilike.%${search}%,manufacturer.ilike.%${search}%,model.ilike.%${search}%`)
 

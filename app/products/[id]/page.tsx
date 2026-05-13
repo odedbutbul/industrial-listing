@@ -91,8 +91,8 @@ export default function ProductPage() {
   async function handleEbayAction(action: 'add' | 'revise' | 'end') {
     if (!product) return
     if (action === 'end') {
-      if (!confirm('האם למחוק את המוצר מ-eBay? פעולה זו לא ניתנת לביטול.')) return
-      if (!confirm('אישור אחרון — למחוק את המוצר מ-eBay לצמיתות?')) return
+      if (!confirm('האם לסיים את ה-listing ב-eBay? המוצר יוסר ממכירה אך יישמר במערכת.')) return
+      if (!confirm('אישור אחרון — לסיים את הlisting ב-eBay?')) return
     }
     setActionLoading(`ebay-${action}`)
     try {
@@ -111,7 +111,7 @@ export default function ProductPage() {
         toast.success('המוצר עודכן ב-eBay בהצלחה')
         setProduct((p) => p ? { ...p, status_ebay: 'active' as const } : p)
       } else if (action === 'end') {
-        toast.success('המוצר הוסר מ-eBay')
+        toast.success('ה-listing הסתיים ב-eBay. המוצר נשמר במערכת.')
         setProduct((p) => p ? { ...p, status_ebay: 'ended' as const } : p)
       }
     } catch {
@@ -215,9 +215,9 @@ export default function ProductPage() {
                   disabled={actionLoading === 'ebay-end'}
                   className="min-h-[44px] px-5 rounded-2xl bg-red-500/10 border border-red-200 dark:border-red-500/20 text-red-600 dark:text-red-400 hover:bg-red-500/20 font-medium text-sm transition-all disabled:opacity-50 flex items-center gap-2">
                   {actionLoading === 'ebay-end' ? (
-                    <><svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg><span>מוחק...</span></>
+                    <><svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg><span>מסיים...</span></>
                   ) : (
-                    <><span>🗑️</span><span>מחק מ-eBay</span></>
+                    <><span>🔚</span><span>סיים listing ב-eBay</span></>
                   )}
                 </button>
               </>
@@ -233,6 +233,21 @@ export default function ProductPage() {
             </p>
           )}
         </div>
+
+        {/* הורד תמונות */}
+        {product.images?.length > 0 && (
+          <div className="flex justify-end">
+            <a
+              href={`/api/products/${id}/images`}
+              download
+              className="inline-flex items-center gap-2 h-9 px-4 rounded-xl border border-gray-200 dark:border-white/10 text-gray-500 dark:text-white/50 text-xs font-medium hover:border-gray-300 dark:hover:border-white/20 hover:text-gray-700 dark:hover:text-white/70 transition-all">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-3.5 h-3.5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              הורד תמונות ({product.images.length})
+            </a>
+          </div>
+        )}
 
         {/* תיאור מוצר */}
         {product.description && (
