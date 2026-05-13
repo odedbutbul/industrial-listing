@@ -12,7 +12,15 @@ export async function POST(request: NextRequest) {
   const supabase = getServiceClient()
   const { product_id } = await request.json()
 
-  const webhookUrl = process.env.WEBHOOK_URL
+  // Read WEBHOOK_URL from settings table, fall back to env var
+  const { data: settingsRows } = await supabase.from('settings').select('key, value')
+  const settings = Object.fromEntries((settingsRows ?? []).map((r) => [r.key, r.value ?? '']))
+  const webhookUrl = settings.WEBHOOK_URL || process.env.WEBHOOK_URL || ''
+
+  console.log('[webhook] WEBHOOK_URL from settings:', settings.WEBHOOK_URL ? '✓ found' : 'missing')
+  console.log('[webhook] WEBHOOK_URL from env:', process.env.WEBHOOK_URL ? '✓ found' : 'missing')
+  console.log('[webhook] using URL:', webhookUrl ? webhookUrl.slice(0, 40) + '...' : 'NONE')
+
   if (!webhookUrl) {
     return NextResponse.json({ error: 'WEBHOOK_URL לא מוגדר בהגדרות' }, { status: 400 })
   }
