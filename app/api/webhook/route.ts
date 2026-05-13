@@ -28,6 +28,12 @@ export async function POST(request: NextRequest) {
   }
 
   const postText = buildPostText(product)
+  const images: string[] = Array.isArray(product.images) ? product.images : []
+  const image_main: string | null = images[0] ?? null
+
+  console.log('[webhook] product.images raw:', product.images)
+  console.log('[webhook] images array:', images)
+  console.log('[webhook] image_main:', image_main)
 
   const payload = {
     product_id: product.id,
@@ -41,10 +47,14 @@ export async function POST(request: NextRequest) {
     location: product.location,
     phone: product.phone,
     post_text: postText,
-    images: product.images,
-    image_main: (product.images as string[])?.[0] ?? null,
+    images,
+    image_main,
     timestamp: new Date().toISOString(),
   }
+
+  console.log('[webhook] sending payload keys:', Object.keys(payload))
+  console.log('[webhook] payload.images:', payload.images)
+  console.log('[webhook] payload.image_main:', payload.image_main)
 
   let responseStatus = 0
   let success = false
