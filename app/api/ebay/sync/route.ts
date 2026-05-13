@@ -276,7 +276,9 @@ export async function POST(request: NextRequest) {
         signal: AbortSignal.timeout(15000),
       })
       const xml = await res.text()
-      const item = parser.parse(xml)?.GetItemResponse?.Item as EbayItemDetail | null
+      const raw = parser.parse(xml)?.GetItemResponse?.Item
+      // isArray config makes Item always an array — unwrap it
+      const item = (Array.isArray(raw) ? raw[0] : raw) as EbayItemDetail | null
       if (!item) console.warn(`[sync] GetItem returned null for itemId=${itemId}, xml snippet:`, xml.slice(0, 200))
       return item
     })
