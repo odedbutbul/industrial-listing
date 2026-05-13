@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
 import { XMLParser } from 'fast-xml-parser'
+import { v2 as cloudinary } from 'cloudinary'
 
 function getClient() {
   return createClient(
@@ -72,12 +73,7 @@ type NameValuePair = { Name: string; Value: string | string[] }
 
 type EbayListItem = {
   ItemID: string | number
-  Title: string
-  SellingStatus?: {
-    CurrentPrice?: { '#text'?: number } | number
-    ListingStatus?: string
-  }
-  ListingDetails?: { ViewItemURL?: string; StartTime?: string }
+  SellingStatus?: { ListingStatus?: string }
 }
 
 type EbayItemDetail = {
@@ -85,10 +81,7 @@ type EbayItemDetail = {
   Title: string
   Quantity?: number
   QuantityAvailable?: number
-  SellingStatus?: {
-    CurrentPrice?: { '#text'?: number } | number
-    ListingStatus?: string
-  }
+  SellingStatus?: { CurrentPrice?: { '#text'?: number } | number }
   ListingDetails?: { ViewItemURL?: string; StartTime?: string }
   PictureDetails?: { PictureURL?: string | string[] }
   Description?: string
@@ -101,7 +94,7 @@ type EbayItemDetail = {
 function extractSpecific(list: NameValuePair[] | undefined, ...names: string[]): string | null {
   if (!list) return null
   for (const name of names) {
-    const found = list.find((nv) => nv.Name?.toLowerCase() === name.toLowerCase())
+    const found = list.find((nv) => String(nv.Name ?? '').toLowerCase() === name.toLowerCase())
     if (found) {
       const val = Array.isArray(found.Value) ? found.Value[0] : found.Value
       if (val) return String(val)
@@ -110,7 +103,27 @@ function extractSpecific(list: NameValuePair[] | undefined, ...names: string[]):
   return null
 }
 
-function mapDetailedItem(item: EbayItemDetail) {
+async function uploadImageToCloudinary(url: string, folder: string): Promise<string> {
+  try {
+    const result = await cloudinary.uploader.upload(url, {
+      folder,
+      resource_type: 'image',
+      fetch_format: 'auto',
+      quality: 'auto',
+      timeout: 30000,
+    })
+    return result.secure_url
+  } catch {
+    return url // fallback to eBay URL if upload fails
+  }
+}
+
+async function resolveImages(ebayUrls: string[], useCloudinary: boolean, folder: string): Promise<string[]> {
+  if (!useCloudinary || ebayUrls.length === 0) return ebayUrls
+  return Promise.all(ebayUrls.map((url) => uploadImageToCloudinary(url, folder)))
+}
+
+function mapDetailedItem(item: EbayItemDetail, images: string[]) {
   const title = String(item.Title ?? '').trim()
   const specifics = item.ItemSpecifics?.NameValueList
 
@@ -120,13 +133,8 @@ function mapDetailedItem(item: EbayItemDetail) {
       ? (priceRaw['#text'] ?? null)
       : typeof priceRaw === 'number' ? priceRaw : null
 
-  const picField = item.PictureDetails?.PictureURL
-  const images: string[] = Array.isArray(picField)
-    ? picField.filter(Boolean).map(String)
-    : picField ? [String(picField)] : []
-
   const brand = extractSpecific(specifics, 'Brand', 'Manufacturer')
-  const model = extractSpecific(specifics, 'Model', 'Part Number', 'Type')
+  const model = extractSpecific(specifics, 'Model', 'Type', 'Series')
   const mpn = extractSpecific(specifics, 'MPN', 'Manufacturer Part Number', 'Part Number')
   const countryOfOrigin = extractSpecific(
     specifics,
@@ -135,10 +143,8 @@ function mapDetailedItem(item: EbayItemDetail) {
     'Country of Origin',
     'Made In'
   )
-
   const categoryName = item.PrimaryCategory?.CategoryName ?? null
   const categoryId = item.PrimaryCategory?.CategoryID ? String(item.PrimaryCategory.CategoryID) : null
-  const ebayCategory = categoryName ?? categoryId
 
   return {
     title,
@@ -147,7 +153,7 @@ function mapDetailedItem(item: EbayItemDetail) {
     brand: brand ?? null,
     mpn: mpn ?? null,
     country_of_origin: countryOfOrigin ?? null,
-    ebay_category: ebayCategory ?? null,
+    ebay_category: categoryName ?? categoryId ?? null,
     description: item.Description ?? null,
     price: price ? Number(price) : null,
     location: item.Location ?? null,
@@ -166,7 +172,6 @@ function mapDetailedItem(item: EbayItemDetail) {
 
 export async function POST() {
   const supabase = getClient()
-
   const settings = await loadSettings(supabase)
   const { EBAY_APP_ID, EBAY_CERT_ID, EBAY_DEV_ID, EBAY_USER_TOKEN, EBAY_SANDBOX } = settings
 
@@ -177,6 +182,16 @@ export async function POST() {
     )
   }
 
+  // Cloudinary — env vars ראשון, fallback מ-settings
+  const cloudName = process.env.CLOUDINARY_CLOUD_NAME || settings.CLOUDINARY_CLOUD_NAME
+  const cloudKey = process.env.CLOUDINARY_API_KEY || settings.CLOUDINARY_API_KEY
+  const cloudSecret = process.env.CLOUDINARY_API_SECRET || settings.CLOUDINARY_API_SECRET
+  const useCloudinary = !!(cloudName && cloudKey && cloudSecret)
+
+  if (useCloudinary) {
+    cloudinary.config({ cloud_name: cloudName, api_key: cloudKey, api_secret: cloudSecret })
+  }
+
   const isSandbox = EBAY_SANDBOX !== 'false'
   const endpoint = isSandbox
     ? 'https://api.sandbox.ebay.com/ws/api.dll'
@@ -185,7 +200,7 @@ export async function POST() {
   const devId = EBAY_DEV_ID ?? ''
   const certId = EBAY_CERT_ID ?? ''
 
-  // שלב 1 — GetSellerList לקבלת רשימת כל הפריטים
+  // שלב 1 — GetSellerList
   let sellerXml: string
   try {
     const res = await fetch(endpoint, {
@@ -215,17 +230,13 @@ export async function POST() {
   }
 
   const allItems: EbayListItem[] = sellerResponse?.ItemArray?.Item ?? []
-
-  // סנן רק פריטים פעילים
   const activeItems = allItems.filter(
-    (item) => !item.SellingStatus?.ListingStatus ||
-      item.SellingStatus.ListingStatus === 'Active'
+    (item) => item.SellingStatus?.ListingStatus === 'Active' || !item.SellingStatus?.ListingStatus
   )
 
   if (activeItems.length === 0) {
     return NextResponse.json({
-      imported: 0,
-      skipped: 0,
+      imported: 0, skipped: 0,
       message: isSandbox
         ? 'אין מוצרים פעילים בחשבון ה-Sandbox.'
         : 'אין מוצרים פעילים ב-eBay',
@@ -245,45 +256,59 @@ export async function POST() {
 
   if (newItems.length === 0) {
     return NextResponse.json({
-      imported: 0,
-      skipped,
+      imported: 0, skipped,
       message: `כל ${skipped} המוצרים כבר קיימים במערכת`,
     })
   }
 
-  // שלב 3 — GetItem לכל פריט חדש (כדי לקבל Item Specifics)
-  const detailedItems: EbayItemDetail[] = []
-  for (const item of newItems) {
-    try {
+  // שלב 3 — GetItem במקביל לכל הפריטים החדשים
+  const detailResults = await Promise.allSettled(
+    newItems.map(async (item) => {
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: buildHeaders(EBAY_APP_ID, devId, certId, 'GetItem'),
         body: buildGetItemXml(EBAY_USER_TOKEN, String(item.ItemID)),
-        signal: AbortSignal.timeout(10000),
+        signal: AbortSignal.timeout(15000),
       })
       const xml = await res.text()
       const parsed = parser.parse(xml)
-      const detail: EbayItemDetail = parsed?.GetItemResponse?.Item
-      if (detail) detailedItems.push(detail)
-    } catch {
-      // אם GetItem נכשל — דלג על הפריט הזה
-    }
-  }
+      return parsed?.GetItemResponse?.Item as EbayItemDetail | null
+    })
+  )
+
+  const detailedItems = detailResults
+    .filter((r): r is PromiseFulfilledResult<EbayItemDetail> => r.status === 'fulfilled' && !!r.value)
+    .map((r) => r.value)
 
   if (detailedItems.length === 0) {
     return NextResponse.json({ error: 'לא ניתן לטעון פרטי מוצרים מ-eBay' }, { status: 502 })
   }
 
-  const products = detailedItems.map(mapDetailedItem)
-  const { error: insertError } = await supabase.from('products').insert(products)
+  // שלב 4 — העלאת תמונות ל-Cloudinary (במקביל לכל פריט)
+  const folder = 'industrial-listing/ebay'
+  const productsWithImages = await Promise.all(
+    detailedItems.map(async (item) => {
+      const picField = item.PictureDetails?.PictureURL
+      const ebayUrls: string[] = Array.isArray(picField)
+        ? picField.filter(Boolean).map(String)
+        : picField ? [String(picField)] : []
+
+      const images = await resolveImages(ebayUrls, useCloudinary, folder)
+      return mapDetailedItem(item, images)
+    })
+  )
+
+  // שלב 5 — שמירה לסופאבייס
+  const { error: insertError } = await supabase.from('products').insert(productsWithImages)
 
   if (insertError) {
     return NextResponse.json({ error: insertError.message }, { status: 500 })
   }
 
   return NextResponse.json({
-    imported: detailedItems.length,
+    imported: productsWithImages.length,
     skipped,
-    message: `יובאו ${detailedItems.length} מוצרים בהצלחה${skipped > 0 ? ` (${skipped} כבר קיימים)` : ''}`,
+    cloudinary: useCloudinary,
+    message: `יובאו ${productsWithImages.length} מוצרים בהצלחה${skipped > 0 ? ` (${skipped} כבר קיימים)` : ''}${useCloudinary ? ' — תמונות הועלו ל-Cloudinary' : ''}`,
   })
 }
