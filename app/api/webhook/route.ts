@@ -42,6 +42,7 @@ export async function POST(request: NextRequest) {
     phone: product.phone,
     post_text: postText,
     images: product.images,
+    image_main: (product.images as string[])?.[0] ?? null,
     timestamp: new Date().toISOString(),
   }
 
