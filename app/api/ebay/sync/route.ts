@@ -35,24 +35,23 @@ function buildHeaders(appId: string, devId: string, certId: string, callName: st
   }
 }
 
-function buildGetSellerListXml(userToken: string): string {
-  const from = new Date(Date.now() - 119 * 24 * 60 * 60 * 1000).toISOString()
-  const to = new Date(Date.now() + 1 * 24 * 60 * 60 * 1000).toISOString()
+function buildGetMyeBaySellingXml(userToken: string, page: number): string {
   return `<?xml version="1.0" encoding="utf-8"?>
-<GetSellerListRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+<GetMyeBaySellingRequest xmlns="urn:ebay:apis:eBLBaseComponents">
   <RequesterCredentials>
     <eBayAuthToken>${userToken}</eBayAuthToken>
   </RequesterCredentials>
+  <ActiveList>
+    <Include>true</Include>
+    <Pagination>
+      <EntriesPerPage>200</EntriesPerPage>
+      <PageNumber>${page}</PageNumber>
+    </Pagination>
+  </ActiveList>
   <DetailLevel>ReturnAll</DetailLevel>
-  <StartTimeFrom>${from}</StartTimeFrom>
-  <StartTimeTo>${to}</StartTimeTo>
-  <Pagination>
-    <EntriesPerPage>200</EntriesPerPage>
-    <PageNumber>1</PageNumber>
-  </Pagination>
   <ErrorLanguage>en_US</ErrorLanguage>
   <WarningLevel>High</WarningLevel>
-</GetSellerListRequest>`
+</GetMyeBaySellingRequest>`
 }
 
 function buildGetItemXml(userToken: string, itemId: string): string {
@@ -73,7 +72,6 @@ type NameValuePair = { Name: string; Value: string | string[] }
 
 type EbayListItem = {
   ItemID: string | number
-  SellingStatus?: { ListingStatus?: string }
 }
 
 type EbayItemDetail = {
@@ -114,13 +112,8 @@ async function uploadImageToCloudinary(url: string, folder: string): Promise<str
     })
     return result.secure_url
   } catch {
-    return url // fallback to eBay URL if upload fails
+    return url
   }
-}
-
-async function resolveImages(ebayUrls: string[], useCloudinary: boolean, folder: string): Promise<string[]> {
-  if (!useCloudinary || ebayUrls.length === 0) return ebayUrls
-  return Promise.all(ebayUrls.map((url) => uploadImageToCloudinary(url, folder)))
 }
 
 function mapDetailedItem(item: EbayItemDetail, images: string[]) {
@@ -182,12 +175,10 @@ export async function POST() {
     )
   }
 
-  // Cloudinary — env vars ראשון, fallback מ-settings
   const cloudName = process.env.CLOUDINARY_CLOUD_NAME || settings.CLOUDINARY_CLOUD_NAME
   const cloudKey = process.env.CLOUDINARY_API_KEY || settings.CLOUDINARY_API_KEY
   const cloudSecret = process.env.CLOUDINARY_API_SECRET || settings.CLOUDINARY_API_SECRET
   const useCloudinary = !!(cloudName && cloudKey && cloudSecret)
-
   if (useCloudinary) {
     cloudinary.config({ cloud_name: cloudName, api_key: cloudKey, api_secret: cloudSecret })
   }
@@ -196,78 +187,80 @@ export async function POST() {
   const endpoint = isSandbox
     ? 'https://api.sandbox.ebay.com/ws/api.dll'
     : 'https://api.ebay.com/ws/api.dll'
+  const headers = buildHeaders(EBAY_APP_ID, EBAY_DEV_ID ?? '', EBAY_CERT_ID ?? '', 'GetMyeBaySelling')
 
-  const devId = EBAY_DEV_ID ?? ''
-  const certId = EBAY_CERT_ID ?? ''
+  // שלב 1 — GetMyeBaySelling עם pagination מלא
+  const allItems: EbayListItem[] = []
+  let page = 1
+  let totalPages = 1
 
-  // שלב 1 — GetSellerList
-  let sellerXml: string
-  try {
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers: buildHeaders(EBAY_APP_ID, devId, certId, 'GetSellerList'),
-      body: buildGetSellerListXml(EBAY_USER_TOKEN),
-      signal: AbortSignal.timeout(20000),
-    })
-    sellerXml = await res.text()
-  } catch {
-    return NextResponse.json({ error: 'לא ניתן להתחבר ל-eBay API' }, { status: 502 })
+  while (page <= totalPages) {
+    let xml: string
+    try {
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers,
+        body: buildGetMyeBaySellingXml(EBAY_USER_TOKEN, page),
+        signal: AbortSignal.timeout(20000),
+      })
+      xml = await res.text()
+    } catch {
+      return NextResponse.json({ error: 'לא ניתן להתחבר ל-eBay API' }, { status: 502 })
+    }
+
+    const parsed = parser.parse(xml)
+    const response = parsed?.GetMyeBaySellingResponse
+
+    if (!response) {
+      return NextResponse.json({ error: 'תגובה לא תקינה מ-eBay', raw: xml.slice(0, 400) }, { status: 502 })
+    }
+
+    if (page === 1) {
+      const ack = String(response.Ack ?? '')
+      if (ack !== 'Success' && ack !== 'Warning') {
+        const errors = response.Errors ?? []
+        const firstError = Array.isArray(errors) ? errors[0] : errors
+        const msg = firstError?.LongMessage ?? firstError?.ShortMessage ?? `eBay Ack: ${ack}`
+        return NextResponse.json({ error: msg }, { status: 200 })
+      }
+      totalPages = Number(response?.ActiveList?.PaginationResult?.TotalNumberOfPages ?? 1)
+    }
+
+    const pageItems: EbayListItem[] = response?.ActiveList?.ItemArray?.Item ?? []
+    allItems.push(...pageItems)
+    page++
   }
 
-  const sellerParsed = parser.parse(sellerXml)
-  const sellerResponse = sellerParsed?.GetSellerListResponse
-
-  if (!sellerResponse) {
-    return NextResponse.json({ error: 'תגובה לא תקינה מ-eBay', raw: sellerXml.slice(0, 400) }, { status: 502 })
-  }
-
-  const ack = String(sellerResponse.Ack ?? '')
-  if (ack !== 'Success' && ack !== 'Warning') {
-    const errors = sellerResponse.Errors ?? []
-    const firstError = Array.isArray(errors) ? errors[0] : errors
-    const msg = firstError?.LongMessage ?? firstError?.ShortMessage ?? `eBay Ack: ${ack}`
-    return NextResponse.json({ error: msg }, { status: 200 })
-  }
-
-  const allItems: EbayListItem[] = sellerResponse?.ItemArray?.Item ?? []
-  const activeItems = allItems.filter(
-    (item) => item.SellingStatus?.ListingStatus === 'Active' || !item.SellingStatus?.ListingStatus
-  )
-
-  if (activeItems.length === 0) {
+  if (allItems.length === 0) {
     return NextResponse.json({
-      imported: 0, skipped: 0,
+      imported: 0, updated: 0, total: 0,
       message: isSandbox
         ? 'אין מוצרים פעילים בחשבון ה-Sandbox.'
         : 'אין מוצרים פעילים ב-eBay',
     })
   }
 
-  // שלב 2 — בדוק אילו כבר קיימים
-  const ebayNums = activeItems.map((i) => String(i.ItemID))
+  // שלב 2 — בדוק מה קיים במסד הנתונים
+  const ebayNums = allItems.map((i) => String(i.ItemID))
   const { data: existing } = await supabase
     .from('products')
-    .select('ebay_item_number')
+    .select('id, ebay_item_number')
     .in('ebay_item_number', ebayNums)
 
-  const existingNums = new Set((existing ?? []).map((p) => p.ebay_item_number))
-  const newItems = activeItems.filter((item) => !existingNums.has(String(item.ItemID)))
-  const skipped = activeItems.length - newItems.length
+  const existingMap = new Map((existing ?? []).map((p) => [p.ebay_item_number, p.id]))
+  const toInsertIds = allItems.filter((i) => !existingMap.has(String(i.ItemID))).map((i) => String(i.ItemID))
+  const toUpdateIds = allItems.filter((i) => existingMap.has(String(i.ItemID))).map((i) => String(i.ItemID))
 
-  if (newItems.length === 0) {
-    return NextResponse.json({
-      imported: 0, skipped,
-      message: `כל ${skipped} המוצרים כבר קיימים במערכת`,
-    })
-  }
+  // שלב 3 — GetItem במקביל לכל הפריטים
+  const allIds = [...toInsertIds, ...toUpdateIds]
+  const getItemHeaders = buildHeaders(EBAY_APP_ID, EBAY_DEV_ID ?? '', EBAY_CERT_ID ?? '', 'GetItem')
 
-  // שלב 3 — GetItem במקביל לכל הפריטים החדשים
   const detailResults = await Promise.allSettled(
-    newItems.map(async (item) => {
+    allIds.map(async (itemId) => {
       const res = await fetch(endpoint, {
         method: 'POST',
-        headers: buildHeaders(EBAY_APP_ID, devId, certId, 'GetItem'),
-        body: buildGetItemXml(EBAY_USER_TOKEN, String(item.ItemID)),
+        headers: getItemHeaders,
+        body: buildGetItemXml(EBAY_USER_TOKEN, itemId),
         signal: AbortSignal.timeout(15000),
       })
       const xml = await res.text()
@@ -276,39 +269,62 @@ export async function POST() {
     })
   )
 
-  const detailedItems = detailResults
+  const detailedItems: EbayItemDetail[] = detailResults
     .filter((r): r is PromiseFulfilledResult<EbayItemDetail> => r.status === 'fulfilled' && !!r.value)
     .map((r) => r.value)
 
-  if (detailedItems.length === 0) {
-    return NextResponse.json({ error: 'לא ניתן לטעון פרטי מוצרים מ-eBay' }, { status: 502 })
-  }
-
-  // שלב 4 — העלאת תמונות ל-Cloudinary (במקביל לכל פריט)
+  // שלב 4 — העלאת תמונות ל-Cloudinary (או ישירות)
   const folder = 'industrial-listing/ebay'
-  const productsWithImages = await Promise.all(
+  const mappedProducts = await Promise.all(
     detailedItems.map(async (item) => {
       const picField = item.PictureDetails?.PictureURL
       const ebayUrls: string[] = Array.isArray(picField)
         ? picField.filter(Boolean).map(String)
         : picField ? [String(picField)] : []
 
-      const images = await resolveImages(ebayUrls, useCloudinary, folder)
+      const images = useCloudinary && ebayUrls.length > 0
+        ? await Promise.all(ebayUrls.map((url) => uploadImageToCloudinary(url, folder)))
+        : ebayUrls
+
       return mapDetailedItem(item, images)
     })
   )
 
-  // שלב 5 — שמירה לסופאבייס
-  const { error: insertError } = await supabase.from('products').insert(productsWithImages)
+  // שלב 5 — INSERT חדשים / UPDATE קיימים (בנפרד, בלי upsert)
+  const toInsert = mappedProducts.filter((p) => toInsertIds.includes(p.ebay_item_number))
+  const toUpdate = mappedProducts.filter((p) => toUpdateIds.includes(p.ebay_item_number))
 
-  if (insertError) {
-    return NextResponse.json({ error: insertError.message }, { status: 500 })
+  let inserted = 0
+  let updated = 0
+
+  if (toInsert.length > 0) {
+    const { error } = await supabase.from('products').insert(toInsert)
+    if (error) return NextResponse.json({ error: `שגיאת INSERT: ${error.message}` }, { status: 500 })
+    inserted = toInsert.length
   }
 
+  if (toUpdate.length > 0) {
+    const updateResults = await Promise.allSettled(
+      toUpdate.map((p) => {
+        const id = existingMap.get(p.ebay_item_number)
+        return supabase.from('products').update(p).eq('id', id)
+      })
+    )
+    updated = updateResults.filter((r) => r.status === 'fulfilled').length
+  }
+
+  const total = inserted + updated
+  const parts = []
+  if (inserted > 0) parts.push(`${inserted} חדשים`)
+  if (updated > 0) parts.push(`${updated} עודכנו`)
+
   return NextResponse.json({
-    imported: productsWithImages.length,
-    skipped,
+    imported: inserted,
+    updated,
+    total,
     cloudinary: useCloudinary,
-    message: `יובאו ${productsWithImages.length} מוצרים בהצלחה${skipped > 0 ? ` (${skipped} כבר קיימים)` : ''}${useCloudinary ? ' — תמונות הועלו ל-Cloudinary' : ''}`,
+    message: total > 0
+      ? `סונכרנו ${total} מוצרים (${parts.join(', ')})${useCloudinary ? ' — תמונות ב-Cloudinary' : ''}`
+      : 'לא היו שינויים',
   })
 }
