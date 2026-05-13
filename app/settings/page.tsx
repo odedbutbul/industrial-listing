@@ -12,6 +12,9 @@ type Settings = {
   EBAY_DEV_ID: string
   EBAY_USER_TOKEN: string
   EBAY_SANDBOX: string
+  CLOUDINARY_CLOUD_NAME: string
+  CLOUDINARY_API_KEY: string
+  CLOUDINARY_API_SECRET: string
 }
 
 const EMPTY: Settings = {
@@ -21,6 +24,9 @@ const EMPTY: Settings = {
   EBAY_DEV_ID: '',
   EBAY_USER_TOKEN: '',
   EBAY_SANDBOX: 'true',
+  CLOUDINARY_CLOUD_NAME: '',
+  CLOUDINARY_API_KEY: '',
+  CLOUDINARY_API_SECRET: '',
 }
 
 function SectionCard({ icon, title, subtitle, children }: {
@@ -308,6 +314,22 @@ export default function SettingsPage() {
                 </>
               ) : 'בדוק חיבור'}
             </button>
+          </div>
+        </SectionCard>
+
+        {/* Cloudinary */}
+        <SectionCard icon="🖼️" title="Cloudinary — אחסון תמונות" subtitle="העלאת תמונות eBay ל-Cloudinary לאחסון קבוע">
+          <div className="space-y-3">
+            <Field label="Cloud Name" value={settings.CLOUDINARY_CLOUD_NAME}
+              onChange={(v) => update('CLOUDINARY_CLOUD_NAME', v)} placeholder="my-cloud" />
+            <Field label="API Key" value={settings.CLOUDINARY_API_KEY}
+              onChange={(v) => update('CLOUDINARY_API_KEY', v)} placeholder="123456789012345" />
+            <Field label="API Secret" value={settings.CLOUDINARY_API_SECRET}
+              onChange={(v) => update('CLOUDINARY_API_SECRET', v)} type="password" placeholder="AbCdEfGhIjKlMnOpQrStUv" />
+          </div>
+          <div className="mt-4">
+            <SaveButton loading={saving === 'cloudinary'}
+              onClick={() => save(['CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET'], 'cloudinary')} />
           </div>
         </SectionCard>
 
