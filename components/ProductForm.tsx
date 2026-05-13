@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 import type { Product } from '@/lib/supabase'
 import ImageUploader from './ImageUploader'
 import PostPreview from './PostPreview'
+import RichTextEditor from './RichTextEditor'
 
 const CATEGORIES = [
   'מכונת CNC', 'בקר PLC', 'מנוע סרוו', 'דרייבר', 'רובוטיקה',
@@ -329,10 +330,10 @@ export default function ProductForm({ product }: { product?: Product }) {
         {/* תיאור */}
         <div>
           <label className="label-base">תיאור ומפרט טכני</label>
-          <textarea className="input-base resize-none" rows={5}
+          <RichTextEditor
             value={form.description}
-            onChange={(e) => update('description', e.target.value)}
-            placeholder="פירוט טכני, מצב, הערות, מה כלול במכירה..." />
+            onChange={(val) => update('description', val)}
+          />
         </div>
 
         {/* הערות פנימיות */}

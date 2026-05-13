@@ -118,7 +118,7 @@ export default function ProductPage() {
           </Link>
           <div className="flex-1 min-w-0">
             <h1 className="text-base font-bold text-gray-900 dark:text-white truncate">
-              {product.manufacturer} {product.model}
+              {product.title || `${product.manufacturer} ${product.model}`.trim() || 'מוצר'}
             </h1>
             <div className="flex gap-1.5 mt-0.5 flex-wrap">
               <EbayBadge status={product.status_ebay} />
@@ -152,6 +152,17 @@ export default function ProductPage() {
             )
           })}
         </div>
+
+        {/* תיאור מוצר */}
+        {product.description && (
+          <div className="card p-6 shadow-sm">
+            <h2 className="text-sm font-semibold text-gray-500 dark:text-white/40 uppercase tracking-wide mb-4">תיאור המוצר</h2>
+            <div
+              className="prose-description text-sm text-gray-700 dark:text-white/70 leading-relaxed"
+              dangerouslySetInnerHTML={{ __html: product.description }}
+            />
+          </div>
+        )}
 
         {/* טופס עריכה */}
         <div className="card p-6 shadow-sm">
