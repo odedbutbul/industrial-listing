@@ -279,7 +279,7 @@ export default function DashboardPage() {
                         </td>
                         <td className="px-4 py-3 text-gray-500 dark:text-white/50 text-sm">{p.category || '—'}</td>
                         <td className="px-4 py-3 font-medium text-gray-700 dark:text-white/70 text-sm">
-                          {p.price ? `₪${p.price.toLocaleString()}` : '—'}
+                          {p.price ? `$${p.price.toLocaleString()}` : '—'}
                         </td>
                         <td className="px-4 py-3"><EbayBadge status={p.status_ebay} /></td>
                         <td className="px-4 py-3"><FacebookBadge status={p.status_facebook} /></td>
@@ -328,7 +328,7 @@ export default function DashboardPage() {
                             <p className="text-gray-400 dark:text-white/40 text-xs mt-0.5">{p.category || '—'}</p>
                           </div>
                           {p.price && (
-                            <p className="text-orange-500 font-bold text-sm shrink-0">₪{p.price.toLocaleString()}</p>
+                            <p className="text-orange-500 font-bold text-sm shrink-0">${p.price.toLocaleString()}</p>
                           )}
                         </div>
                         <div className="flex flex-wrap gap-1.5 mt-2">

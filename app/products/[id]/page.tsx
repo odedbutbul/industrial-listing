@@ -15,7 +15,7 @@ function buildPostText(p: Product): string {
 📌 מצב: ${p.condition}
 📅 שנת ייצור: ${p.year || 'לא צוין'}
 📍 מיקום: ${p.location || 'לא צוין'}
-💰 מחיר: ₪${p.price || 'לא צוין'}
+💰 מחיר: $${p.price || 'לא צוין'}
 
 📋 פרטים נוספים:
 ${p.description || ''}
@@ -29,7 +29,6 @@ ${p.description || ''}
 const ACTION_BUTTONS = [
   { key: 'facebook-copy', icon: '📋', label: 'העתק + פייסבוק', activeLabel: 'מעתיק...', color: 'bg-blue-500/10 dark:bg-blue-500/10 border-blue-200 dark:border-blue-500/20 text-blue-600 dark:text-blue-400 hover:bg-blue-500/20' },
   { key: 'webhook',       icon: '⚡', label: 'שלח Webhook',     activeLabel: 'שולח...',   color: 'bg-green-500/10 border-green-200 dark:border-green-500/20 text-green-600 dark:text-green-400 hover:bg-green-500/20' },
-  { key: 'ebay',          icon: '🛒', label: 'העלה ל-eBay',     activeLabel: null,         color: 'bg-amber-500/10 border-amber-200 dark:border-amber-500/20 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20' },
   { key: 'sold',          icon: '🏷️', label: 'סמן כנמכר',      activeLabel: null,         color: 'bg-purple-500/10 border-purple-200 dark:border-purple-500/20 text-purple-600 dark:text-purple-400 hover:bg-purple-500/20' },
 ]
 
@@ -73,8 +72,6 @@ export default function ProductPage() {
         } else {
           toast.error(data.error || 'שגיאה בשליחת webhook')
         }
-      } else if (key === 'ebay') {
-        toast.info('ממתין לפרטי eBay API — יחובר בקרוב')
       } else if (key === 'sold') {
         await fetch(`/api/products/${id}`, {
           method: 'PATCH',
@@ -86,6 +83,39 @@ export default function ProductPage() {
       }
     } catch {
       toast.error('שגיאה בביצוע הפעולה')
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  async function handleEbayAction(action: 'add' | 'revise' | 'end') {
+    if (!product) return
+    if (action === 'end') {
+      if (!confirm('האם למחוק את המוצר מ-eBay? פעולה זו לא ניתנת לביטול.')) return
+      if (!confirm('אישור אחרון — למחוק את המוצר מ-eBay לצמיתות?')) return
+    }
+    setActionLoading(`ebay-${action}`)
+    try {
+      const res = await fetch('/api/ebay/listing', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, productId: id }),
+      })
+      const data = await res.json()
+      if (data.error) {
+        toast.error(data.error)
+      } else if (action === 'add') {
+        toast.success(`פורסם ב-eBay! Item #${data.itemId}`)
+        setProduct((p) => p ? { ...p, ebay_item_number: data.itemId, ebay_url: data.ebayUrl, status_ebay: 'active' as const } : p)
+      } else if (action === 'revise') {
+        toast.success('המוצר עודכן ב-eBay בהצלחה')
+        setProduct((p) => p ? { ...p, status_ebay: 'active' as const } : p)
+      } else if (action === 'end') {
+        toast.success('המוצר הוסר מ-eBay')
+        setProduct((p) => p ? { ...p, status_ebay: 'ended' as const } : p)
+      }
+    } catch {
+      toast.error('שגיאה בחיבור לשרת')
     } finally {
       setActionLoading(null)
     }
@@ -151,6 +181,57 @@ export default function ProductPage() {
               </button>
             )
           })}
+        </div>
+
+        {/* כפתורי eBay */}
+        <div className="card p-5 shadow-sm">
+          <h2 className="text-sm font-semibold text-gray-500 dark:text-white/40 uppercase tracking-wide mb-4">פעולות eBay</h2>
+          <div className="flex flex-wrap gap-3">
+            {!product.ebay_item_number ? (
+              <button
+                onClick={() => handleEbayAction('add')}
+                disabled={actionLoading === 'ebay-add'}
+                className="min-h-[44px] px-5 rounded-2xl bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 font-medium text-sm transition-all disabled:opacity-50 flex items-center gap-2">
+                {actionLoading === 'ebay-add' ? (
+                  <><svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg><span>מפרסם...</span></>
+                ) : (
+                  <><span>🛒</span><span>פרסם ב-eBay</span></>
+                )}
+              </button>
+            ) : (
+              <>
+                <button
+                  onClick={() => handleEbayAction('revise')}
+                  disabled={actionLoading === 'ebay-revise'}
+                  className="min-h-[44px] px-5 rounded-2xl bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 font-medium text-sm transition-all disabled:opacity-50 flex items-center gap-2">
+                  {actionLoading === 'ebay-revise' ? (
+                    <><svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg><span>מעדכן...</span></>
+                  ) : (
+                    <><span>✏️</span><span>עדכן ב-eBay</span></>
+                  )}
+                </button>
+                <button
+                  onClick={() => handleEbayAction('end')}
+                  disabled={actionLoading === 'ebay-end'}
+                  className="min-h-[44px] px-5 rounded-2xl bg-red-500/10 border border-red-200 dark:border-red-500/20 text-red-600 dark:text-red-400 hover:bg-red-500/20 font-medium text-sm transition-all disabled:opacity-50 flex items-center gap-2">
+                  {actionLoading === 'ebay-end' ? (
+                    <><svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg><span>מוחק...</span></>
+                  ) : (
+                    <><span>🗑️</span><span>מחק מ-eBay</span></>
+                  )}
+                </button>
+              </>
+            )}
+          </div>
+          {product.ebay_item_number && (
+            <p className="text-xs text-gray-400 dark:text-white/30 mt-3 flex items-center gap-2">
+              <span>Item #{product.ebay_item_number}</span>
+              {product.ebay_url && (
+                <a href={product.ebay_url} target="_blank" rel="noopener noreferrer"
+                  className="text-orange-500 hover:underline">צפה ב-eBay ↗</a>
+              )}
+            </p>
+          )}
         </div>
 
         {/* תיאור מוצר */}

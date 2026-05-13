@@ -192,6 +192,16 @@ export default function ProductForm({ product }: { product?: Product }) {
           </div>
         </div>
 
+        {/* תיאור המוצר */}
+        {sectionTitle('תיאור המוצר')}
+        <div>
+          <label className="label-base">תיאור ומפרט טכני</label>
+          <RichTextEditor
+            value={form.description}
+            onChange={(val) => update('description', val)}
+          />
+        </div>
+
         {/* פרטי eBay */}
         {sectionTitle('הגדרות eBay')}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -259,7 +269,7 @@ export default function ProductForm({ product }: { product?: Product }) {
         {sectionTitle('מחיר ומשלוח')}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
-            <label className="label-base">מחיר (₪)</label>
+            <label className="label-base">מחיר ($)</label>
             <input type="number" className="input-base" value={form.price ?? ''}
               onChange={(e) => update('price', e.target.value ? parseFloat(e.target.value) : undefined)}
               placeholder="5,000" />
@@ -325,15 +335,6 @@ export default function ProductForm({ product }: { product?: Product }) {
           <label className="label-base">טלפון</label>
           <input className="input-base" value={form.phone}
             onChange={(e) => update('phone', e.target.value)} placeholder="054-2333651" />
-        </div>
-
-        {/* תיאור */}
-        <div>
-          <label className="label-base">תיאור ומפרט טכני</label>
-          <RichTextEditor
-            value={form.description}
-            onChange={(val) => update('description', val)}
-          />
         </div>
 
         {/* הערות פנימיות */}
