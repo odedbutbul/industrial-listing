@@ -249,15 +249,22 @@ export async function POST(request: NextRequest) {
 
   // שלב 2 — בדוק מה קיים
   const ebayNums = pageItems.map((i) => String(i.ItemID))
-  const { data: existing } = await supabase
+  console.log(`[sync] page=${page} pageItems=${pageItems.length} ebayNums sample:`, ebayNums.slice(0, 3))
+
+  const { data: existing, error: existingError } = await supabase
     .from('products').select('id, ebay_item_number').in('ebay_item_number', ebayNums)
+  if (existingError) console.error('[sync] existing query error:', existingError)
+  console.log(`[sync] existing in DB: ${existing?.length ?? 0}`)
+
   const existingMap = new Map((existing ?? []).map((p) => [p.ebay_item_number, p.id]))
   const toInsertIds = pageItems.filter((i) => !existingMap.has(String(i.ItemID))).map((i) => String(i.ItemID))
   const toUpdateIds = pageItems.filter((i) => existingMap.has(String(i.ItemID))).map((i) => String(i.ItemID))
   const skipped = onlyNew ? toUpdateIds.length : 0
+  console.log(`[sync] toInsert=${toInsertIds.length} toUpdate=${toUpdateIds.length} skipped=${skipped} onlyNew=${onlyNew} updateExisting=${updateExisting}`)
 
   // שלב 3 — GetItem רק לפריטים הנדרשים
   const toGetItemIds = updateExisting ? [...toInsertIds, ...toUpdateIds] : toInsertIds
+  console.log(`[sync] GetItem calls: ${toGetItemIds.length}`)
   const getItemHeaders = buildHeaders(EBAY_APP_ID, EBAY_DEV_ID ?? '', EBAY_CERT_ID ?? '', 'GetItem')
 
   const detailResults = await Promise.allSettled(
@@ -269,13 +276,19 @@ export async function POST(request: NextRequest) {
         signal: AbortSignal.timeout(15000),
       })
       const xml = await res.text()
-      return parser.parse(xml)?.GetItemResponse?.Item as EbayItemDetail | null
+      const item = parser.parse(xml)?.GetItemResponse?.Item as EbayItemDetail | null
+      if (!item) console.warn(`[sync] GetItem returned null for itemId=${itemId}, xml snippet:`, xml.slice(0, 200))
+      return item
     })
   )
+
+  const failedGetItem = detailResults.filter((r) => r.status === 'rejected')
+  if (failedGetItem.length) console.error(`[sync] GetItem rejected: ${failedGetItem.length}`, failedGetItem[0])
 
   const detailedItems = detailResults
     .filter((r): r is PromiseFulfilledResult<EbayItemDetail> => r.status === 'fulfilled' && !!r.value)
     .map((r) => r.value)
+  console.log(`[sync] detailedItems fetched: ${detailedItems.length}`)
 
   // שלב 4 — תמונות
   const folder = 'industrial-listing/ebay'
@@ -291,23 +304,33 @@ export async function POST(request: NextRequest) {
       return mapDetailedItem(item, images)
     })
   )
+  console.log(`[sync] mappedProducts: ${mappedProducts.length}`)
 
   // שלב 5 — INSERT / UPDATE
   const toInsert = mappedProducts.filter((p) => toInsertIds.includes(p.ebay_item_number))
   const toUpdate = updateExisting ? mappedProducts.filter((p) => toUpdateIds.includes(p.ebay_item_number)) : []
+  console.log(`[sync] will INSERT ${toInsert.length}, UPDATE ${toUpdate.length}`)
   let imported = 0, updated = 0
 
   if (toInsert.length > 0) {
+    console.log(`[sync] INSERT sample:`, { ebay_item_number: toInsert[0].ebay_item_number, title: toInsert[0].title })
     const { error } = await supabase.from('products').insert(toInsert)
-    if (error) return NextResponse.json({ error: `שגיאת INSERT: ${error.message}` }, { status: 500 })
+    if (error) {
+      console.error('[sync] INSERT error:', error)
+      return NextResponse.json({ error: `שגיאת INSERT: ${error.message}` }, { status: 500 })
+    }
     imported = toInsert.length
+    console.log(`[sync] INSERT success: ${imported} rows`)
   }
 
   if (toUpdate.length > 0) {
     const res = await Promise.allSettled(
       toUpdate.map((p) => supabase.from('products').update(p).eq('id', existingMap.get(p.ebay_item_number)))
     )
+    const updateErrors = res.filter((r) => r.status === 'rejected')
+    if (updateErrors.length) console.error('[sync] UPDATE errors:', updateErrors[0])
     updated = res.filter((r) => r.status === 'fulfilled').length
+    console.log(`[sync] UPDATE done: ${updated} rows`)
   }
 
   // שמור progress בסטינגס

@@ -195,11 +195,18 @@ export default function SyncModal({ onClose, onSuccess }: { onClose: () => void;
           {phase === 'options' && (
             <>
               <div>
-                <p className="text-xs font-semibold text-gray-400 dark:text-white/40 uppercase tracking-wider mb-2">תאריך רישום ב-eBay</p>
+                <p className="text-xs font-semibold text-gray-400 dark:text-white/40 uppercase tracking-wider mb-0.5">תאריך רישום ב-eBay</p>
+                <p className="text-xs text-gray-400 dark:text-white/30 mb-2">משוך מוצרים שהועלו ל-eBay בטווח הזמן הזה</p>
                 <div className="flex gap-2 flex-wrap">
                   {DATE_SHORTCUTS.map(({ label, days }) => (
                     <button key={label} type="button"
                       onClick={() => pickShortcut(days)}
+                      title={
+                        days === 7 ? 'מוצרים שהועלו ב-7 הימים האחרונים' :
+                        days === 30 ? 'מוצרים שהועלו ב-30 הימים האחרונים' :
+                        days === 90 ? 'מוצרים שהועלו ב-90 הימים האחרונים' :
+                        'כל המוצרים — עלול לקחת זמן רב'
+                      }
                       className={`px-3 py-1.5 rounded-xl text-sm font-medium border transition-all ${
                         activeDays === days
                           ? 'bg-orange-500 border-orange-500 text-white'
@@ -209,7 +216,10 @@ export default function SyncModal({ onClose, onSuccess }: { onClose: () => void;
                     </button>
                   ))}
                 </div>
-                {opts.dateFrom && (
+                {activeDays === 0 && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400 mt-1.5">⚠️ הכל — כ-6,690 מוצרים, עלול לקחת זמן רב</p>
+                )}
+                {opts.dateFrom && activeDays !== 0 && (
                   <p className="text-xs text-gray-400 dark:text-white/30 mt-1.5">מתאריך: {opts.dateFrom}</p>
                 )}
               </div>
@@ -226,23 +236,29 @@ export default function SyncModal({ onClose, onSuccess }: { onClose: () => void;
 
               <div className="space-y-3">
                 <p className="text-xs font-semibold text-gray-400 dark:text-white/40 uppercase tracking-wider">אפשרויות</p>
-                <label className="flex items-center gap-3 cursor-pointer group">
-                  <div className="relative">
+                <label className="flex items-start gap-3 cursor-pointer group">
+                  <div className="relative mt-0.5 shrink-0">
                     <input type="checkbox" className="sr-only peer" checked={opts.onlyNew}
                       onChange={(e) => setOpts((o) => ({ ...o, onlyNew: e.target.checked }))} />
                     <div className="w-10 h-5 bg-gray-200 dark:bg-white/10 rounded-full peer-checked:bg-orange-500 transition-colors" />
                     <div className="absolute top-0.5 right-0.5 w-4 h-4 bg-white rounded-full shadow transition-all peer-checked:translate-x-[-20px]" />
                   </div>
-                  <span className="text-sm text-gray-700 dark:text-white/70">רק מוצרים חדשים (דלג על קיימים)</span>
+                  <div>
+                    <span className="text-sm text-gray-700 dark:text-white/70">רק מוצרים חדשים</span>
+                    <p className="text-xs text-gray-400 dark:text-white/30 mt-0.5">דלג על מוצרים שכבר קיימים במערכת</p>
+                  </div>
                 </label>
-                <label className="flex items-center gap-3 cursor-pointer group">
-                  <div className="relative">
+                <label className="flex items-start gap-3 cursor-pointer group">
+                  <div className="relative mt-0.5 shrink-0">
                     <input type="checkbox" className="sr-only peer" checked={opts.updateExisting}
                       onChange={(e) => setOpts((o) => ({ ...o, updateExisting: e.target.checked }))} />
                     <div className="w-10 h-5 bg-gray-200 dark:bg-white/10 rounded-full peer-checked:bg-orange-500 transition-colors" />
                     <div className="absolute top-0.5 right-0.5 w-4 h-4 bg-white rounded-full shadow transition-all peer-checked:translate-x-[-20px]" />
                   </div>
-                  <span className="text-sm text-gray-700 dark:text-white/70">עדכן מוצרים קיימים</span>
+                  <div>
+                    <span className="text-sm text-gray-700 dark:text-white/70">עדכן מוצרים קיימים</span>
+                    <p className="text-xs text-gray-400 dark:text-white/30 mt-0.5">עדכן מחיר וסטטוס למוצרים שכבר במערכת</p>
+                  </div>
                 </label>
               </div>
 
@@ -285,13 +301,18 @@ export default function SyncModal({ onClose, onSuccess }: { onClose: () => void;
 
               <div className="flex flex-col gap-2.5 pt-1">
                 {preview.totalPages > 1 && (
-                  <button onClick={() => runSync(1)}
-                    className="w-full h-11 rounded-2xl bg-orange-500 text-white font-medium text-sm hover:bg-orange-600 transition-colors flex items-center justify-center gap-2">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-4 h-4">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                    </svg>
-                    סנכרן הכל ({preview.totalPages} דפים)
-                  </button>
+                  <div>
+                    <button onClick={() => runSync(1)}
+                      className="w-full h-11 rounded-2xl bg-orange-500 text-white font-medium text-sm hover:bg-orange-600 transition-colors flex items-center justify-center gap-2">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-4 h-4">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                      </svg>
+                      סנכרן הכל ({preview.totalPages} דפים)
+                    </button>
+                    {preview.totalPages > 5 && (
+                      <p className="text-xs text-amber-600 dark:text-amber-400 text-center mt-1.5">⚠️ פעולה ארוכה — {preview.totalPages} דפים, עלול לקחת מספר דקות</p>
+                    )}
+                  </div>
                 )}
                 <button onClick={handleSyncOne}
                   className={`w-full h-11 rounded-2xl font-medium text-sm transition-colors flex items-center justify-center gap-2 ${
