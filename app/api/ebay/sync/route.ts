@@ -163,19 +163,35 @@ export async function POST() {
     })
   }
 
-  // upsert לפי ebay_listing_id (מעדכן קיימים, מוסיף חדשים)
-  const products = items.map(mapEbayItem)
-  const { error: upsertError } = await supabase
+  // בדוק אילו כבר קיימים לפי ebay_item_number
+  const ebayNums = items.map((i) => String(i.ItemID))
+  const { data: existing } = await supabase
     .from('products')
-    .upsert(products, { onConflict: 'ebay_listing_id' })
+    .select('ebay_item_number')
+    .in('ebay_item_number', ebayNums)
 
-  if (upsertError) {
-    return NextResponse.json({ error: upsertError.message }, { status: 500 })
+  const existingNums = new Set((existing ?? []).map((p) => p.ebay_item_number))
+  const newItems = items.filter((item) => !existingNums.has(String(item.ItemID)))
+  const skipped = items.length - newItems.length
+
+  if (newItems.length === 0) {
+    return NextResponse.json({
+      imported: 0,
+      skipped,
+      message: `כל ${skipped} המוצרים כבר קיימים במערכת`,
+    })
+  }
+
+  const products = newItems.map(mapEbayItem)
+  const { error: insertError } = await supabase.from('products').insert(products)
+
+  if (insertError) {
+    return NextResponse.json({ error: insertError.message }, { status: 500 })
   }
 
   return NextResponse.json({
-    imported: items.length,
-    skipped: 0,
-    message: `סונכרנו ${items.length} מוצרים מ-eBay בהצלחה`,
+    imported: newItems.length,
+    skipped,
+    message: `יובאו ${newItems.length} מוצרים בהצלחה${skipped > 0 ? ` (${skipped} כבר קיימים)` : ''}`,
   })
 }
