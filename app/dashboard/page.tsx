@@ -7,6 +7,7 @@ import { toast } from 'sonner'
 import type { Product } from '@/lib/supabase'
 import { EbayBadge, FacebookBadge, GeneralBadge } from '@/components/StatusBadge'
 import ThemeToggle from '@/components/ThemeToggle'
+import SyncModal from '@/components/SyncModal'
 
 const CATEGORIES = [
   'מכונת CNC', 'בקר PLC', 'מנוע סרוו', 'דרייבר', 'רובוטיקה',
@@ -25,7 +26,7 @@ export default function DashboardPage() {
   const router = useRouter()
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
-  const [syncing, setSyncing] = useState(false)
+  const [showSyncModal, setShowSyncModal] = useState(false)
   const [deletingAll, setDeletingAll] = useState(false)
   const [filters, setFilters] = useState({ status_ebay: '', status_facebook: '', category: '', search: '' })
 
@@ -49,28 +50,6 @@ export default function DashboardPage() {
     await fetch(`/api/products/${id}`, { method: 'DELETE' })
     toast.success('המוצר נמחק')
     loadProducts()
-  }
-
-  async function syncFromEbay() {
-    setSyncing(true)
-    try {
-      const res = await fetch('/api/ebay/sync', { method: 'POST' })
-      const data = await res.json()
-      if (data.error) {
-        toast.error(data.error)
-      } else {
-        if (data.imported > 0) {
-          toast.success(data.message)
-          loadProducts()
-        } else {
-          toast.info(data.message)
-        }
-      }
-    } catch {
-      toast.error('שגיאה בסנכרון מ-eBay')
-    } finally {
-      setSyncing(false)
-    }
   }
 
   async function deleteAll() {
@@ -155,21 +134,13 @@ export default function DashboardPage() {
               <span className="hidden sm:inline">מחק הכל</span>
             </button>
             <button
-              onClick={syncFromEbay}
-              disabled={syncing}
+              onClick={() => setShowSyncModal(true)}
               title="סנכרן מוצרים מ-eBay"
-              className="btn-ghost flex items-center gap-1.5 h-9 px-3 text-xs disabled:opacity-50">
-              {syncing ? (
-                <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                </svg>
-              ) : (
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-4 h-4">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-              )}
-              <span className="hidden sm:inline">{syncing ? 'מסנכרן...' : 'סנכרן מ-eBay'}</span>
+              className="btn-ghost flex items-center gap-1.5 h-9 px-3 text-xs">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-4 h-4">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              <span className="hidden sm:inline">סנכרן מ-eBay</span>
             </button>
 
             <Link href="/products/new"
@@ -388,6 +359,13 @@ export default function DashboardPage() {
           )}
         </div>
       </main>
+
+      {showSyncModal && (
+        <SyncModal
+          onClose={() => setShowSyncModal(false)}
+          onSuccess={() => { loadProducts() }}
+        />
+      )}
     </div>
   )
 }
