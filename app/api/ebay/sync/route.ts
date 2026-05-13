@@ -36,8 +36,8 @@ function buildHeaders(appId: string, devId: string, certId: string, callName: st
 }
 
 function buildGetSellerListXml(userToken: string): string {
-  const from = '2020-01-01T00:00:00.000Z'
-  const to = new Date(Date.now() + 400 * 24 * 60 * 60 * 1000).toISOString()
+  const from = new Date(Date.now() - 119 * 24 * 60 * 60 * 1000).toISOString()
+  const to = new Date(Date.now() + 1 * 24 * 60 * 60 * 1000).toISOString()
   return `<?xml version="1.0" encoding="utf-8"?>
 <GetSellerListRequest xmlns="urn:ebay:apis:eBLBaseComponents">
   <RequesterCredentials>
