@@ -21,6 +21,17 @@ const EBAY_CONDITIONS = [
   { value: 'For parts or not working', label: 'לחלקים' },
 ]
 
+const EBAY_CATEGORY_NAMES: Record<string, string> = {
+  '58277':  'Business & Industrial > Other Business & Industrial',
+  '139971': 'Business & Industrial > Industrial Automation & Control',
+  '42917':  'Business & Industrial > CNC, Metalworking & Manufacturing',
+  '11804':  'Business & Industrial > Electrical Equipment & Supplies',
+  '3673':   'Business & Industrial > Hydraulics, Pneumatics & Pumps',
+  '108278': 'Business & Industrial > Test, Measurement & Inspection',
+  '26262':  'Business & Industrial > Robotics',
+  '104979': 'Business & Industrial > Electric Motors',
+}
+
 const COUNTRIES = [
   'Israel', 'Germany', 'Japan', 'USA', 'China', 'Italy', 'France', 'UK', 'South Korea', 'Taiwan',
 ]
@@ -221,26 +232,23 @@ export default function ProductForm({ product }: { product?: Product }) {
               placeholder="SKU-12345" />
           </div>
           <div>
-            <label className="label-base">קטגוריית eBay</label>
+            <label className="label-base">קטגוריית eBay (Category ID)</label>
             <input className="input-base" value={form.ebay_category}
               onChange={(e) => update('ebay_category', e.target.value)}
               placeholder="58277" />
+            {form.ebay_category && (
+              <p className="text-xs mt-1 text-gray-400 dark:text-white/30">
+                {EBAY_CATEGORY_NAMES[form.ebay_category] ?? 'Category ID לא מוכר'}
+              </p>
+            )}
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label className="label-base">מותג (Brand)</label>
-            <input className="input-base" value={form.brand}
-              onChange={(e) => update('brand', e.target.value)}
-              placeholder="Siemens" />
-          </div>
-          <div>
-            <label className="label-base">MPN (Manufacturer Part Number)</label>
-            <input className="input-base" value={form.mpn}
-              onChange={(e) => update('mpn', e.target.value)}
-              placeholder="6ES7315-2AF03-0AB0" />
-          </div>
+        <div>
+          <label className="label-base">MPN (Manufacturer Part Number)</label>
+          <input className="input-base" value={form.mpn}
+            onChange={(e) => update('mpn', e.target.value)}
+            placeholder="6ES7315-2AF03-0AB0" />
         </div>
 
         <div>

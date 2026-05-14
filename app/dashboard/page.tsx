@@ -8,6 +8,7 @@ import type { Product } from '@/lib/supabase'
 import { EbayBadge, FacebookBadge, GeneralBadge } from '@/components/StatusBadge'
 import ThemeToggle from '@/components/ThemeToggle'
 import SyncModal from '@/components/SyncModal'
+import CsvImportModal from '@/components/CsvImportModal'
 
 const CATEGORIES = [
   'מכונת CNC', 'בקר PLC', 'מנוע סרוו', 'דרייבר', 'רובוטיקה',
@@ -27,6 +28,7 @@ export default function DashboardPage() {
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
   const [showSyncModal, setShowSyncModal] = useState(false)
+  const [showImportModal, setShowImportModal] = useState(false)
   const [deletingAll, setDeletingAll] = useState(false)
   const [filters, setFilters] = useState({ status_ebay: '', status_facebook: '', status: '', category: '', search: '' })
 
@@ -133,6 +135,15 @@ export default function DashboardPage() {
                 </svg>
               )}
               <span className="hidden sm:inline">מחק הכל</span>
+            </button>
+            <button
+              onClick={() => setShowImportModal(true)}
+              title="ייבא מוצרים מ-CSV"
+              className="btn-ghost flex items-center gap-1.5 h-9 px-3 text-xs">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-4 h-4">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+              </svg>
+              <span className="hidden sm:inline">ייבא CSV</span>
             </button>
             <button
               onClick={() => setShowSyncModal(true)}
@@ -395,6 +406,12 @@ export default function DashboardPage() {
         <SyncModal
           onClose={() => setShowSyncModal(false)}
           onSuccess={() => { loadProducts() }}
+        />
+      )}
+      {showImportModal && (
+        <CsvImportModal
+          onClose={() => setShowImportModal(false)}
+          onDone={() => loadProducts()}
         />
       )}
     </div>

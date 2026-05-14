@@ -68,7 +68,7 @@ function buildAddItemXml(token: string, p: any): string {
     .map((u) => `      <PictureURL>${u}</PictureURL>`).join('\n')
 
   const specificsXml = [
-    p.brand             ? `      <NameValueList><Name>Brand</Name><Value>${escapeXml(p.brand)}</Value></NameValueList>` : '',
+    (p.brand || p.manufacturer) ? `      <NameValueList><Name>Brand</Name><Value>${escapeXml(p.brand || p.manufacturer)}</Value></NameValueList>` : '',
     p.mpn               ? `      <NameValueList><Name>MPN</Name><Value>${escapeXml(p.mpn)}</Value></NameValueList>` : '',
     p.country_of_origin ? `      <NameValueList><Name>Country/Region of Manufacture</Name><Value>${escapeXml(p.country_of_origin)}</Value></NameValueList>` : '',
   ].filter(Boolean).join('\n')
@@ -107,24 +107,23 @@ function buildAddItemXml(token: string, p: any): string {
       <ShippingServiceOptions>
         <ShippingServicePriority>1</ShippingServicePriority>
         <ShippingService>${domService1}</ShippingService>
-        <ShippingServiceCost currencyID="USD">${domPrice1}</ShippingServiceCost>
-        ${domPrice1 === 0 ? '<FreeShipping>true</FreeShipping>' : ''}
-      </ShippingServiceOptions>
-      ${domService2 ? `<ShippingServiceOptions>
+        <ShippingServiceCost>${domPrice1}</ShippingServiceCost>
+      </ShippingServiceOptions>${domService2 ? `
+      <ShippingServiceOptions>
         <ShippingServicePriority>2</ShippingServicePriority>
         <ShippingService>${domService2}</ShippingService>
-        <ShippingServiceCost currencyID="USD">${domPrice2}</ShippingServiceCost>
+        <ShippingServiceCost>${domPrice2}</ShippingServiceCost>
       </ShippingServiceOptions>` : ''}
       <InternationalShippingServiceOption>
         <ShippingServicePriority>1</ShippingServicePriority>
         <ShippingService>${intlService1}</ShippingService>
-        <ShippingServiceCost currencyID="USD">${intlPrice1}</ShippingServiceCost>
+        <ShippingServiceCost>${intlPrice1}</ShippingServiceCost>
         <ShipToLocation>Worldwide</ShipToLocation>
-      </InternationalShippingServiceOption>
-      ${intlService2 ? `<InternationalShippingServiceOption>
+      </InternationalShippingServiceOption>${intlService2 ? `
+      <InternationalShippingServiceOption>
         <ShippingServicePriority>2</ShippingServicePriority>
         <ShippingService>${intlService2}</ShippingService>
-        <ShippingServiceCost currencyID="USD">${intlPrice2}</ShippingServiceCost>
+        <ShippingServiceCost>${intlPrice2}</ShippingServiceCost>
         <ShipToLocation>Worldwide</ShipToLocation>
       </InternationalShippingServiceOption>` : ''}
     </ShippingDetails>
