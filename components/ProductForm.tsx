@@ -15,10 +15,9 @@ const CATEGORIES = [
 
 const EBAY_CONDITIONS = [
   { value: 'New', label: 'חדש' },
-  { value: 'Like New', label: 'כמו חדש' },
-  { value: 'Very Good', label: 'טוב מאוד' },
-  { value: 'Good', label: 'טוב' },
-  { value: 'Acceptable', label: 'סביר' },
+  { value: 'New – Open box', label: 'חדש – קופסה פתוחה' },
+  { value: 'Seller refurbished', label: 'משופץ ע"י המוכר' },
+  { value: 'Used', label: 'משומש' },
   { value: 'For parts or not working', label: 'לחלקים' },
 ]
 
@@ -26,10 +25,16 @@ const COUNTRIES = [
   'Israel', 'Germany', 'Japan', 'USA', 'China', 'Italy', 'France', 'UK', 'South Korea', 'Taiwan',
 ]
 
-const SHIPPING_METHODS_DOM = ['Standard Shipping', 'Expedited Shipping', 'Free Shipping']
-const SHIPPING_METHODS_INT = ['Standard International Shipping', 'Expedited International Shipping', 'Economy International Shipping']
+const SHIPPING_METHODS_DOM = [
+  'Standard Shipping from outside US',
+  'Expedited Shipping from outside US',
+]
+const SHIPPING_METHODS_INT = [
+  'Standard International Shipping',
+  'Expedited International Shipping',
+]
 
-type ShippingInfo = { method: string; price: number | undefined }
+type ShippingInfo = { method: string; price: number | undefined; method2?: string; price2?: number | undefined }
 
 type FormData = {
   title: string
@@ -52,6 +57,8 @@ type FormData = {
   quantity: number | undefined
   shipping_domestic: ShippingInfo
   shipping_international: ShippingInfo
+  ebay_promoted: boolean
+  ebay_ad_rate: number
 }
 
 export default function ProductForm({ product }: { product?: Product }) {
@@ -64,7 +71,7 @@ export default function ProductForm({ product }: { product?: Product }) {
     model: product?.model ?? '',
     category: product?.category ?? '',
     year: product?.year ?? undefined,
-    condition: product?.condition ?? 'Good',
+    condition: product?.condition ?? 'Used',
     price: product?.price ?? undefined,
     description: product?.description ?? '',
     location: product?.location ?? '',
@@ -77,8 +84,10 @@ export default function ProductForm({ product }: { product?: Product }) {
     mpn: product?.mpn ?? '',
     country_of_origin: product?.country_of_origin ?? '',
     quantity: product?.quantity ?? 1,
-    shipping_domestic: (product?.shipping_domestic as ShippingInfo) ?? { method: 'Standard Shipping', price: undefined },
+    shipping_domestic: (product?.shipping_domestic as ShippingInfo) ?? { method: 'Standard Shipping from outside US', price: undefined },
     shipping_international: (product?.shipping_international as ShippingInfo) ?? { method: 'Standard International Shipping', price: undefined },
+    ebay_promoted: product?.ebay_promoted ?? false,
+    ebay_ad_rate: product?.ebay_ad_rate ?? 5,
   })
   const [saving, setSaving] = useState(false)
   const [productId] = useState(product?.id ?? crypto.randomUUID())
@@ -290,14 +299,14 @@ export default function ProductForm({ product }: { product?: Product }) {
         {/* משלוח מקומי */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <label className="label-base">משלוח מקומי — שיטה</label>
+            <label className="label-base">משלוח מקומי 1 — שיטה</label>
             <select className="input-base" value={form.shipping_domestic.method}
               onChange={(e) => update('shipping_domestic', { ...form.shipping_domestic, method: e.target.value })}>
               {SHIPPING_METHODS_DOM.map((m) => <option key={m} value={m}>{m}</option>)}
             </select>
           </div>
           <div>
-            <label className="label-base">משלוח מקומי — מחיר ($)</label>
+            <label className="label-base">משלוח מקומי 1 — מחיר ($)</label>
             <input type="number" className="input-base"
               value={form.shipping_domestic.price ?? ''}
               onChange={(e) => update('shipping_domestic', {
@@ -307,18 +316,39 @@ export default function ProductForm({ product }: { product?: Product }) {
               placeholder="0 = חינם" min={0} step={0.01} />
           </div>
         </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="label-base">משלוח מקומי 2 — שיטה (אופציונלי)</label>
+            <select className="input-base" value={form.shipping_domestic.method2 ?? ''}
+              onChange={(e) => update('shipping_domestic', { ...form.shipping_domestic, method2: e.target.value || undefined })}>
+              <option value="">— ללא שירות שני —</option>
+              {SHIPPING_METHODS_DOM.map((m) => <option key={m} value={m}>{m}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="label-base">משלוח מקומי 2 — מחיר ($)</label>
+            <input type="number" className="input-base"
+              value={form.shipping_domestic.price2 ?? ''}
+              onChange={(e) => update('shipping_domestic', {
+                ...form.shipping_domestic,
+                price2: e.target.value ? parseFloat(e.target.value) : undefined,
+              })}
+              placeholder="0 = חינם" min={0} step={0.01}
+              disabled={!form.shipping_domestic.method2} />
+          </div>
+        </div>
 
         {/* משלוח בינלאומי */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <label className="label-base">משלוח בינלאומי — שיטה</label>
+            <label className="label-base">משלוח בינלאומי 1 — שיטה</label>
             <select className="input-base" value={form.shipping_international.method}
               onChange={(e) => update('shipping_international', { ...form.shipping_international, method: e.target.value })}>
               {SHIPPING_METHODS_INT.map((m) => <option key={m} value={m}>{m}</option>)}
             </select>
           </div>
           <div>
-            <label className="label-base">משלוח בינלאומי — מחיר ($)</label>
+            <label className="label-base">משלוח בינלאומי 1 — מחיר ($)</label>
             <input type="number" className="input-base"
               value={form.shipping_international.price ?? ''}
               onChange={(e) => update('shipping_international', {
@@ -327,6 +357,54 @@ export default function ProductForm({ product }: { product?: Product }) {
               })}
               placeholder="25" min={0} step={0.01} />
           </div>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="label-base">משלוח בינלאומי 2 — שיטה (אופציונלי)</label>
+            <select className="input-base" value={form.shipping_international.method2 ?? ''}
+              onChange={(e) => update('shipping_international', { ...form.shipping_international, method2: e.target.value || undefined })}>
+              <option value="">— ללא שירות שני —</option>
+              {SHIPPING_METHODS_INT.map((m) => <option key={m} value={m}>{m}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="label-base">משלוח בינלאומי 2 — מחיר ($)</label>
+            <input type="number" className="input-base"
+              value={form.shipping_international.price2 ?? ''}
+              onChange={(e) => update('shipping_international', {
+                ...form.shipping_international,
+                price2: e.target.value ? parseFloat(e.target.value) : undefined,
+              })}
+              placeholder="25" min={0} step={0.01}
+              disabled={!form.shipping_international.method2} />
+          </div>
+        </div>
+
+        {/* קידום מודעה ב-eBay */}
+        <div className="flex flex-col gap-3 p-4 rounded-xl border border-gray-100 dark:border-white/[0.06] bg-gray-50/50 dark:bg-white/[0.02]">
+          <div className="flex items-center justify-between">
+            <div>
+              <label className="text-sm font-medium text-gray-700 dark:text-white/80">קידום מודעה ב-eBay (Promoted Listing)</label>
+              <p className="text-xs text-gray-400 dark:text-white/30 mt-0.5">הפעלת קידום ממומן עבור המוצר</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => update('ebay_promoted', !form.ebay_promoted)}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200
+                ${form.ebay_promoted ? 'bg-orange-500' : 'bg-gray-200 dark:bg-white/10'}`}>
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-200
+                ${form.ebay_promoted ? 'translate-x-6' : 'translate-x-1'}`} />
+            </button>
+          </div>
+          {form.ebay_promoted && (
+            <div>
+              <label className="label-base">אחוז קידום Ad Rate (%)</label>
+              <input type="number" className="input-base max-w-[140px]"
+                value={form.ebay_ad_rate}
+                onChange={(e) => update('ebay_ad_rate', parseFloat(e.target.value) || 5)}
+                min={1} max={100} step={0.1} />
+            </div>
+          )}
         </div>
 
         {/* טלפון */}

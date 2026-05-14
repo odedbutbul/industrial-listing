@@ -38,17 +38,20 @@ function escapeXml(str: string): string {
 
 const CONDITION_ID: Record<string, string> = {
   'New': '1000',
-  'Like New': '1500',
-  'Very Good': '2010',
-  'Good': '3000',
-  'Acceptable': '4000',
+  'New – Open box': '1500',
+  'Seller refurbished': '2500',
+  'Used': '3000',
   'For parts or not working': '7000',
 }
 
+const DOM_SERVICE: Record<string, string> = {
+  'Standard Shipping from outside US': 'StandardShippingFromOutsideUS',
+  'Expedited Shipping from outside US': 'ExpeditedShippingFromOutsideUS',
+}
+
 const INTL_SERVICE: Record<string, string> = {
-  'Standard International Shipping': 'StandardInternational',
-  'Expedited International Shipping': 'ExpeditedInternational',
-  'Economy International Shipping': 'EconomyInternational',
+  'Standard International Shipping': 'StandardInternationalShipping',
+  'Expedited International Shipping': 'ExpeditedInternationalShipping',
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -70,9 +73,17 @@ function buildAddItemXml(token: string, p: any): string {
     p.country_of_origin ? `      <NameValueList><Name>Country/Region of Manufacture</Name><Value>${escapeXml(p.country_of_origin)}</Value></NameValueList>` : '',
   ].filter(Boolean).join('\n')
 
-  const intl = p.shipping_international as { method: string; price: number } | null
-  const intlService = INTL_SERVICE[intl?.method ?? ''] ?? 'StandardInternational'
-  const intlPrice = intl?.price ?? 25
+  const dom = p.shipping_domestic as { method: string; price: number; method2?: string; price2?: number } | null
+  const domService1 = DOM_SERVICE[dom?.method ?? ''] ?? 'StandardShippingFromOutsideUS'
+  const domPrice1 = dom?.price ?? 0
+  const domService2 = dom?.method2 ? (DOM_SERVICE[dom.method2] ?? null) : null
+  const domPrice2 = dom?.price2 ?? 0
+
+  const intl = p.shipping_international as { method: string; price: number; method2?: string; price2?: number } | null
+  const intlService1 = INTL_SERVICE[intl?.method ?? ''] ?? 'StandardInternationalShipping'
+  const intlPrice1 = intl?.price ?? 25
+  const intlService2 = intl?.method2 ? (INTL_SERVICE[intl.method2] ?? null) : null
+  const intlPrice2 = intl?.price2 ?? 25
 
   return `<?xml version="1.0" encoding="utf-8"?>
 <AddItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
@@ -95,16 +106,27 @@ function buildAddItemXml(token: string, p: any): string {
       <ShippingType>Flat</ShippingType>
       <ShippingServiceOptions>
         <ShippingServicePriority>1</ShippingServicePriority>
-        <ShippingService>USPSMedia</ShippingService>
-        <ShippingServiceCost currencyID="USD">0</ShippingServiceCost>
-        <FreeShipping>true</FreeShipping>
+        <ShippingService>${domService1}</ShippingService>
+        <ShippingServiceCost currencyID="USD">${domPrice1}</ShippingServiceCost>
+        ${domPrice1 === 0 ? '<FreeShipping>true</FreeShipping>' : ''}
       </ShippingServiceOptions>
+      ${domService2 ? `<ShippingServiceOptions>
+        <ShippingServicePriority>2</ShippingServicePriority>
+        <ShippingService>${domService2}</ShippingService>
+        <ShippingServiceCost currencyID="USD">${domPrice2}</ShippingServiceCost>
+      </ShippingServiceOptions>` : ''}
       <InternationalShippingServiceOption>
         <ShippingServicePriority>1</ShippingServicePriority>
-        <ShippingService>${intlService}</ShippingService>
-        <ShippingServiceCost currencyID="USD">${intlPrice}</ShippingServiceCost>
+        <ShippingService>${intlService1}</ShippingService>
+        <ShippingServiceCost currencyID="USD">${intlPrice1}</ShippingServiceCost>
         <ShipToLocation>Worldwide</ShipToLocation>
       </InternationalShippingServiceOption>
+      ${intlService2 ? `<InternationalShippingServiceOption>
+        <ShippingServicePriority>2</ShippingServicePriority>
+        <ShippingService>${intlService2}</ShippingService>
+        <ShippingServiceCost currencyID="USD">${intlPrice2}</ShippingServiceCost>
+        <ShipToLocation>Worldwide</ShipToLocation>
+      </InternationalShippingServiceOption>` : ''}
     </ShippingDetails>
     <ReturnPolicy><ReturnsAcceptedOption>ReturnsNotAccepted</ReturnsAcceptedOption></ReturnPolicy>
     ${specificsXml ? `<ItemSpecifics>\n${specificsXml}\n    </ItemSpecifics>` : ''}

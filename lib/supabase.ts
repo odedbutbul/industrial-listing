@@ -27,13 +27,15 @@ export type Product = {
   mpn: string | null
   country_of_origin: string | null
   quantity: number | null
-  shipping_domestic: { method: string; price: number } | null
-  shipping_international: { method: string; price: number } | null
+  shipping_domestic: { method: string; price: number; method2?: string; price2?: number } | null
+  shipping_international: { method: string; price: number; method2?: string; price2?: number } | null
   ebay_item_number: string | null
   status_ebay: 'pending' | 'active' | 'ended' | 'sold' | 'unsold' | 'failed'
   ebay_listing_id: string | null
   ebay_url: string | null
   ebay_published_at: string | null
+  ebay_promoted: boolean | null
+  ebay_ad_rate: number | null
   status_facebook: 'pending' | 'published' | 'copied'
   facebook_published_at: string | null
   status: 'active' | 'sold' | 'archived'
