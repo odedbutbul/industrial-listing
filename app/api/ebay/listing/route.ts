@@ -38,10 +38,10 @@ function escapeXml(str: string): string {
 
 const CONDITION_ID: Record<string, string> = {
   'New': '1000',
-  'Like New': '3000',
-  'Very Good': '4000',
-  'Good': '5000',
-  'Acceptable': '6000',
+  'Like New': '1500',
+  'Very Good': '2010',
+  'Good': '3000',
+  'Acceptable': '4000',
   'For parts or not working': '7000',
 }
 
@@ -54,10 +54,10 @@ const INTL_SERVICE: Record<string, string> = {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function buildAddItemXml(token: string, p: any): string {
   const title = escapeXml((p.title || `${p.manufacturer} ${p.model}`).slice(0, 80))
-  const conditionId = CONDITION_ID[p.condition] ?? '5000'
+  const conditionId = CONDITION_ID[p.condition] ?? '3000'
   const price = p.price ?? 0
   const qty = p.quantity ?? 1
-  const categoryId = p.ebay_category || '58277'
+  const categoryId = (!p.ebay_category || p.ebay_category === 'Other') ? '139971' : p.ebay_category
   const location = escapeXml(p.location || 'Israel')
   const desc = (p.description || String(title)).replace(/]]>/g, ']] >')
 
