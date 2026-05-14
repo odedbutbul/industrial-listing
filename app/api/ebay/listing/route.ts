@@ -45,12 +45,6 @@ const CONDITION_ID: Record<string, string> = {
   'For parts or not working': '7000',
 }
 
-const DOM_SERVICE: Record<string, string> = {
-  'Standard Shipping': 'OtherDomestic',
-  'Expedited Shipping': 'OtherDomestic',
-  'Free Shipping': 'OtherDomestic',
-}
-
 const INTL_SERVICE: Record<string, string> = {
   'Standard International Shipping': 'StandardInternational',
   'Expedited International Shipping': 'ExpeditedInternational',
@@ -76,10 +70,6 @@ function buildAddItemXml(token: string, p: any): string {
     p.country_of_origin ? `      <NameValueList><Name>Country/Region of Manufacture</Name><Value>${escapeXml(p.country_of_origin)}</Value></NameValueList>` : '',
   ].filter(Boolean).join('\n')
 
-  const dom = p.shipping_domestic as { method: string; price: number } | null
-  const domService = DOM_SERVICE[dom?.method ?? ''] ?? 'OtherDomestic'
-  const domPrice = dom?.price ?? 0
-
   const intl = p.shipping_international as { method: string; price: number } | null
   const intlService = INTL_SERVICE[intl?.method ?? ''] ?? 'StandardInternational'
   const intlPrice = intl?.price ?? 25
@@ -103,11 +93,6 @@ function buildAddItemXml(token: string, p: any): string {
     ${pictureXml ? `<PictureDetails>\n${pictureXml}\n    </PictureDetails>` : ''}
     <ShippingDetails>
       <ShippingType>Flat</ShippingType>
-      <ShippingServiceOptions>
-        <ShippingServicePriority>1</ShippingServicePriority>
-        <ShippingService>${domService}</ShippingService>
-        <ShippingServiceCost currencyID="USD">${domPrice}</ShippingServiceCost>
-      </ShippingServiceOptions>
       <InternationalShippingServiceOption>
         <ShippingServicePriority>1</ShippingServicePriority>
         <ShippingService>${intlService}</ShippingService>
