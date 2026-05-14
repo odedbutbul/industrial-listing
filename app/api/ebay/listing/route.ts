@@ -93,6 +93,12 @@ function buildAddItemXml(token: string, p: any): string {
     ${pictureXml ? `<PictureDetails>\n${pictureXml}\n    </PictureDetails>` : ''}
     <ShippingDetails>
       <ShippingType>Flat</ShippingType>
+      <ShippingServiceOptions>
+        <ShippingServicePriority>1</ShippingServicePriority>
+        <ShippingService>USPSMedia</ShippingService>
+        <ShippingServiceCost currencyID="USD">0</ShippingServiceCost>
+        <FreeShipping>true</FreeShipping>
+      </ShippingServiceOptions>
       <InternationalShippingServiceOption>
         <ShippingServicePriority>1</ShippingServicePriority>
         <ShippingService>${intlService}</ShippingService>
