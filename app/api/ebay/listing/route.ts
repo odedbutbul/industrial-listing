@@ -14,14 +14,12 @@ async function loadSettings(supabase: ReturnType<typeof getClient>): Promise<Rec
   return Object.fromEntries((data ?? []).map((r) => [r.key, r.value ?? '']))
 }
 
-function buildHeaders(appId: string, devId: string, certId: string, callName: string) {
+function buildHeaders(token: string, callName: string) {
   return {
+    'X-EBAY-API-IAF-TOKEN': token,
     'X-EBAY-API-SITEID': '0',
-    'X-EBAY-API-COMPATIBILITY-LEVEL': '967',
+    'X-EBAY-API-COMPATIBILITY-LEVEL': '1271',
     'X-EBAY-API-CALL-NAME': callName,
-    'X-EBAY-API-APP-NAME': appId,
-    'X-EBAY-API-DEV-NAME': devId,
-    'X-EBAY-API-CERT-NAME': certId,
     'Content-Type': 'text/xml',
   }
 }
@@ -55,7 +53,7 @@ const INTL_SERVICE: Record<string, string> = {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function buildAddItemXml(token: string, p: any): string {
+function buildAddItemXml(p: any): string {
   const title = escapeXml((p.title || `${p.manufacturer} ${p.model}`).slice(0, 80))
   const conditionId = CONDITION_ID[p.condition] ?? '3000'
   const price = p.price ?? 0
@@ -116,7 +114,7 @@ function buildAddItemXml(token: string, p: any): string {
 
   return `<?xml version="1.0" encoding="utf-8"?>
 <AddItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
-  <RequesterCredentials><eBayAuthToken>${token}</eBayAuthToken></RequesterCredentials>
+  <Version>1271</Version>
   <Item>
     <Title>${title}</Title>
     <Description><![CDATA[${desc}]]></Description>
@@ -142,12 +140,12 @@ function buildAddItemXml(token: string, p: any): string {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function buildReviseItemXml(token: string, p: any): string {
+function buildReviseItemXml(p: any): string {
   const title = escapeXml((p.title || `${p.manufacturer} ${p.model}`).slice(0, 80))
   const desc = (p.description || String(title)).replace(/]]>/g, ']] >')
   return `<?xml version="1.0" encoding="utf-8"?>
 <ReviseItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
-  <RequesterCredentials><eBayAuthToken>${token}</eBayAuthToken></RequesterCredentials>
+  <Version>1271</Version>
   <Item>
     <ItemID>${p.ebay_item_number}</ItemID>
     <Title>${title}</Title>
@@ -160,10 +158,10 @@ function buildReviseItemXml(token: string, p: any): string {
 </ReviseItemRequest>`
 }
 
-function buildEndItemXml(token: string, itemId: string): string {
+function buildEndItemXml(itemId: string): string {
   return `<?xml version="1.0" encoding="utf-8"?>
 <EndItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
-  <RequesterCredentials><eBayAuthToken>${token}</eBayAuthToken></RequesterCredentials>
+  <Version>1271</Version>
   <EndingReason>NotAvailable</EndingReason>
   <ItemID>${itemId}</ItemID>
   <ErrorLanguage>en_US</ErrorLanguage>
@@ -202,9 +200,9 @@ export async function POST(request: NextRequest) {
   }
 
   const settings = await loadSettings(supabase)
-  const { EBAY_APP_ID, EBAY_CERT_ID, EBAY_DEV_ID, EBAY_USER_TOKEN, EBAY_SANDBOX } = settings
-  if (!EBAY_APP_ID || !EBAY_USER_TOKEN) {
-    return NextResponse.json({ error: 'פרטי eBay API חסרים — הגדר App ID ו-User Token בהגדרות' }, { status: 400 })
+  const { EBAY_USER_TOKEN, EBAY_SANDBOX } = settings
+  if (!EBAY_USER_TOKEN) {
+    return NextResponse.json({ error: 'eBay User Token חסר — הגדר אותו בהגדרות' }, { status: 400 })
   }
 
   const isSandbox = EBAY_SANDBOX !== 'false'
@@ -213,7 +211,7 @@ export async function POST(request: NextRequest) {
   async function callEbay(callName: string, xmlBody: string): Promise<string> {
     const res = await fetch(endpoint, {
       method: 'POST',
-      headers: buildHeaders(EBAY_APP_ID, EBAY_DEV_ID ?? '', EBAY_CERT_ID ?? '', callName),
+      headers: buildHeaders(EBAY_USER_TOKEN, callName),
       body: xmlBody,
       signal: AbortSignal.timeout(30000),
     })
@@ -222,7 +220,7 @@ export async function POST(request: NextRequest) {
 
   // ── AddItem ────────────────────────────────────────────────────────────────
   if (action === 'add') {
-    const addXml = buildAddItemXml(EBAY_USER_TOKEN, product)
+    const addXml = buildAddItemXml(product)
     console.log('[ebay/listing] AddItem XML:\n', addXml)
     let xml: string
     try { xml = await callEbay('AddItem', addXml) }
@@ -251,8 +249,10 @@ export async function POST(request: NextRequest) {
     if (!product.ebay_item_number) {
       return NextResponse.json({ error: 'המוצר לא פורסם ב-eBay עדיין' }, { status: 400 })
     }
+    const reviseXml = buildReviseItemXml(product)
+    console.log('[ebay/listing] ReviseItem XML:\n', reviseXml)
     let xml: string
-    try { xml = await callEbay('ReviseItem', buildReviseItemXml(EBAY_USER_TOKEN, product)) }
+    try { xml = await callEbay('ReviseItem', reviseXml) }
     catch (err) { return NextResponse.json({ error: `לא ניתן להתחבר ל-eBay: ${String(err)}` }, { status: 502 }) }
 
     const { ok, error } = parseAck(xml, 'ReviseItemResponse')
@@ -266,8 +266,10 @@ export async function POST(request: NextRequest) {
     if (!product.ebay_item_number) {
       return NextResponse.json({ error: 'המוצר לא פורסם ב-eBay עדיין' }, { status: 400 })
     }
+    const endXml = buildEndItemXml(product.ebay_item_number)
+    console.log('[ebay/listing] EndItem XML:\n', endXml)
     let xml: string
-    try { xml = await callEbay('EndItem', buildEndItemXml(EBAY_USER_TOKEN, product.ebay_item_number)) }
+    try { xml = await callEbay('EndItem', endXml) }
     catch (err) { return NextResponse.json({ error: `לא ניתן להתחבר ל-eBay: ${String(err)}` }, { status: 502 }) }
 
     const { ok, error } = parseAck(xml, 'EndItemResponse')

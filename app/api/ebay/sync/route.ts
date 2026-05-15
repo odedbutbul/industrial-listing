@@ -27,24 +27,20 @@ const parser = new XMLParser({
   parseTagValue: true,
 })
 
-function buildHeaders(appId: string, devId: string, certId: string, callName: string) {
+function buildHeaders(token: string, callName: string) {
   return {
+    'X-EBAY-API-IAF-TOKEN': token,
     'X-EBAY-API-SITEID': '0',
-    'X-EBAY-API-COMPATIBILITY-LEVEL': '967',
+    'X-EBAY-API-COMPATIBILITY-LEVEL': '1271',
     'X-EBAY-API-CALL-NAME': callName,
-    'X-EBAY-API-APP-NAME': appId,
-    'X-EBAY-API-DEV-NAME': devId,
-    'X-EBAY-API-CERT-NAME': certId,
     'Content-Type': 'text/xml',
   }
 }
 
-function buildGetMyeBaySellingXml(userToken: string, page: number): string {
+function buildGetMyeBaySellingXml(page: number): string {
   return `<?xml version="1.0" encoding="utf-8"?>
 <GetMyeBaySellingRequest xmlns="urn:ebay:apis:eBLBaseComponents">
-  <RequesterCredentials>
-    <eBayAuthToken>${userToken}</eBayAuthToken>
-  </RequesterCredentials>
+  <Version>1271</Version>
   <ActiveList>
     <Include>true</Include>
     <Pagination>
@@ -58,12 +54,10 @@ function buildGetMyeBaySellingXml(userToken: string, page: number): string {
 </GetMyeBaySellingRequest>`
 }
 
-function buildGetItemXml(userToken: string, itemId: string): string {
+function buildGetItemXml(itemId: string): string {
   return `<?xml version="1.0" encoding="utf-8"?>
 <GetItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
-  <RequesterCredentials>
-    <eBayAuthToken>${userToken}</eBayAuthToken>
-  </RequesterCredentials>
+  <Version>1271</Version>
   <ItemID>${itemId}</ItemID>
   <IncludeItemSpecifics>true</IncludeItemSpecifics>
   <DetailLevel>ReturnAll</DetailLevel>
@@ -176,10 +170,10 @@ export async function POST(request: NextRequest) {
 
   const supabase = getClient()
   const settings = await loadSettings(supabase)
-  const { EBAY_APP_ID, EBAY_CERT_ID, EBAY_DEV_ID, EBAY_USER_TOKEN, EBAY_SANDBOX } = settings
+  const { EBAY_USER_TOKEN, EBAY_SANDBOX } = settings
 
-  if (!EBAY_APP_ID || !EBAY_USER_TOKEN) {
-    return NextResponse.json({ error: 'פרטי eBay API חסרים — הגדר App ID ו-User Token בהגדרות' }, { status: 400 })
+  if (!EBAY_USER_TOKEN) {
+    return NextResponse.json({ error: 'eBay User Token חסר — הגדר אותו בהגדרות' }, { status: 400 })
   }
 
   const cloudName = process.env.CLOUDINARY_CLOUD_NAME || settings.CLOUDINARY_CLOUD_NAME
@@ -190,15 +184,16 @@ export async function POST(request: NextRequest) {
 
   const isSandbox = EBAY_SANDBOX !== 'false'
   const endpoint = isSandbox ? 'https://api.sandbox.ebay.com/ws/api.dll' : 'https://api.ebay.com/ws/api.dll'
-  const sellerHeaders = buildHeaders(EBAY_APP_ID, EBAY_DEV_ID ?? '', EBAY_CERT_ID ?? '', 'GetMyeBaySelling')
 
   // שלב 1 — GetMyeBaySelling דף אחד
+  const sellingXml = buildGetMyeBaySellingXml(page)
+  console.log(`[sync] GetMyeBaySelling page=${page} XML:\n`, sellingXml)
   let xml: string
   try {
     const res = await fetch(endpoint, {
       method: 'POST',
-      headers: sellerHeaders,
-      body: buildGetMyeBaySellingXml(EBAY_USER_TOKEN, page),
+      headers: buildHeaders(EBAY_USER_TOKEN, 'GetMyeBaySelling'),
+      body: sellingXml,
       signal: AbortSignal.timeout(20000),
     })
     xml = await res.text()
@@ -265,14 +260,14 @@ export async function POST(request: NextRequest) {
   // שלב 3 — GetItem רק לפריטים הנדרשים
   const toGetItemIds = updateExisting ? [...toInsertIds, ...toUpdateIds] : toInsertIds
   console.log(`[sync] GetItem calls: ${toGetItemIds.length}`)
-  const getItemHeaders = buildHeaders(EBAY_APP_ID, EBAY_DEV_ID ?? '', EBAY_CERT_ID ?? '', 'GetItem')
+  const getItemHeaders = buildHeaders(EBAY_USER_TOKEN, 'GetItem')
 
   const detailResults = await Promise.allSettled(
     toGetItemIds.map(async (itemId) => {
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: getItemHeaders,
-        body: buildGetItemXml(EBAY_USER_TOKEN, itemId),
+        body: buildGetItemXml(itemId),
         signal: AbortSignal.timeout(15000),
       })
       const xml = await res.text()
