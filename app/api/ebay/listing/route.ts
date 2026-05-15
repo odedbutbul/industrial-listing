@@ -52,8 +52,15 @@ const INTL_SERVICE: Record<string, string> = {
   'Expedited International Shipping': 'ExpeditedInternationalShipping',
 }
 
+interface BusinessPolicies {
+  useBusinessPolicies: boolean
+  paymentProfile: string
+  returnProfile: string
+  shippingProfile: string
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function buildAddItemXml(p: any): string {
+function buildAddItemXml(p: any, bp: BusinessPolicies): string {
   const title = escapeXml((p.title || `${p.manufacturer} ${p.model}`).slice(0, 80))
   const conditionId = CONDITION_ID[p.condition] ?? '3000'
   const price = p.price ?? 0
@@ -71,20 +78,37 @@ function buildAddItemXml(p: any): string {
     p.country_of_origin ? `      <NameValueList><Name>Country/Region of Manufacture</Name><Value>${escapeXml(p.country_of_origin)}</Value></NameValueList>` : '',
   ].filter(Boolean).join('\n')
 
-  const dom = p.shipping_domestic as { method: string; price: number; method2?: string; price2?: number } | null
-  const intl = p.shipping_international as { method: string; price: number; method2?: string; price2?: number } | null
+  // ── Shipping + Return: Business Policies OR classic ShippingDetails ────────
+  let shippingReturnXml: string
 
-  // Build ShippingDetails — always use defaults when field is missing/unmapped
-  const domService1 = (dom?.method ? DOM_SERVICE[dom.method] : null) ?? 'StandardShippingFromOutsideUS'
-  const domPrice1   = dom?.price ?? 0
-  const domService2 = dom?.method2 ? (DOM_SERVICE[dom.method2] ?? null) : null
-  const domPrice2   = dom?.price2 ?? 0
-  const intlService1 = (intl?.method ? INTL_SERVICE[intl.method] : null) ?? 'StandardInternationalShipping'
-  const intlPrice1   = intl?.price ?? 25
-  const intlService2 = intl?.method2 ? (INTL_SERVICE[intl.method2] ?? null) : null
-  const intlPrice2   = intl?.price2 ?? 25
+  if (bp.useBusinessPolicies && bp.shippingProfile && bp.returnProfile) {
+    // Opted-in to Business Policies — use SellerProfiles
+    shippingReturnXml = `<SellerProfiles>
+      ${bp.paymentProfile ? `<SellerPaymentProfile>
+        <PaymentProfileName>${escapeXml(bp.paymentProfile)}</PaymentProfileName>
+      </SellerPaymentProfile>` : ''}
+      <SellerReturnProfile>
+        <ReturnProfileName>${escapeXml(bp.returnProfile)}</ReturnProfileName>
+      </SellerReturnProfile>
+      <SellerShippingProfile>
+        <ShippingProfileName>${escapeXml(bp.shippingProfile)}</ShippingProfileName>
+      </SellerShippingProfile>
+    </SellerProfiles>`
+  } else {
+    // Classic — explicit ShippingDetails + ReturnPolicy
+    const dom = p.shipping_domestic as { method: string; price: number; method2?: string; price2?: number } | null
+    const intl = p.shipping_international as { method: string; price: number; method2?: string; price2?: number } | null
 
-  const shippingXml = `<ShippingDetails>
+    const domService1  = (dom?.method  ? DOM_SERVICE[dom.method]    : null) ?? 'StandardShippingFromOutsideUS'
+    const domPrice1    = dom?.price  ?? 0
+    const domService2  = dom?.method2  ? (DOM_SERVICE[dom.method2]  ?? null) : null
+    const domPrice2    = dom?.price2 ?? 0
+    const intlService1 = (intl?.method ? INTL_SERVICE[intl.method]  : null) ?? 'StandardInternationalShipping'
+    const intlPrice1   = intl?.price ?? 25
+    const intlService2 = intl?.method2 ? (INTL_SERVICE[intl.method2] ?? null) : null
+    const intlPrice2   = intl?.price2 ?? 25
+
+    shippingReturnXml = `<ShippingDetails>
       <ShippingType>Flat</ShippingType>
       <ShippingServiceOptions>
         <ShippingServicePriority>1</ShippingServicePriority>
@@ -110,7 +134,13 @@ function buildAddItemXml(p: any): string {
         <ShippingServiceCost currencyID="USD">${intlPrice2}</ShippingServiceCost>
         <ShipToLocation>WorldWide</ShipToLocation>
       </InternationalShippingServiceOption>` : ''}
-    </ShippingDetails>`
+    </ShippingDetails>
+    <ReturnPolicy>
+      <ReturnsAcceptedOption>ReturnsAccepted</ReturnsAcceptedOption>
+      <ReturnsWithinOption>Days_30</ReturnsWithinOption>
+      <ShippingCostPaidByOption>Buyer</ShippingCostPaidByOption>
+    </ReturnPolicy>`
+  }
 
   return `<?xml version="1.0" encoding="utf-8"?>
 <AddItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
@@ -129,8 +159,7 @@ function buildAddItemXml(p: any): string {
     <ListingType>FixedPriceItem</ListingType>
     <Location>${location}</Location>
     ${pictureXml ? `<PictureDetails>\n${pictureXml}\n    </PictureDetails>` : ''}
-    ${shippingXml}
-    <ReturnPolicy><ReturnsAcceptedOption>ReturnsNotAccepted</ReturnsAcceptedOption></ReturnPolicy>
+    ${shippingReturnXml}
     ${specificsXml ? `<ItemSpecifics>\n${specificsXml}\n    </ItemSpecifics>` : ''}
     ${p.sku ? `<SKU>${escapeXml(p.sku)}</SKU>` : ''}
   </Item>
@@ -200,10 +229,22 @@ export async function POST(request: NextRequest) {
   }
 
   const settings = await loadSettings(supabase)
-  const { EBAY_USER_TOKEN, EBAY_SANDBOX } = settings
+  const {
+    EBAY_USER_TOKEN, EBAY_SANDBOX,
+    EBAY_USE_BUSINESS_POLICIES,
+    EBAY_PAYMENT_PROFILE, EBAY_RETURN_PROFILE, EBAY_SHIPPING_PROFILE,
+  } = settings
   if (!EBAY_USER_TOKEN) {
     return NextResponse.json({ error: 'eBay User Token חסר — הגדר אותו בהגדרות' }, { status: 400 })
   }
+
+  const bp: BusinessPolicies = {
+    useBusinessPolicies: EBAY_USE_BUSINESS_POLICIES === 'true',
+    paymentProfile:  EBAY_PAYMENT_PROFILE  ?? '',
+    returnProfile:   EBAY_RETURN_PROFILE   ?? '',
+    shippingProfile: EBAY_SHIPPING_PROFILE ?? '',
+  }
+  console.log('[ebay/listing] businessPolicies:', bp)
 
   const isSandbox = EBAY_SANDBOX !== 'false'
   const endpoint = isSandbox ? 'https://api.sandbox.ebay.com/ws/api.dll' : 'https://api.ebay.com/ws/api.dll'
@@ -220,7 +261,7 @@ export async function POST(request: NextRequest) {
 
   // ── AddItem ────────────────────────────────────────────────────────────────
   if (action === 'add') {
-    const addXml = buildAddItemXml(product)
+    const addXml = buildAddItemXml(product, bp)
     console.log('[ebay/listing] AddItem XML:\n', addXml)
     let xml: string
     try { xml = await callEbay('AddItem', addXml) }
