@@ -21,16 +21,18 @@ const EBAY_CONDITIONS = [
   { value: 'For parts or not working', label: 'לחלקים' },
 ]
 
-const EBAY_CATEGORY_NAMES: Record<string, string> = {
-  '58277':  'Business & Industrial > Other Business & Industrial',
-  '139971': 'Business & Industrial > Industrial Automation & Control',
-  '42917':  'Business & Industrial > CNC, Metalworking & Manufacturing',
-  '11804':  'Business & Industrial > Electrical Equipment & Supplies',
-  '3673':   'Business & Industrial > Hydraulics, Pneumatics & Pumps',
-  '108278': 'Business & Industrial > Test, Measurement & Inspection',
-  '26262':  'Business & Industrial > Robotics',
-  '104979': 'Business & Industrial > Electric Motors',
-}
+const EBAY_CATEGORIES: { id: string; name: string }[] = [
+  { id: '58277',  name: 'Business & Industrial > Other Business & Industrial' },
+  { id: '71580',  name: 'Business & Industrial > Automation > PLCs & HMIs' },
+  { id: '42924',  name: 'Business & Industrial > Electrical Equipment > Circuit Breakers' },
+  { id: '26261',  name: 'Business & Industrial > Test & Measurement' },
+  { id: '56220',  name: 'Business & Industrial > Automation > Drives & Starters' },
+  { id: '42917',  name: 'Business & Industrial > Electrical Equipment > Transformers' },
+  { id: '3695',   name: 'Business & Industrial > Hydraulics & Pneumatics' },
+  { id: '11804',  name: 'Business & Industrial > CNC Metalworking > Other CNC' },
+  { id: '170974', name: 'Business & Industrial > Automation > Motion Control' },
+  { id: '85890',  name: 'Business & Industrial > Electrical Equipment > Motors' },
+]
 
 const COUNTRIES = [
   'Israel', 'Germany', 'Japan', 'USA', 'China', 'Italy', 'France', 'UK', 'South Korea', 'Taiwan',
@@ -232,15 +234,14 @@ export default function ProductForm({ product }: { product?: Product }) {
               placeholder="SKU-12345" />
           </div>
           <div>
-            <label className="label-base">קטגוריית eBay (Category ID)</label>
-            <input className="input-base" value={form.ebay_category}
-              onChange={(e) => update('ebay_category', e.target.value)}
-              placeholder="58277" />
-            {form.ebay_category && (
-              <p className="text-xs mt-1 text-gray-400 dark:text-white/30">
-                {EBAY_CATEGORY_NAMES[form.ebay_category] ?? 'Category ID לא מוכר'}
-              </p>
-            )}
+            <label className="label-base">קטגוריית eBay</label>
+            <select className="input-base" value={form.ebay_category}
+              onChange={(e) => update('ebay_category', e.target.value)}>
+              <option value="">בחר קטגוריה</option>
+              {EBAY_CATEGORIES.map((c) => (
+                <option key={c.id} value={c.id}>{c.name} ({c.id})</option>
+              ))}
+            </select>
           </div>
         </div>
 

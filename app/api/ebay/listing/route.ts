@@ -74,16 +74,45 @@ function buildAddItemXml(token: string, p: any): string {
   ].filter(Boolean).join('\n')
 
   const dom = p.shipping_domestic as { method: string; price: number; method2?: string; price2?: number } | null
-  const domService1 = DOM_SERVICE[dom?.method ?? ''] ?? 'StandardShippingFromOutsideUS'
-  const domPrice1 = dom?.price ?? 0
-  const domService2 = dom?.method2 ? (DOM_SERVICE[dom.method2] ?? null) : null
-  const domPrice2 = dom?.price2 ?? 0
-
   const intl = p.shipping_international as { method: string; price: number; method2?: string; price2?: number } | null
-  const intlService1 = INTL_SERVICE[intl?.method ?? ''] ?? 'StandardInternationalShipping'
-  const intlPrice1 = intl?.price ?? 25
+
+  // Build ShippingDetails — always use defaults when field is missing/unmapped
+  const domService1 = (dom?.method ? DOM_SERVICE[dom.method] : null) ?? 'StandardShippingFromOutsideUS'
+  const domPrice1   = dom?.price ?? 0
+  const domService2 = dom?.method2 ? (DOM_SERVICE[dom.method2] ?? null) : null
+  const domPrice2   = dom?.price2 ?? 0
+  const intlService1 = (intl?.method ? INTL_SERVICE[intl.method] : null) ?? 'StandardInternationalShipping'
+  const intlPrice1   = intl?.price ?? 25
   const intlService2 = intl?.method2 ? (INTL_SERVICE[intl.method2] ?? null) : null
-  const intlPrice2 = intl?.price2 ?? 25
+  const intlPrice2   = intl?.price2 ?? 25
+
+  const shippingXml = `<ShippingDetails>
+      <ShippingType>Flat</ShippingType>
+      <ShippingServiceOptions>
+        <ShippingServicePriority>1</ShippingServicePriority>
+        <ShippingService>${domService1}</ShippingService>
+        <ShippingServiceCost currencyID="USD">${domPrice1}</ShippingServiceCost>
+        <FreeShipping>false</FreeShipping>
+      </ShippingServiceOptions>${domService2 ? `
+      <ShippingServiceOptions>
+        <ShippingServicePriority>2</ShippingServicePriority>
+        <ShippingService>${domService2}</ShippingService>
+        <ShippingServiceCost currencyID="USD">${domPrice2}</ShippingServiceCost>
+        <FreeShipping>false</FreeShipping>
+      </ShippingServiceOptions>` : ''}
+      <InternationalShippingServiceOption>
+        <ShippingServicePriority>1</ShippingServicePriority>
+        <ShippingService>${intlService1}</ShippingService>
+        <ShippingServiceCost currencyID="USD">${intlPrice1}</ShippingServiceCost>
+        <ShipToLocation>WorldWide</ShipToLocation>
+      </InternationalShippingServiceOption>${intlService2 ? `
+      <InternationalShippingServiceOption>
+        <ShippingServicePriority>2</ShippingServicePriority>
+        <ShippingService>${intlService2}</ShippingService>
+        <ShippingServiceCost currencyID="USD">${intlPrice2}</ShippingServiceCost>
+        <ShipToLocation>WorldWide</ShipToLocation>
+      </InternationalShippingServiceOption>` : ''}
+    </ShippingDetails>`
 
   return `<?xml version="1.0" encoding="utf-8"?>
 <AddItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
@@ -102,31 +131,7 @@ function buildAddItemXml(token: string, p: any): string {
     <ListingType>FixedPriceItem</ListingType>
     <Location>${location}</Location>
     ${pictureXml ? `<PictureDetails>\n${pictureXml}\n    </PictureDetails>` : ''}
-    <ShippingDetails>
-      <ShippingType>Flat</ShippingType>
-      <ShippingServiceOptions>
-        <ShippingServicePriority>1</ShippingServicePriority>
-        <ShippingService>${domService1}</ShippingService>
-        <ShippingServiceCost>${domPrice1}</ShippingServiceCost>
-      </ShippingServiceOptions>${domService2 ? `
-      <ShippingServiceOptions>
-        <ShippingServicePriority>2</ShippingServicePriority>
-        <ShippingService>${domService2}</ShippingService>
-        <ShippingServiceCost>${domPrice2}</ShippingServiceCost>
-      </ShippingServiceOptions>` : ''}
-      <InternationalShippingServiceOption>
-        <ShippingServicePriority>1</ShippingServicePriority>
-        <ShippingService>${intlService1}</ShippingService>
-        <ShippingServiceCost>${intlPrice1}</ShippingServiceCost>
-        <ShipToLocation>Worldwide</ShipToLocation>
-      </InternationalShippingServiceOption>${intlService2 ? `
-      <InternationalShippingServiceOption>
-        <ShippingServicePriority>2</ShippingServicePriority>
-        <ShippingService>${intlService2}</ShippingService>
-        <ShippingServiceCost>${intlPrice2}</ShippingServiceCost>
-        <ShipToLocation>Worldwide</ShipToLocation>
-      </InternationalShippingServiceOption>` : ''}
-    </ShippingDetails>
+    ${shippingXml}
     <ReturnPolicy><ReturnsAcceptedOption>ReturnsNotAccepted</ReturnsAcceptedOption></ReturnPolicy>
     ${specificsXml ? `<ItemSpecifics>\n${specificsXml}\n    </ItemSpecifics>` : ''}
     ${p.sku ? `<SKU>${escapeXml(p.sku)}</SKU>` : ''}
@@ -217,8 +222,10 @@ export async function POST(request: NextRequest) {
 
   // ── AddItem ────────────────────────────────────────────────────────────────
   if (action === 'add') {
+    const addXml = buildAddItemXml(EBAY_USER_TOKEN, product)
+    console.log('[ebay/listing] AddItem XML:\n', addXml)
     let xml: string
-    try { xml = await callEbay('AddItem', buildAddItemXml(EBAY_USER_TOKEN, product)) }
+    try { xml = await callEbay('AddItem', addXml) }
     catch (err) { return NextResponse.json({ error: `לא ניתן להתחבר ל-eBay: ${String(err)}` }, { status: 502 }) }
 
     const { ok, error, response } = parseAck(xml, 'AddItemResponse')
