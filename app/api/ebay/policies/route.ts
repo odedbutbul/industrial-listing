@@ -27,47 +27,80 @@ export interface PoliciesResult {
 
 const MARKETPLACE_ID = 'EBAY_US'
 
-// GET /api/ebay/policies — fetch business policies via eBay REST Account API
+// Step 1 — get Application Token via client_credentials
+async function getAppToken(appId: string, certId: string, isSandbox: boolean): Promise<string> {
+  const tokenUrl = isSandbox
+    ? 'https://api.sandbox.ebay.com/identity/v1/oauth2/token'
+    : 'https://api.ebay.com/identity/v1/oauth2/token'
+
+  const credentials = Buffer.from(`${appId}:${certId}`).toString('base64')
+  const scope = 'https://api.ebay.com/oauth/api_scope/sell.account.readonly'
+
+  console.log('[policies] fetching app token from', tokenUrl)
+  const res = await fetch(tokenUrl, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Basic ${credentials}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: `grant_type=client_credentials&scope=${encodeURIComponent(scope)}`,
+    signal: AbortSignal.timeout(15000),
+  })
+  const json = await res.json()
+  console.log('[policies] token response status:', res.status, JSON.stringify(json).slice(0, 300))
+  if (!res.ok || !json.access_token) {
+    throw new Error(json.error_description ?? json.error ?? `HTTP ${res.status}`)
+  }
+  return json.access_token as string
+}
+
+// Step 2 — call Account REST API with the app token
+async function fetchPolicyList(baseUrl: string, path: string, token: string) {
+  const url = `${baseUrl}${path}?marketplace_id=${MARKETPLACE_ID}`
+  console.log('[policies] GET', url)
+  const res = await fetch(url, {
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      'X-EBAY-C-MARKETPLACE-ID': MARKETPLACE_ID,
+      'Accept': 'application/json',
+    },
+    signal: AbortSignal.timeout(15000),
+  })
+  const json = await res.json()
+  console.log('[policies] response status:', res.status, JSON.stringify(json).slice(0, 400))
+  if (!res.ok) {
+    const msg = json?.errors?.[0]?.message ?? json?.error_description ?? `HTTP ${res.status}`
+    throw new Error(msg)
+  }
+  return json
+}
+
+// GET /api/ebay/policies
 export async function GET(): Promise<Response> {
   const supabase = getClient()
   const settings = await loadSettings(supabase)
-  const { EBAY_USER_TOKEN, EBAY_SANDBOX } = settings
+  const { EBAY_APP_ID, EBAY_CERT_ID, EBAY_SANDBOX } = settings
 
-  if (!EBAY_USER_TOKEN) {
-    return NextResponse.json({ error: 'eBay User Token חסר' }, { status: 400 })
+  if (!EBAY_APP_ID || !EBAY_CERT_ID) {
+    return NextResponse.json({ error: 'חסרים App ID ו-Cert ID בהגדרות eBay' }, { status: 400 })
   }
 
   const isSandbox = EBAY_SANDBOX !== 'false'
-  const baseUrl = isSandbox
-    ? 'https://api.sandbox.ebay.com'
-    : 'https://api.ebay.com'
+  const baseUrl = isSandbox ? 'https://api.sandbox.ebay.com' : 'https://api.ebay.com'
 
-  const headers: Record<string, string> = {
-    'Authorization': `Bearer ${EBAY_USER_TOKEN}`,
-    'Content-Type': 'application/json',
-    'X-EBAY-C-MARKETPLACE-ID': MARKETPLACE_ID,
-    'Accept': 'application/json',
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  async function fetchPolicy(path: string): Promise<any> {
-    const url = `${baseUrl}${path}?marketplace_id=${MARKETPLACE_ID}`
-    console.log('[ebay/policies] GET', url)
-    const res = await fetch(url, { headers, signal: AbortSignal.timeout(15000) })
-    const json = await res.json()
-    console.log('[ebay/policies] status:', res.status, JSON.stringify(json).slice(0, 400))
-    if (!res.ok) {
-      const msg = (json?.errors?.[0]?.message) ?? json?.error_description ?? `HTTP ${res.status}`
-      throw new Error(msg)
-    }
-    return json
+  let token: string
+  try {
+    token = await getAppToken(EBAY_APP_ID, EBAY_CERT_ID, isSandbox)
+  } catch (err) {
+    return NextResponse.json({ error: `שגיאה בקבלת Application Token: ${String(err)}` }, { status: 200 })
   }
 
   try {
     const [shippingData, returnData, paymentData] = await Promise.all([
-      fetchPolicy('/sell/account/v1/fulfillment_policy'),
-      fetchPolicy('/sell/account/v1/return_policy'),
-      fetchPolicy('/sell/account/v1/payment_policy'),
+      fetchPolicyList(baseUrl, '/sell/account/v1/fulfillment_policy', token),
+      fetchPolicyList(baseUrl, '/sell/account/v1/return_policy', token),
+      fetchPolicyList(baseUrl, '/sell/account/v1/payment_policy', token),
     ])
 
     const result: PoliciesResult = {

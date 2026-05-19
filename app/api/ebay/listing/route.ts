@@ -42,8 +42,14 @@ const CONDITION_ID: Record<string, string> = {
   'For parts or not working': '7000',
 }
 
+interface ProfileIds {
+  paymentId: string
+  returnId: string
+  shippingId: string
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function buildAddItemXml(p: any, verify = false): string {
+function buildAddItemXml(p: any, ids: ProfileIds, verify = false): string {
   const title = escapeXml((p.title || `${p.manufacturer} ${p.model}`).slice(0, 80))
   const conditionId = CONDITION_ID[p.condition] ?? '3000'
   const price = p.price ?? 0
@@ -61,24 +67,19 @@ function buildAddItemXml(p: any, verify = false): string {
     p.country_of_origin ? `      <NameValueList><Name>Country/Region of Manufacture</Name><Value>${escapeXml(p.country_of_origin)}</Value></NameValueList>` : '',
   ].filter(Boolean).join('\n')
 
-  const rootTag = verify ? 'VerifyAddItemRequest' : 'AddItemRequest'
-  return `<?xml version="1.0" encoding="utf-8"?>
-<${rootTag} xmlns="urn:ebay:apis:eBLBaseComponents">
-  <Version>1271</Version>
-  <Item>
-    <Title>${title}</Title>
-    <Description><![CDATA[${desc}]]></Description>
-    <PrimaryCategory><CategoryID>${categoryId}</CategoryID></PrimaryCategory>
-    <StartPrice currencyID="USD">${price}</StartPrice>
-    <Quantity>${qty}</Quantity>
-    <ListingDuration>GTC</ListingDuration>
-    <ConditionID>${conditionId}</ConditionID>
-    <Country>IL</Country>
-    <Currency>USD</Currency>
-    <DispatchTimeMax>3</DispatchTimeMax>
-    <ListingType>FixedPriceItem</ListingType>
-    <Location>${location}</Location>
-    ${pictureXml ? `<PictureDetails>\n${pictureXml}\n    </PictureDetails>` : ''}
+  // Use SellerProfiles (Business Policies) when IDs are configured
+  const shippingBlock = (ids.shippingId && ids.returnId) ? `
+    <SellerProfiles>
+      ${ids.paymentId ? `<SellerPaymentProfile>
+        <PaymentProfileID>${ids.paymentId}</PaymentProfileID>
+      </SellerPaymentProfile>` : ''}
+      <SellerReturnProfile>
+        <ReturnProfileID>${ids.returnId}</ReturnProfileID>
+      </SellerReturnProfile>
+      <SellerShippingProfile>
+        <ShippingProfileID>${ids.shippingId}</ShippingProfileID>
+      </SellerShippingProfile>
+    </SellerProfiles>` : `
     <ShippingDetails>
       <ShippingType>Flat</ShippingType>
       <ShipToLocations>WorldWide</ShipToLocations>
@@ -98,7 +99,27 @@ function buildAddItemXml(p: any, verify = false): string {
       <ReturnsAcceptedOption>ReturnsAccepted</ReturnsAcceptedOption>
       <ReturnsWithinOption>Days_30</ReturnsWithinOption>
       <ShippingCostPaidByOption>Buyer</ShippingCostPaidByOption>
-    </ReturnPolicy>
+    </ReturnPolicy>`
+
+  const rootTag = verify ? 'VerifyAddItemRequest' : 'AddItemRequest'
+  return `<?xml version="1.0" encoding="utf-8"?>
+<${rootTag} xmlns="urn:ebay:apis:eBLBaseComponents">
+  <Version>1271</Version>
+  <Item>
+    <Title>${title}</Title>
+    <Description><![CDATA[${desc}]]></Description>
+    <PrimaryCategory><CategoryID>${categoryId}</CategoryID></PrimaryCategory>
+    <StartPrice currencyID="USD">${price}</StartPrice>
+    <Quantity>${qty}</Quantity>
+    <ListingDuration>GTC</ListingDuration>
+    <ConditionID>${conditionId}</ConditionID>
+    <Country>IL</Country>
+    <Currency>USD</Currency>
+    <DispatchTimeMax>3</DispatchTimeMax>
+    <ListingType>FixedPriceItem</ListingType>
+    <Location>${location}</Location>
+    ${pictureXml ? `<PictureDetails>\n${pictureXml}\n    </PictureDetails>` : ''}
+    ${shippingBlock}
     ${specificsXml ? `<ItemSpecifics>\n${specificsXml}\n    </ItemSpecifics>` : ''}
     ${p.sku ? `<SKU>${escapeXml(p.sku)}</SKU>` : ''}
   </Item>
@@ -170,10 +191,20 @@ export async function POST(request: NextRequest) {
   }
 
   const settings = await loadSettings(supabase)
-  const { EBAY_USER_TOKEN, EBAY_SANDBOX } = settings
+  const {
+    EBAY_USER_TOKEN, EBAY_SANDBOX,
+    EBAY_PAYMENT_PROFILE_ID, EBAY_RETURN_PROFILE_ID, EBAY_SHIPPING_PROFILE_ID,
+  } = settings
   if (!EBAY_USER_TOKEN) {
     return NextResponse.json({ error: 'eBay User Token חסר — הגדר אותו בהגדרות' }, { status: 400 })
   }
+
+  const profileIds: ProfileIds = {
+    paymentId:  EBAY_PAYMENT_PROFILE_ID  ?? '',
+    returnId:   EBAY_RETURN_PROFILE_ID   ?? '',
+    shippingId: EBAY_SHIPPING_PROFILE_ID ?? '',
+  }
+  console.log('[ebay/listing] profileIds:', profileIds)
 
   const isSandbox = EBAY_SANDBOX !== 'false'
   const endpoint = isSandbox ? 'https://api.sandbox.ebay.com/ws/api.dll' : 'https://api.ebay.com/ws/api.dll'
@@ -192,7 +223,7 @@ export async function POST(request: NextRequest) {
 
   // ── VerifyAddItem (dry-run, no real listing) ───────────────────────────────
   if (action === 'verify') {
-    const verifyXml = buildAddItemXml(product, true)
+    const verifyXml = buildAddItemXml(product, profileIds, true)
     console.log('[ebay/listing] VerifyAddItem XML:\n', verifyXml)
     let xml: string
     try { xml = await callEbay('VerifyAddItem', verifyXml) }
@@ -204,7 +235,7 @@ export async function POST(request: NextRequest) {
 
   // ── AddItem ────────────────────────────────────────────────────────────────
   } else if (action === 'add') {
-    const addXml = buildAddItemXml(product)
+    const addXml = buildAddItemXml(product, profileIds)
     console.log('[ebay/listing] AddItem XML:\n', addXml)
     let xml: string
     try { xml = await callEbay('AddItem', addXml) }
