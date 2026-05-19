@@ -136,16 +136,18 @@ function buildEndItemXml(itemId: string): string {
 </EndItemRequest>`
 }
 
-function parseAck(xml: string, rootKey: string): { ok: boolean; error?: string; response?: Record<string, unknown> } {
+function parseAck(xml: string, rootKey: string): { ok: boolean; error?: string; rawErrors?: unknown[]; response?: Record<string, unknown> } {
   const parsed = parser.parse(xml)
   const response = parsed?.[rootKey]
-  if (!response) return { ok: false, error: 'תגובה לא תקינה מ-eBay: ' + xml.slice(0, 200) }
+  if (!response) return { ok: false, error: 'תגובה לא תקינה מ-eBay: ' + xml.slice(0, 500) }
   const ack = String(response.Ack ?? '')
   if (ack !== 'Success' && ack !== 'Warning') {
     const errors = response.Errors ?? response.Error ?? []
-    const first = Array.isArray(errors) ? errors[0] : errors
-    const msg = (first as Record<string, string>)?.LongMessage ?? (first as Record<string, string>)?.ShortMessage ?? `eBay Ack: ${ack}`
-    return { ok: false, error: msg }
+    const errArr: unknown[] = Array.isArray(errors) ? errors : [errors]
+    const first = errArr[0] as Record<string, string>
+    const msg = first?.LongMessage ?? first?.ShortMessage ?? `eBay Ack: ${ack}`
+    console.log(`[ebay/listing] parseAck ERRORS (${rootKey}):`, JSON.stringify(errArr, null, 2))
+    return { ok: false, error: msg, rawErrors: errArr }
   }
   return { ok: true, response }
 }
@@ -182,7 +184,9 @@ export async function POST(request: NextRequest) {
       body: xmlBody,
       signal: AbortSignal.timeout(30000),
     })
-    return res.text()
+    const text = await res.text()
+    console.log(`[ebay/listing] ${callName} RESPONSE (HTTP ${res.status}):\n`, text)
+    return text
   }
 
   // ── AddItem ────────────────────────────────────────────────────────────────
@@ -193,8 +197,8 @@ export async function POST(request: NextRequest) {
     try { xml = await callEbay('AddItem', addXml) }
     catch (err) { return NextResponse.json({ error: `לא ניתן להתחבר ל-eBay: ${String(err)}` }, { status: 502 }) }
 
-    const { ok, error, response } = parseAck(xml, 'AddItemResponse')
-    if (!ok) return NextResponse.json({ error }, { status: 200 })
+    const { ok, error, rawErrors, response } = parseAck(xml, 'AddItemResponse')
+    if (!ok) return NextResponse.json({ error, rawErrors, rawXml: xml }, { status: 200 })
 
     const itemId = String((response as Record<string, unknown>).ItemID)
     const ebayUrl = isSandbox
@@ -222,8 +226,8 @@ export async function POST(request: NextRequest) {
     try { xml = await callEbay('ReviseItem', reviseXml) }
     catch (err) { return NextResponse.json({ error: `לא ניתן להתחבר ל-eBay: ${String(err)}` }, { status: 502 }) }
 
-    const { ok, error } = parseAck(xml, 'ReviseItemResponse')
-    if (!ok) return NextResponse.json({ error }, { status: 200 })
+    const { ok, error, rawErrors } = parseAck(xml, 'ReviseItemResponse')
+    if (!ok) return NextResponse.json({ error, rawErrors, rawXml: xml }, { status: 200 })
 
     await supabase.from('products').update({ status_ebay: 'active' }).eq('id', productId)
     return NextResponse.json({ success: true })
@@ -239,8 +243,8 @@ export async function POST(request: NextRequest) {
     try { xml = await callEbay('EndItem', endXml) }
     catch (err) { return NextResponse.json({ error: `לא ניתן להתחבר ל-eBay: ${String(err)}` }, { status: 502 }) }
 
-    const { ok, error } = parseAck(xml, 'EndItemResponse')
-    if (!ok) return NextResponse.json({ error }, { status: 200 })
+    const { ok, error, rawErrors } = parseAck(xml, 'EndItemResponse')
+    if (!ok) return NextResponse.json({ error, rawErrors, rawXml: xml }, { status: 200 })
 
     await supabase.from('products').update({ status_ebay: 'ended' }).eq('id', productId)
     return NextResponse.json({ success: true })
