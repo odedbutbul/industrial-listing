@@ -41,8 +41,6 @@ const EMPTY: Settings = {
   CLOUDINARY_API_SECRET: '',
 }
 
-interface SellerProfile { id: string; name: string; type: string }
-
 function SectionCard({ icon, title, subtitle, children }: {
   icon: string; title: string; subtitle: string; children: React.ReactNode
 }) {
@@ -130,11 +128,6 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState<string | null>(null)
   const [testing, setTesting] = useState<string | null>(null)
   const [ebayStatus, setEbayStatus] = useState<'idle' | 'ok' | 'error'>('idle')
-  const [fetchingPolicies, setFetchingPolicies] = useState(false)
-  const [policyProfiles, setPolicyProfiles] = useState<{
-    shipping: SellerProfile[]; return: SellerProfile[]; payment: SellerProfile[]
-  } | null>(null)
-  const [policyError, setPolicyError] = useState<string | null>(null)
 
   useEffect(() => {
     fetch('/api/settings')
@@ -183,30 +176,6 @@ export default function SettingsPage() {
       toast.error('לא ניתן להגיע ל-URL')
     } finally {
       setTesting(null)
-    }
-  }
-
-  async function fetchPolicies() {
-    setFetchingPolicies(true)
-    setPolicyError(null)
-    try {
-      const res = await fetch('/api/ebay/policies')
-      const data = await res.json()
-      if (data.error) {
-        setPolicyError(data.error)
-        return
-      }
-      setPolicyProfiles({
-        shipping: data.shippingProfiles ?? [],
-        return:   data.returnProfiles   ?? [],
-        payment:  data.paymentProfiles  ?? [],
-      })
-      const total = (data.shippingProfiles?.length ?? 0) + (data.returnProfiles?.length ?? 0) + (data.paymentProfiles?.length ?? 0)
-      toast.success(`נמצאו ${total} פוליסות — בחר Shipping ו-Return Profile ושמור`)
-    } catch {
-      setPolicyError('שגיאה בטעינת הפוליסות')
-    } finally {
-      setFetchingPolicies(false)
     }
   }
 
@@ -376,127 +345,71 @@ export default function SettingsPage() {
           ) : (
             <div className="flex items-center gap-2 p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 text-amber-700 dark:text-amber-400 text-xs mb-4">
               <span>⚠️</span>
-              <span>פוליסות לא מוגדרות — לחץ &quot;טען מ-eBay&quot; כדי לטעון</span>
+              <span>פוליסות לא מוגדרות — הזן את ה-IDs ידנית ושמור</span>
             </div>
           )}
 
-          {/* Fetch button */}
-          <button
-            onClick={fetchPolicies}
-            disabled={fetchingPolicies || !settings.EBAY_USER_TOKEN}
-            className="btn-ghost h-[44px] px-4 text-sm flex items-center gap-2 mb-4 disabled:opacity-40">
-            {fetchingPolicies ? (
-              <>
-                <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                </svg>
-                טוען פוליסות...
-              </>
-            ) : (
-              <>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-4 h-4">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-                טען פוליסות מ-eBay
-              </>
-            )}
-          </button>
+          {/* Instructions */}
+          <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-100 dark:border-blue-500/20 text-xs text-blue-700 dark:text-blue-300 mb-4 leading-relaxed">
+            <p className="font-semibold mb-1">היכן למצוא את ה-Profile IDs?</p>
+            <p>My eBay → Account → <strong>Business Policies</strong> → לחץ על הפוליסה → העתק את ה-ID מה-URL או מהדף</p>
+            <p className="mt-1 opacity-70">לחלופין: eBay Seller Hub → Listings → Business policies</p>
+          </div>
 
-          {policyError && (
-            <p className="text-xs text-red-500 dark:text-red-400 mb-3">{policyError}</p>
-          )}
-
-          {/* Profile selectors — shown after loading OR always (for manual edit) */}
+          {/* Manual ID inputs */}
           <div className="space-y-3">
-            {/* Shipping */}
             <div>
-              <label className="label-base">Shipping Policy <span className="text-red-400">*</span></label>
-              {policyProfiles && policyProfiles.shipping.length > 0 ? (
-                <select className="input-base"
-                  value={settings.EBAY_SHIPPING_PROFILE_ID}
-                  onChange={(e) => {
-                    const pol = policyProfiles.shipping.find((p) => p.id === e.target.value)
-                    setSettings((prev) => ({
-                      ...prev,
-                      EBAY_SHIPPING_PROFILE_ID: e.target.value,
-                      EBAY_SHIPPING_PROFILE_NAME: pol?.name ?? '',
-                    }))
-                  }}>
-                  <option value="">— בחר פוליסת משלוח —</option>
-                  {policyProfiles.shipping.map((pol) => (
-                    <option key={pol.id} value={pol.id}>{pol.name} ({pol.id})</option>
-                  ))}
-                </select>
-              ) : (
-                <input className="input-base font-mono text-xs"
-                  value={settings.EBAY_SHIPPING_PROFILE_ID}
-                  onChange={(e) => setSettings((prev) => ({ ...prev, EBAY_SHIPPING_PROFILE_ID: e.target.value }))}
-                  placeholder="Shipping Profile ID (ידני)" />
-              )}
+              <label className="label-base">Shipping Profile ID <span className="text-red-400">*</span></label>
+              <input className="input-base font-mono text-xs"
+                value={settings.EBAY_SHIPPING_PROFILE_ID}
+                onChange={(e) => update('EBAY_SHIPPING_PROFILE_ID', e.target.value)}
+                placeholder="לדוגמה: 123456789012" />
+            </div>
+            <div>
+              <label className="label-base">Shipping Profile Name <span className="text-gray-400 dark:text-white/30 font-normal">(לתצוגה בלבד)</span></label>
+              <input className="input-base text-sm"
+                value={settings.EBAY_SHIPPING_PROFILE_NAME}
+                onChange={(e) => update('EBAY_SHIPPING_PROFILE_NAME', e.target.value)}
+                placeholder="לדוגמה: Standard International Shipping" />
             </div>
 
-            {/* Return */}
+            <div className="border-t border-gray-100 dark:border-white/[0.06] pt-3">
+              <label className="label-base">Return Profile ID <span className="text-red-400">*</span></label>
+              <input className="input-base font-mono text-xs"
+                value={settings.EBAY_RETURN_PROFILE_ID}
+                onChange={(e) => update('EBAY_RETURN_PROFILE_ID', e.target.value)}
+                placeholder="לדוגמה: 123456789013" />
+            </div>
             <div>
-              <label className="label-base">Return Policy <span className="text-red-400">*</span></label>
-              {policyProfiles && policyProfiles.return.length > 0 ? (
-                <select className="input-base"
-                  value={settings.EBAY_RETURN_PROFILE_ID}
-                  onChange={(e) => {
-                    const pol = policyProfiles.return.find((p) => p.id === e.target.value)
-                    setSettings((prev) => ({
-                      ...prev,
-                      EBAY_RETURN_PROFILE_ID: e.target.value,
-                      EBAY_RETURN_PROFILE_NAME: pol?.name ?? '',
-                    }))
-                  }}>
-                  <option value="">— בחר פוליסת החזרות —</option>
-                  {policyProfiles.return.map((pol) => (
-                    <option key={pol.id} value={pol.id}>{pol.name} ({pol.id})</option>
-                  ))}
-                </select>
-              ) : (
-                <input className="input-base font-mono text-xs"
-                  value={settings.EBAY_RETURN_PROFILE_ID}
-                  onChange={(e) => setSettings((prev) => ({ ...prev, EBAY_RETURN_PROFILE_ID: e.target.value }))}
-                  placeholder="Return Profile ID (ידני)" />
-              )}
+              <label className="label-base">Return Profile Name <span className="text-gray-400 dark:text-white/30 font-normal">(לתצוגה בלבד)</span></label>
+              <input className="input-base text-sm"
+                value={settings.EBAY_RETURN_PROFILE_NAME}
+                onChange={(e) => update('EBAY_RETURN_PROFILE_NAME', e.target.value)}
+                placeholder="לדוגמה: 30 Day Returns" />
             </div>
 
-            {/* Payment */}
+            <div className="border-t border-gray-100 dark:border-white/[0.06] pt-3">
+              <label className="label-base">Payment Profile ID <span className="text-gray-400 dark:text-white/30 font-normal">(אופציונלי)</span></label>
+              <input className="input-base font-mono text-xs"
+                value={settings.EBAY_PAYMENT_PROFILE_ID}
+                onChange={(e) => update('EBAY_PAYMENT_PROFILE_ID', e.target.value)}
+                placeholder="לדוגמה: 123456789014" />
+            </div>
             <div>
-              <label className="label-base">Payment Policy <span className="text-gray-400 dark:text-white/30 font-normal">(אופציונלי)</span></label>
-              {policyProfiles && policyProfiles.payment.length > 0 ? (
-                <select className="input-base"
-                  value={settings.EBAY_PAYMENT_PROFILE_ID}
-                  onChange={(e) => {
-                    const pol = policyProfiles.payment.find((p) => p.id === e.target.value)
-                    setSettings((prev) => ({
-                      ...prev,
-                      EBAY_PAYMENT_PROFILE_ID: e.target.value,
-                      EBAY_PAYMENT_PROFILE_NAME: pol?.name ?? '',
-                    }))
-                  }}>
-                  <option value="">— בחר פוליסת תשלום —</option>
-                  {policyProfiles.payment.map((pol) => (
-                    <option key={pol.id} value={pol.id}>{pol.name} ({pol.id})</option>
-                  ))}
-                </select>
-              ) : (
-                <input className="input-base font-mono text-xs"
-                  value={settings.EBAY_PAYMENT_PROFILE_ID}
-                  onChange={(e) => setSettings((prev) => ({ ...prev, EBAY_PAYMENT_PROFILE_ID: e.target.value }))}
-                  placeholder="Payment Profile ID (ידני)" />
-              )}
+              <label className="label-base">Payment Profile Name <span className="text-gray-400 dark:text-white/30 font-normal">(לתצוגה בלבד)</span></label>
+              <input className="input-base text-sm"
+                value={settings.EBAY_PAYMENT_PROFILE_NAME}
+                onChange={(e) => update('EBAY_PAYMENT_PROFILE_NAME', e.target.value)}
+                placeholder="לדוגמה: eBay Managed Payments" />
             </div>
           </div>
 
           <div className="mt-4">
             <SaveButton loading={saving === 'policies'}
               onClick={() => save([
-                'EBAY_PAYMENT_PROFILE_ID', 'EBAY_PAYMENT_PROFILE_NAME',
-                'EBAY_RETURN_PROFILE_ID',  'EBAY_RETURN_PROFILE_NAME',
                 'EBAY_SHIPPING_PROFILE_ID', 'EBAY_SHIPPING_PROFILE_NAME',
+                'EBAY_RETURN_PROFILE_ID',   'EBAY_RETURN_PROFILE_NAME',
+                'EBAY_PAYMENT_PROFILE_ID',  'EBAY_PAYMENT_PROFILE_NAME',
               ], 'policies')} />
           </div>
         </SectionCard>
