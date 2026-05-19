@@ -42,14 +42,8 @@ const CONDITION_ID: Record<string, string> = {
   'For parts or not working': '7000',
 }
 
-interface ProfileIds {
-  paymentId: string
-  returnId: string
-  shippingId: string
-}
-
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function buildAddItemXml(p: any, ids: ProfileIds): string {
+function buildAddItemXml(p: any): string {
   const title = escapeXml((p.title || `${p.manufacturer} ${p.model}`).slice(0, 80))
   const conditionId = CONDITION_ID[p.condition] ?? '3000'
   const price = p.price ?? 0
@@ -84,17 +78,26 @@ function buildAddItemXml(p: any, ids: ProfileIds): string {
     <ListingType>FixedPriceItem</ListingType>
     <Location>${location}</Location>
     ${pictureXml ? `<PictureDetails>\n${pictureXml}\n    </PictureDetails>` : ''}
-    <SellerProfiles>
-      ${ids.paymentId ? `<SellerPaymentProfile>
-        <PaymentProfileID>${ids.paymentId}</PaymentProfileID>
-      </SellerPaymentProfile>` : ''}
-      <SellerReturnProfile>
-        <ReturnProfileID>${ids.returnId}</ReturnProfileID>
-      </SellerReturnProfile>
-      <SellerShippingProfile>
-        <ShippingProfileID>${ids.shippingId}</ShippingProfileID>
-      </SellerShippingProfile>
-    </SellerProfiles>
+    <ShippingDetails>
+      <ShippingType>Flat</ShippingType>
+      <ShippingServiceOptions>
+        <ShippingServicePriority>1</ShippingServicePriority>
+        <ShippingService>StandardShippingFromOutsideUS</ShippingService>
+        <ShippingServiceCost currencyID="USD">0</ShippingServiceCost>
+        <FreeShipping>false</FreeShipping>
+      </ShippingServiceOptions>
+      <InternationalShippingServiceOption>
+        <ShippingServicePriority>1</ShippingServicePriority>
+        <ShippingService>StandardInternationalShipping</ShippingService>
+        <ShippingServiceCost currencyID="USD">25</ShippingServiceCost>
+        <ShipToLocation>WorldWide</ShipToLocation>
+      </InternationalShippingServiceOption>
+    </ShippingDetails>
+    <ReturnPolicy>
+      <ReturnsAcceptedOption>ReturnsAccepted</ReturnsAcceptedOption>
+      <ReturnsWithinOption>Days_30</ReturnsWithinOption>
+      <ShippingCostPaidByOption>Buyer</ShippingCostPaidByOption>
+    </ReturnPolicy>
     ${specificsXml ? `<ItemSpecifics>\n${specificsXml}\n    </ItemSpecifics>` : ''}
     ${p.sku ? `<SKU>${escapeXml(p.sku)}</SKU>` : ''}
   </Item>
@@ -164,25 +167,10 @@ export async function POST(request: NextRequest) {
   }
 
   const settings = await loadSettings(supabase)
-  const {
-    EBAY_USER_TOKEN, EBAY_SANDBOX,
-    EBAY_PAYMENT_PROFILE_ID, EBAY_RETURN_PROFILE_ID, EBAY_SHIPPING_PROFILE_ID,
-  } = settings
+  const { EBAY_USER_TOKEN, EBAY_SANDBOX } = settings
   if (!EBAY_USER_TOKEN) {
     return NextResponse.json({ error: 'eBay User Token חסר — הגדר אותו בהגדרות' }, { status: 400 })
   }
-  if (!EBAY_RETURN_PROFILE_ID || !EBAY_SHIPPING_PROFILE_ID) {
-    return NextResponse.json({
-      error: 'חסרות פוליסות eBay — טען פוליסות מ-eBay ובחר Shipping ו-Return Profile בהגדרות',
-    }, { status: 400 })
-  }
-
-  const profileIds: ProfileIds = {
-    paymentId:  EBAY_PAYMENT_PROFILE_ID  ?? '',
-    returnId:   EBAY_RETURN_PROFILE_ID   ?? '',
-    shippingId: EBAY_SHIPPING_PROFILE_ID ?? '',
-  }
-  console.log('[ebay/listing] profileIds:', profileIds)
 
   const isSandbox = EBAY_SANDBOX !== 'false'
   const endpoint = isSandbox ? 'https://api.sandbox.ebay.com/ws/api.dll' : 'https://api.ebay.com/ws/api.dll'
@@ -199,7 +187,7 @@ export async function POST(request: NextRequest) {
 
   // ── AddItem ────────────────────────────────────────────────────────────────
   if (action === 'add') {
-    const addXml = buildAddItemXml(product, profileIds)
+    const addXml = buildAddItemXml(product)
     console.log('[ebay/listing] AddItem XML:\n', addXml)
     let xml: string
     try { xml = await callEbay('AddItem', addXml) }

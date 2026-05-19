@@ -12,12 +12,6 @@ type Settings = {
   EBAY_DEV_ID: string
   EBAY_USER_TOKEN: string
   EBAY_SANDBOX: string
-  EBAY_PAYMENT_PROFILE_ID: string
-  EBAY_PAYMENT_PROFILE_NAME: string
-  EBAY_RETURN_PROFILE_ID: string
-  EBAY_RETURN_PROFILE_NAME: string
-  EBAY_SHIPPING_PROFILE_ID: string
-  EBAY_SHIPPING_PROFILE_NAME: string
   CLOUDINARY_CLOUD_NAME: string
   CLOUDINARY_API_KEY: string
   CLOUDINARY_API_SECRET: string
@@ -30,12 +24,6 @@ const EMPTY: Settings = {
   EBAY_DEV_ID: '',
   EBAY_USER_TOKEN: '',
   EBAY_SANDBOX: 'true',
-  EBAY_PAYMENT_PROFILE_ID: '',
-  EBAY_PAYMENT_PROFILE_NAME: '',
-  EBAY_RETURN_PROFILE_ID: '',
-  EBAY_RETURN_PROFILE_NAME: '',
-  EBAY_SHIPPING_PROFILE_ID: '',
-  EBAY_SHIPPING_PROFILE_NAME: '',
   CLOUDINARY_CLOUD_NAME: '',
   CLOUDINARY_API_KEY: '',
   CLOUDINARY_API_SECRET: '',
@@ -326,91 +314,6 @@ export default function SettingsPage() {
                 </>
               ) : 'בדוק חיבור'}
             </button>
-          </div>
-        </SectionCard>
-
-        {/* eBay Business Policies */}
-        <SectionCard icon="📋" title="eBay Business Policies" subtitle="פוליסות משלוח, החזרות ותשלום — נדרשות לפרסום מוצרים">
-
-          {/* Status banner */}
-          {(settings.EBAY_SHIPPING_PROFILE_ID && settings.EBAY_RETURN_PROFILE_ID) ? (
-            <div className="flex items-center gap-2 p-3 rounded-xl bg-green-50 dark:bg-green-500/10 border border-green-200 dark:border-green-500/20 text-green-700 dark:text-green-400 text-xs mb-4">
-              <span>✅</span>
-              <span>
-                משלוח: <strong>{settings.EBAY_SHIPPING_PROFILE_NAME || settings.EBAY_SHIPPING_PROFILE_ID}</strong>
-                {' · '}החזרות: <strong>{settings.EBAY_RETURN_PROFILE_NAME || settings.EBAY_RETURN_PROFILE_ID}</strong>
-                {settings.EBAY_PAYMENT_PROFILE_ID && <>{' · '}תשלום: <strong>{settings.EBAY_PAYMENT_PROFILE_NAME || settings.EBAY_PAYMENT_PROFILE_ID}</strong></>}
-              </span>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2 p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 text-amber-700 dark:text-amber-400 text-xs mb-4">
-              <span>⚠️</span>
-              <span>פוליסות לא מוגדרות — הזן את ה-IDs ידנית ושמור</span>
-            </div>
-          )}
-
-          {/* Instructions */}
-          <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-100 dark:border-blue-500/20 text-xs text-blue-700 dark:text-blue-300 mb-4 leading-relaxed">
-            <p className="font-semibold mb-1">היכן למצוא את ה-Profile IDs?</p>
-            <p>My eBay → Account → <strong>Business Policies</strong> → לחץ על הפוליסה → העתק את ה-ID מה-URL או מהדף</p>
-            <p className="mt-1 opacity-70">לחלופין: eBay Seller Hub → Listings → Business policies</p>
-          </div>
-
-          {/* Manual ID inputs */}
-          <div className="space-y-3">
-            <div>
-              <label className="label-base">Shipping Profile ID <span className="text-red-400">*</span></label>
-              <input className="input-base font-mono text-xs"
-                value={settings.EBAY_SHIPPING_PROFILE_ID}
-                onChange={(e) => update('EBAY_SHIPPING_PROFILE_ID', e.target.value)}
-                placeholder="לדוגמה: 123456789012" />
-            </div>
-            <div>
-              <label className="label-base">Shipping Profile Name <span className="text-gray-400 dark:text-white/30 font-normal">(לתצוגה בלבד)</span></label>
-              <input className="input-base text-sm"
-                value={settings.EBAY_SHIPPING_PROFILE_NAME}
-                onChange={(e) => update('EBAY_SHIPPING_PROFILE_NAME', e.target.value)}
-                placeholder="לדוגמה: Standard International Shipping" />
-            </div>
-
-            <div className="border-t border-gray-100 dark:border-white/[0.06] pt-3">
-              <label className="label-base">Return Profile ID <span className="text-red-400">*</span></label>
-              <input className="input-base font-mono text-xs"
-                value={settings.EBAY_RETURN_PROFILE_ID}
-                onChange={(e) => update('EBAY_RETURN_PROFILE_ID', e.target.value)}
-                placeholder="לדוגמה: 123456789013" />
-            </div>
-            <div>
-              <label className="label-base">Return Profile Name <span className="text-gray-400 dark:text-white/30 font-normal">(לתצוגה בלבד)</span></label>
-              <input className="input-base text-sm"
-                value={settings.EBAY_RETURN_PROFILE_NAME}
-                onChange={(e) => update('EBAY_RETURN_PROFILE_NAME', e.target.value)}
-                placeholder="לדוגמה: 30 Day Returns" />
-            </div>
-
-            <div className="border-t border-gray-100 dark:border-white/[0.06] pt-3">
-              <label className="label-base">Payment Profile ID <span className="text-gray-400 dark:text-white/30 font-normal">(אופציונלי)</span></label>
-              <input className="input-base font-mono text-xs"
-                value={settings.EBAY_PAYMENT_PROFILE_ID}
-                onChange={(e) => update('EBAY_PAYMENT_PROFILE_ID', e.target.value)}
-                placeholder="לדוגמה: 123456789014" />
-            </div>
-            <div>
-              <label className="label-base">Payment Profile Name <span className="text-gray-400 dark:text-white/30 font-normal">(לתצוגה בלבד)</span></label>
-              <input className="input-base text-sm"
-                value={settings.EBAY_PAYMENT_PROFILE_NAME}
-                onChange={(e) => update('EBAY_PAYMENT_PROFILE_NAME', e.target.value)}
-                placeholder="לדוגמה: eBay Managed Payments" />
-            </div>
-          </div>
-
-          <div className="mt-4">
-            <SaveButton loading={saving === 'policies'}
-              onClick={() => save([
-                'EBAY_SHIPPING_PROFILE_ID', 'EBAY_SHIPPING_PROFILE_NAME',
-                'EBAY_RETURN_PROFILE_ID',   'EBAY_RETURN_PROFILE_NAME',
-                'EBAY_PAYMENT_PROFILE_ID',  'EBAY_PAYMENT_PROFILE_NAME',
-              ], 'policies')} />
           </div>
         </SectionCard>
 
