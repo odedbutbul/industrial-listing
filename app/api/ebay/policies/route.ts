@@ -1,6 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
-import { XMLParser } from 'fast-xml-parser'
 
 function getClient() {
   return createClient(
@@ -14,12 +13,6 @@ async function loadSettings(supabase: ReturnType<typeof getClient>): Promise<Rec
   return Object.fromEntries((data ?? []).map((r) => [r.key, r.value ?? '']))
 }
 
-const parser = new XMLParser({
-  ignoreAttributes: false,
-  isArray: (name) => ['PaymentProfile', 'ReturnPolicyProfile', 'ShippingProfile', 'Errors'].includes(name),
-  parseTagValue: true,
-})
-
 export interface SellerProfile {
   id: string
   name: string
@@ -30,10 +23,11 @@ export interface PoliciesResult {
   returnProfiles: SellerProfile[]
   shippingProfiles: SellerProfile[]
   error?: string
-  raw?: string
 }
 
-// GET /api/ebay/policies — fetch seller profiles via GetSellerProfiles
+const MARKETPLACE_ID = 'EBAY_US'
+
+// GET /api/ebay/policies — fetch business policies via eBay REST Account API
 export async function GET(): Promise<Response> {
   const supabase = getClient()
   const settings = await loadSettings(supabase)
@@ -44,61 +38,58 @@ export async function GET(): Promise<Response> {
   }
 
   const isSandbox = EBAY_SANDBOX !== 'false'
-  const endpoint = isSandbox
-    ? 'https://api.sandbox.ebay.com/ws/api.dll'
-    : 'https://api.ebay.com/ws/api.dll'
+  const baseUrl = isSandbox
+    ? 'https://api.sandbox.ebay.com'
+    : 'https://api.ebay.com'
 
-  const headers = {
-    'X-EBAY-API-IAF-TOKEN': EBAY_USER_TOKEN,
-    'X-EBAY-API-SITEID': '0',
-    'X-EBAY-API-COMPATIBILITY-LEVEL': '1271',
-    'X-EBAY-API-CALL-NAME': 'GetSellerProfiles',
-    'Content-Type': 'text/xml',
+  const headers: Record<string, string> = {
+    'Authorization': `Bearer ${EBAY_USER_TOKEN}`,
+    'Content-Type': 'application/json',
+    'X-EBAY-C-MARKETPLACE-ID': MARKETPLACE_ID,
+    'Accept': 'application/json',
   }
 
-  const xml = `<?xml version="1.0" encoding="utf-8"?>
-<GetSellerProfilesRequest xmlns="urn:ebay:apis:eBLBaseComponents">
-  <Version>1271</Version>
-</GetSellerProfilesRequest>`
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  async function fetchPolicy(path: string): Promise<any> {
+    const url = `${baseUrl}${path}?marketplace_id=${MARKETPLACE_ID}`
+    console.log('[ebay/policies] GET', url)
+    const res = await fetch(url, { headers, signal: AbortSignal.timeout(15000) })
+    const json = await res.json()
+    console.log('[ebay/policies] status:', res.status, JSON.stringify(json).slice(0, 400))
+    if (!res.ok) {
+      const msg = (json?.errors?.[0]?.message) ?? json?.error_description ?? `HTTP ${res.status}`
+      throw new Error(msg)
+    }
+    return json
+  }
 
-  console.log('[ebay/policies] GetSellerProfiles XML:\n', xml)
-
-  let responseXml: string
   try {
-    const res = await fetch(endpoint, { method: 'POST', headers, body: xml, signal: AbortSignal.timeout(20000) })
-    responseXml = await res.text()
-    console.log('[ebay/policies] response:\n', responseXml.slice(0, 1000))
+    const [shippingData, returnData, paymentData] = await Promise.all([
+      fetchPolicy('/sell/account/v1/fulfillment_policy'),
+      fetchPolicy('/sell/account/v1/return_policy'),
+      fetchPolicy('/sell/account/v1/payment_policy'),
+    ])
+
+    const result: PoliciesResult = {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      shippingProfiles: (shippingData.fulfillmentPolicies ?? []).map((p: any) => ({
+        id: String(p.fulfillmentPolicyId ?? ''),
+        name: String(p.name ?? ''),
+      })),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      returnProfiles: (returnData.returnPolicies ?? []).map((p: any) => ({
+        id: String(p.returnPolicyId ?? ''),
+        name: String(p.name ?? ''),
+      })),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      paymentProfiles: (paymentData.paymentPolicies ?? []).map((p: any) => ({
+        id: String(p.paymentPolicyId ?? ''),
+        name: String(p.name ?? ''),
+      })),
+    }
+
+    return NextResponse.json(result)
   } catch (err) {
-    return NextResponse.json({ error: `לא ניתן להתחבר ל-eBay: ${String(err)}` }, { status: 502 })
+    return NextResponse.json({ error: `שגיאה בטעינת הפוליסות: ${String(err)}` }, { status: 200 })
   }
-
-  const parsed = parser.parse(responseXml)
-  const response = parsed?.GetSellerProfilesResponse
-  if (!response) {
-    return NextResponse.json({ error: 'תגובה לא תקינה מ-eBay', raw: responseXml.slice(0, 400) }, { status: 502 })
-  }
-
-  const ack = String(response.Ack ?? '')
-  if (ack !== 'Success' && ack !== 'Warning') {
-    const errors = response.Errors ?? []
-    const first = Array.isArray(errors) ? errors[0] : errors
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const msg = (first as any)?.LongMessage ?? (first as any)?.ShortMessage ?? `eBay Ack: ${ack}`
-    return NextResponse.json({ error: msg, raw: responseXml.slice(0, 400) }, { status: 200 })
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const rawPayment: any[] = response?.PaymentProfileList?.PaymentProfile ?? []
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const rawReturn: any[]  = response?.ReturnPolicyProfileList?.ReturnPolicyProfile ?? []
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const rawShipping: any[] = response?.ShippingProfileList?.ShippingProfile ?? []
-
-  const result: PoliciesResult = {
-    paymentProfiles:  rawPayment.map((p)  => ({ id: String(p.PaymentProfileID  ?? ''), name: String(p.PaymentProfileName  ?? '') })),
-    returnProfiles:   rawReturn.map((p)   => ({ id: String(p.ReturnPolicyProfileID  ?? ''), name: String(p.ReturnPolicyProfileName  ?? '') })),
-    shippingProfiles: rawShipping.map((p) => ({ id: String(p.ShippingProfileID ?? ''), name: String(p.ShippingProfileName ?? '') })),
-  }
-
-  return NextResponse.json(result)
 }
