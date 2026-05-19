@@ -43,7 +43,7 @@ const CONDITION_ID: Record<string, string> = {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function buildAddItemXml(p: any): string {
+function buildAddItemXml(p: any, verify = false): string {
   const title = escapeXml((p.title || `${p.manufacturer} ${p.model}`).slice(0, 80))
   const conditionId = CONDITION_ID[p.condition] ?? '3000'
   const price = p.price ?? 0
@@ -61,8 +61,9 @@ function buildAddItemXml(p: any): string {
     p.country_of_origin ? `      <NameValueList><Name>Country/Region of Manufacture</Name><Value>${escapeXml(p.country_of_origin)}</Value></NameValueList>` : '',
   ].filter(Boolean).join('\n')
 
+  const rootTag = verify ? 'VerifyAddItemRequest' : 'AddItemRequest'
   return `<?xml version="1.0" encoding="utf-8"?>
-<AddItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+<${rootTag} xmlns="urn:ebay:apis:eBLBaseComponents">
   <Version>1271</Version>
   <Item>
     <Title>${title}</Title>
@@ -80,11 +81,11 @@ function buildAddItemXml(p: any): string {
     ${pictureXml ? `<PictureDetails>\n${pictureXml}\n    </PictureDetails>` : ''}
     <ShippingDetails>
       <ShippingType>Flat</ShippingType>
+      <ShipToLocations>WorldWide</ShipToLocations>
       <ShippingServiceOptions>
         <ShippingServicePriority>1</ShippingServicePriority>
         <ShippingService>StandardShippingFromOutsideUS</ShippingService>
         <ShippingServiceCost currencyID="USD">0</ShippingServiceCost>
-        <FreeShipping>false</FreeShipping>
       </ShippingServiceOptions>
       <InternationalShippingServiceOption>
         <ShippingServicePriority>1</ShippingServicePriority>
@@ -103,7 +104,7 @@ function buildAddItemXml(p: any): string {
   </Item>
   <ErrorLanguage>en_US</ErrorLanguage>
   <WarningLevel>High</WarningLevel>
-</AddItemRequest>`
+</${rootTag}>`
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -189,8 +190,20 @@ export async function POST(request: NextRequest) {
     return text
   }
 
+  // ── VerifyAddItem (dry-run, no real listing) ───────────────────────────────
+  if (action === 'verify') {
+    const verifyXml = buildAddItemXml(product, true)
+    console.log('[ebay/listing] VerifyAddItem XML:\n', verifyXml)
+    let xml: string
+    try { xml = await callEbay('VerifyAddItem', verifyXml) }
+    catch (err) { return NextResponse.json({ error: `לא ניתן להתחבר ל-eBay: ${String(err)}` }, { status: 502 }) }
+
+    const { ok, error, rawErrors } = parseAck(xml, 'VerifyAddItemResponse')
+    if (!ok) return NextResponse.json({ error, rawErrors, rawXml: xml }, { status: 200 })
+    return NextResponse.json({ success: true, message: 'VerifyAddItem עבר — המוצר תקין לפרסום' })
+
   // ── AddItem ────────────────────────────────────────────────────────────────
-  if (action === 'add') {
+  } else if (action === 'add') {
     const addXml = buildAddItemXml(product)
     console.log('[ebay/listing] AddItem XML:\n', addXml)
     let xml: string
