@@ -19,43 +19,41 @@ export async function GET() {
   }
 
   const isSandbox = settings.EBAY_SANDBOX !== 'false'
-  const baseUrl = isSandbox
-    ? 'https://api.sandbox.ebay.com'
-    : 'https://api.ebay.com'
+  const base = isSandbox ? 'https://api.sandbox.ebay.com' : 'https://api.ebay.com'
+  const headers = {
+    'Authorization': 'Bearer ' + token,
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+    'X-EBAY-C-MARKETPLACE-ID': 'EBAY_US',
+  }
 
-  const types = ['PAYMENT', 'RETURN_POLICY', 'SHIPPING'] as const
-  const results: Record<string, unknown[]> = {}
+  const endpoints = {
+    payment: base + '/sell/account/v1/payment_policy?marketplace_id=EBAY_US',
+    returnPolicy: base + '/sell/account/v1/return_policy?marketplace_id=EBAY_US',
+    shipping: base + '/sell/account/v1/fulfillment_policy?marketplace_id=EBAY_US',
+  }
 
-  for (const type of types) {
+  const results: Record<string, unknown> = {}
+
+  for (const [key, url] of Object.entries(endpoints)) {
     try {
-      const url = baseUrl + '/sell/account/v1/fulfillment_policy?marketplace_id=EBAY_US'
-      let endpoint = ''
-      if (type === 'PAYMENT') endpoint = baseUrl + '/sell/account/v1/payment_policy?marketplace_id=EBAY_US'
-      else if (type === 'RETURN_POLICY') endpoint = baseUrl + '/sell/account/v1/return_policy?marketplace_id=EBAY_US'
-      else endpoint = baseUrl + '/sell/account/v1/fulfillment_policy?marketplace_id=EBAY_US'
-
-      const res = await fetch(endpoint, {
-        headers: {
-          'Authorization': 'Bearer ' + token,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        signal: AbortSignal.timeout(15000),
-      })
-
+      const res = await fetch(url, { headers, signal: AbortSignal.timeout(15000) })
       const json = await res.json()
       if (!res.ok) {
-        results[type] = [{ error: json }]
+        results[key] = { error: json }
         continue
       }
-
-      if (type === 'PAYMENT') results[type] = json.paymentPolicies || []
-      else if (type === 'RETURN_POLICY') results[type] = json.returnPolicies || []
-      else results[type] = json.fulfillmentPolicies || []
+      if (key === 'payment') {
+        results[key] = (json.paymentPolicies || []).map((p: any) => ({ id: p.paymentPolicyId, name: p.name }))
+      } else if (key === 'returnPolicy') {
+        results[key] = (json.returnPolicies || []).map((p: any) => ({ id: p.returnPolicyId, name: p.name }))
+      } else {
+        results[key] = (json.fulfillmentPolicies || []).map((p: any) => ({ id: p.fulfillmentPolicyId, name: p.name }))
+      }
     } catch (err) {
-      results[type] = [{ error: String(err) }]
+      results[key] = { error: String(err) }
     }
   }
 
-  return NextResponse.json({ policies: results })
+  return NextResponse.json(results)
 }
