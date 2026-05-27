@@ -80,9 +80,9 @@ function buildAddItemXml(p: any, ids: ProfileIds, verify = false): string {
         <ShippingProfileID>${ids.shippingId}</ShippingProfileID>
       </SellerShippingProfile>
     </SellerProfiles>` : `
+    <ShipToLocations>Worldwide</ShipToLocations>
     <ShippingDetails>
       <ShippingType>Flat</ShippingType>
-      <ShipToLocations>WorldWide</ShipToLocations>
       <ShippingServiceOptions>
         <ShippingServicePriority>1</ShippingServicePriority>
         <ShippingService>StandardShippingFromOutsideUS</ShippingService>
@@ -92,7 +92,7 @@ function buildAddItemXml(p: any, ids: ProfileIds, verify = false): string {
         <ShippingServicePriority>1</ShippingServicePriority>
         <ShippingService>StandardInternationalShipping</ShippingService>
         <ShippingServiceCost currencyID="USD">25</ShippingServiceCost>
-        <ShipToLocation>WorldWide</ShipToLocation>
+        <ShipToLocation>Worldwide</ShipToLocation>
       </InternationalShippingServiceOption>
     </ShippingDetails>
     <ReturnPolicy>
