@@ -12,13 +12,11 @@ export async function GET(request: NextRequest): Promise<Response> {
   const { searchParams } = new URL(request.url)
   const code = searchParams.get('code')
   const error = searchParams.get('error')
+  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://industrial-listing-xawr.onrender.com'
 
-  // User declined consent
   if (error || !code) {
-    const reason = error || 'לא התקבל authorization code'
-    return NextResponse.redirect(
-      new URL(`/settings?ebay_oauth=error&reason=${encodeURIComponent(reason)}`, request.url)
-    )
+    const reason = error || 'no authorization code'
+    return NextResponse.redirect(new URL('/settings?ebay_oauth=error&reason=' + encodeURIComponent(reason), baseUrl))
   }
 
   const supabase = getClient()
@@ -31,28 +29,25 @@ export async function GET(request: NextRequest): Promise<Response> {
   const isSandbox = settings.EBAY_SANDBOX !== 'false'
 
   if (!appId || !certId || !ruName) {
-    return NextResponse.redirect(
-      new URL('/settings?ebay_oauth=error&reason=missing_credentials', request.url)
-    )
+    return NextResponse.redirect(new URL('/settings?ebay_oauth=error&reason=missing_credentials', baseUrl))
   }
 
-  // Exchange authorization code for access token + refresh token
   const tokenUrl = isSandbox
     ? 'https://api.sandbox.ebay.com/identity/v1/oauth2/token'
     : 'https://api.ebay.com/identity/v1/oauth2/token'
 
-  const credentials = Buffer.from(`${appId}:${certId}`).toString('base64')
+  const credentials = Buffer.from(appId + ':' + certId).toString('base64')
 
   try {
     const tokenRes = await fetch(tokenUrl, {
       method: 'POST',
       headers: {
-        'Authorization': `Basic ${credentials}`,
+        'Authorization': 'Basic ' + credentials,
         'Content-Type': 'application/x-www-form-urlencoded',
       },
       body: new URLSearchParams({
         grant_type: 'authorization_code',
-        code,
+        code: code,
         redirect_uri: ruName,
       }).toString(),
       signal: AbortSignal.timeout(15000),
@@ -61,14 +56,11 @@ export async function GET(request: NextRequest): Promise<Response> {
     const tokenData = await tokenRes.json()
 
     if (!tokenRes.ok || !tokenData.access_token) {
-      const errMsg = tokenData.error_description || tokenData.error || `HTTP ${tokenRes.status}`
+      const errMsg = tokenData.error_description || tokenData.error || 'HTTP ' + tokenRes.status
       console.error('[oauth/callback] Token exchange failed:', errMsg, tokenData)
-      return NextResponse.redirect(
-        new URL(`/settings?ebay_oauth=error&reason=${encodeURIComponent(errMsg)}`, request.url)
-      )
+      return NextResponse.redirect(new URL('/settings?ebay_oauth=error&reason=' + encodeURIComponent(errMsg), baseUrl))
     }
 
-    // Save tokens to settings
     const now = new Date().toISOString()
     const expiresAt = new Date(Date.now() + (tokenData.expires_in ?? 7200) * 1000).toISOString()
 
@@ -85,18 +77,14 @@ export async function GET(request: NextRequest): Promise<Response> {
 
     if (upsertError) {
       console.error('[oauth/callback] Failed to save tokens:', upsertError)
-      return NextResponse.redirect(
-        new URL('/settings?ebay_oauth=error&reason=save_failed', request.url)
-      )
+      return NextResponse.redirect(new URL('/settings?ebay_oauth=error&reason=save_failed', baseUrl))
     }
 
     console.log('[oauth/callback] Tokens saved successfully. Expires at:', expiresAt)
-    return NextResponse.redirect(new URL('/settings?ebay_oauth=success', request.url))
+    return NextResponse.redirect(new URL('/settings?ebay_oauth=success', baseUrl))
 
   } catch (err) {
     console.error('[oauth/callback] Error:', err)
-    return NextResponse.redirect(
-      new URL(`/settings?ebay_oauth=error&reason=${encodeURIComponent(String(err))}`, request.url)
-    )
+    return NextResponse.redirect(new URL('/settings?ebay_oauth=error&reason=' + encodeURIComponent(String(err)), baseUrl))
   }
 }
