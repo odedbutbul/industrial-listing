@@ -32,7 +32,7 @@ export async function GET() {
     payment: base + '/sell/account/v1/payment_policy?marketplace_id=EBAY_US',
     returnPolicy: base + '/sell/account/v1/return_policy?marketplace_id=EBAY_US',
     shipping: base + '/sell/account/v1/fulfillment_policy?marketplace_id=EBAY_US',
-  }
+  } 
 
   const results: Record<string, unknown> = {}
 
