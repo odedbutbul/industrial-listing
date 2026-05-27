@@ -8,10 +8,11 @@ function getClient() {
   )
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function GET() {
   const supabase = getClient()
   const { data } = await supabase.from('settings').select('key, value')
-  const settings = Object.fromEntries((data ?? []).map((r) => [r.key, r.value ?? '']))
+  const settings = Object.fromEntries((data ?? []).map((r: any) => [r.key, r.value ?? '']))
 
   const token = settings.EBAY_USER_TOKEN
   if (!token) {
@@ -27,7 +28,7 @@ export async function GET() {
     'X-EBAY-C-MARKETPLACE-ID': 'EBAY_US',
   }
 
-  const endpoints = {
+  const endpoints: Record<string, string> = {
     payment: base + '/sell/account/v1/payment_policy?marketplace_id=EBAY_US',
     returnPolicy: base + '/sell/account/v1/return_policy?marketplace_id=EBAY_US',
     shipping: base + '/sell/account/v1/fulfillment_policy?marketplace_id=EBAY_US',
