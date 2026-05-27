@@ -63,6 +63,7 @@ function buildAddItemXml(p: any, ids: ProfileIds, verify = false): string {
 
   const specificsXml = [
     (p.brand || p.manufacturer) ? `      <NameValueList><Name>Brand</Name><Value>${escapeXml(p.brand || p.manufacturer)}</Value></NameValueList>` : '',
+    `      <NameValueList><Name>Model</Name><Value>${escapeXml(p.model || p.mpn || 'N/A')}</Value></NameValueList>`,
     p.mpn               ? `      <NameValueList><Name>MPN</Name><Value>${escapeXml(p.mpn)}</Value></NameValueList>` : '',
     p.country_of_origin ? `      <NameValueList><Name>Country/Region of Manufacture</Name><Value>${escapeXml(p.country_of_origin)}</Value></NameValueList>` : '',
   ].filter(Boolean).join('\n')
@@ -216,7 +217,6 @@ export async function POST(request: NextRequest) {
     return text
   }
 
-  // -- VerifyAddItem (dry-run, no real listing) --
   if (action === 'verify') {
     const verifyXml = buildAddItemXml(product, profileIds, true)
     console.log('[ebay/listing] VerifyAddItem XML:\n', verifyXml)
@@ -228,7 +228,6 @@ export async function POST(request: NextRequest) {
     if (!ok) return NextResponse.json({ error, rawErrors, rawXml: xml }, { status: 200 })
     return NextResponse.json({ success: true, message: 'VerifyAddItem עבר — המוצר תקין לפרסום' })
 
-  // -- AddItem --
   } else if (action === 'add') {
     const addXml = buildAddItemXml(product, profileIds)
     console.log('[ebay/listing] AddItem XML:\n', addXml)
@@ -254,7 +253,6 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true, itemId, ebayUrl })
 
-  // -- ReviseItem --
   } else if (action === 'revise') {
     if (!product.ebay_item_number) {
       return NextResponse.json({ error: 'המוצר לא פורסם ב-eBay עדיין' }, { status: 400 })
@@ -271,7 +269,6 @@ export async function POST(request: NextRequest) {
     await supabase.from('products').update({ status_ebay: 'active' }).eq('id', productId)
     return NextResponse.json({ success: true })
 
-  // -- EndItem --
   } else if (action === 'end') {
     if (!product.ebay_item_number) {
       return NextResponse.json({ error: 'המוצר לא פורסם ב-eBay עדיין' }, { status: 400 })
