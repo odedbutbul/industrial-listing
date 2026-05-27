@@ -36,7 +36,7 @@ function escapeXml(str: string): string {
 
 const CONDITION_ID: Record<string, string> = {
   'New': '1000',
-  'New – Open box': '1500',
+  'New \u2013 Open box': '1500',
   'Seller refurbished': '2500',
   'Used': '3000',
   'For parts or not working': '7000',
@@ -59,7 +59,7 @@ function buildAddItemXml(p: any, ids: ProfileIds, verify = false): string {
   const desc = (p.description || String(title)).replace(/]]>/g, ']] >')
 
   const pictureXml = ((p.images ?? []) as string[]).slice(0, 12)
-    .map((u) => `      <PictureURL>${u}</PictureURL>`).join('\n')
+    .map((u: string) => `      <PictureURL>${u}</PictureURL>`).join('\n')
 
   const specificsXml = [
     (p.brand || p.manufacturer) ? `      <NameValueList><Name>Brand</Name><Value>${escapeXml(p.brand || p.manufacturer)}</Value></NameValueList>` : '',
@@ -85,7 +85,7 @@ function buildAddItemXml(p: any, ids: ProfileIds, verify = false): string {
       <ShippingType>Flat</ShippingType>
       <ShippingServiceOptions>
         <ShippingServicePriority>1</ShippingServicePriority>
-        <ShippingService>OtherInternational</ShippingService>
+        <ShippingService>EconomyShippingFromOutsideUS</ShippingService>
         <ShippingServiceCost currencyID="USD">0</ShippingServiceCost>
         <FreeShipping>true</FreeShipping>
       </ShippingServiceOptions>
@@ -216,7 +216,7 @@ export async function POST(request: NextRequest) {
     return text
   }
 
-  // ── VerifyAddItem (dry-run, no real listing) ───────────────────────────────
+  // -- VerifyAddItem (dry-run, no real listing) --
   if (action === 'verify') {
     const verifyXml = buildAddItemXml(product, profileIds, true)
     console.log('[ebay/listing] VerifyAddItem XML:\n', verifyXml)
@@ -228,7 +228,7 @@ export async function POST(request: NextRequest) {
     if (!ok) return NextResponse.json({ error, rawErrors, rawXml: xml }, { status: 200 })
     return NextResponse.json({ success: true, message: 'VerifyAddItem עבר — המוצר תקין לפרסום' })
 
-  // ── AddItem ────────────────────────────────────────────────────────────────
+  // -- AddItem --
   } else if (action === 'add') {
     const addXml = buildAddItemXml(product, profileIds)
     console.log('[ebay/listing] AddItem XML:\n', addXml)
@@ -254,7 +254,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true, itemId, ebayUrl })
 
-  // ── ReviseItem ─────────────────────────────────────────────────────────────
+  // -- ReviseItem --
   } else if (action === 'revise') {
     if (!product.ebay_item_number) {
       return NextResponse.json({ error: 'המוצר לא פורסם ב-eBay עדיין' }, { status: 400 })
@@ -271,7 +271,7 @@ export async function POST(request: NextRequest) {
     await supabase.from('products').update({ status_ebay: 'active' }).eq('id', productId)
     return NextResponse.json({ success: true })
 
-  // ── EndItem ────────────────────────────────────────────────────────────────
+  // -- EndItem --
   } else if (action === 'end') {
     if (!product.ebay_item_number) {
       return NextResponse.json({ error: 'המוצר לא פורסם ב-eBay עדיין' }, { status: 400 })
