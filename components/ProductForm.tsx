@@ -127,6 +127,26 @@ export default function ProductForm({ product }: { product?: Product }) {
         })
         if (!res.ok) throw new Error()
         toast.success('המוצר עודכן בהצלחה')
+
+        // Auto-revise on eBay if product is listed
+        if (product.ebay_item_number) {
+          try {
+            const ebayRes = await fetch('/api/ebay/listing', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action: 'revise', productId: product.id }),
+            })
+            const ebayData = await ebayRes.json()
+            if (ebayData.error) {
+              toast.error('נשמר במערכת, אבל עדכון eBay נכשל: ' + ebayData.error)
+            } else {
+              toast.success('עודכן גם ב-eBay ✓')
+            }
+          } catch {
+            toast.error('נשמר במערכת, אבל לא הצלחנו לעדכן ב-eBay')
+          }
+        }
+
         router.refresh()
       } else {
         const res = await fetch('/api/products', {
