@@ -14,6 +14,81 @@ async function loadSettings(supabase: ReturnType<typeof getClient>): Promise<Rec
   return Object.fromEntries((data ?? []).map((r) => [r.key, r.value ?? '']))
 }
 
+// Auto-refresh token if expired or about to expire (5 min buffer)
+async function getValidToken(supabase: ReturnType<typeof getClient>, settings: Record<string, string>): Promise<string> {
+  const token = settings.EBAY_USER_TOKEN
+  const expiresAt = settings.EBAY_OAUTH_TOKEN_EXPIRES_AT
+  const refreshToken = settings.EBAY_OAUTH_REFRESH_TOKEN
+  const appId = settings.EBAY_APP_ID
+  const certId = settings.EBAY_CERT_ID
+  const isSandbox = settings.EBAY_SANDBOX !== 'false'
+
+  if (!token) throw new Error('eBay User Token missing')
+
+  // Check if token is still valid (with 5 min buffer)
+  if (expiresAt) {
+    const expiryTime = new Date(expiresAt).getTime()
+    const now = Date.now()
+    const fiveMinutes = 5 * 60 * 1000
+    if (expiryTime - now > fiveMinutes) {
+      return token // Token still valid
+    }
+  }
+
+  // Token expired or about to expire - try refresh
+  if (!refreshToken || !appId || !certId) {
+    console.warn('[listing] Token expired but no refresh credentials available')
+    return token // Return expired token, eBay will reject and user will see the error
+  }
+
+  console.log('[listing] Token expired, refreshing...')
+  const tokenUrl = isSandbox
+    ? 'https://api.sandbox.ebay.com/identity/v1/oauth2/token'
+    : 'https://api.ebay.com/identity/v1/oauth2/token'
+
+  const credentials = Buffer.from(`${appId}:${certId}`).toString('base64')
+  const SCOPES = [
+    'https://api.ebay.com/oauth/api_scope',
+    'https://api.ebay.com/oauth/api_scope/sell.account',
+    'https://api.ebay.com/oauth/api_scope/sell.account.readonly',
+    'https://api.ebay.com/oauth/api_scope/sell.inventory',
+    'https://api.ebay.com/oauth/api_scope/sell.fulfillment',
+  ].join(' ')
+
+  const res = await fetch(tokenUrl, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Basic ${credentials}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: new URLSearchParams({
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+      scope: SCOPES,
+    }).toString(),
+    signal: AbortSignal.timeout(15000),
+  })
+
+  const tokenData = await res.json()
+
+  if (!res.ok || !tokenData.access_token) {
+    console.error('[listing] Token refresh failed:', tokenData)
+    throw new Error('Token refresh failed - please reconnect to eBay in Settings')
+  }
+
+  const now = new Date().toISOString()
+  const newExpiresAt = new Date(Date.now() + (tokenData.expires_in ?? 7200) * 1000).toISOString()
+
+  await supabase.from('settings').upsert([
+    { key: 'EBAY_OAUTH_ACCESS_TOKEN', value: tokenData.access_token, updated_at: now },
+    { key: 'EBAY_OAUTH_TOKEN_EXPIRES_AT', value: newExpiresAt, updated_at: now },
+    { key: 'EBAY_USER_TOKEN', value: tokenData.access_token, updated_at: now },
+  ], { onConflict: 'key' })
+
+  console.log('[listing] Token refreshed automatically. Expires at:', newExpiresAt)
+  return tokenData.access_token
+}
+
 function buildHeaders(token: string, callName: string) {
   return {
     'X-EBAY-API-IAF-TOKEN': token,
@@ -128,6 +203,14 @@ function buildAddItemXml(p: any, ids: ProfileIds, verify = false): string {
 function buildReviseItemXml(p: any): string {
   const title = escapeXml((p.title || `${p.manufacturer} ${p.model}`).slice(0, 80))
   const desc = (p.description || String(title)).replace(/]]>/g, ']] >')
+
+  const specificsXml = [
+    (p.brand || p.manufacturer) ? `      <NameValueList><Name>Brand</Name><Value>${escapeXml(p.brand || p.manufacturer)}</Value></NameValueList>` : '',
+    `      <NameValueList><Name>Model</Name><Value>${escapeXml(p.model || p.mpn || 'N/A')}</Value></NameValueList>`,
+    p.mpn               ? `      <NameValueList><Name>MPN</Name><Value>${escapeXml(p.mpn)}</Value></NameValueList>` : '',
+    p.country_of_origin ? `      <NameValueList><Name>Country/Region of Manufacture</Name><Value>${escapeXml(p.country_of_origin)}</Value></NameValueList>` : '',
+  ].filter(Boolean).join('\n')
+
   return `<?xml version="1.0" encoding="utf-8"?>
 <ReviseItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
   <Version>1271</Version>
@@ -137,6 +220,7 @@ function buildReviseItemXml(p: any): string {
     <Description><![CDATA[${desc}]]></Description>
     <StartPrice currencyID="USD">${p.price ?? 0}</StartPrice>
     <Quantity>${p.quantity ?? 1}</Quantity>
+    ${specificsXml ? `<ItemSpecifics>\n${specificsXml}\n    </ItemSpecifics>` : ''}
   </Item>
   <ErrorLanguage>en_US</ErrorLanguage>
   <WarningLevel>High</WarningLevel>
@@ -188,11 +272,15 @@ export async function POST(request: NextRequest) {
 
   const settings = await loadSettings(supabase)
   const {
-    EBAY_USER_TOKEN, EBAY_SANDBOX,
+    EBAY_SANDBOX,
     EBAY_PAYMENT_PROFILE_ID, EBAY_RETURN_PROFILE_ID, EBAY_SHIPPING_PROFILE_ID,
   } = settings
-  if (!EBAY_USER_TOKEN) {
-    return NextResponse.json({ error: 'eBay User Token חסר — הגדר אותו בהגדרות' }, { status: 400 })
+
+  let validToken: string
+  try {
+    validToken = await getValidToken(supabase, settings)
+  } catch (err) {
+    return NextResponse.json({ error: String(err) }, { status: 401 })
   }
 
   const profileIds: ProfileIds = {
@@ -208,7 +296,7 @@ export async function POST(request: NextRequest) {
   async function callEbay(callName: string, xmlBody: string): Promise<string> {
     const res = await fetch(endpoint, {
       method: 'POST',
-      headers: buildHeaders(EBAY_USER_TOKEN, callName),
+      headers: buildHeaders(validToken, callName),
       body: xmlBody,
       signal: AbortSignal.timeout(30000),
     })
