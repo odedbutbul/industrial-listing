@@ -22,10 +22,10 @@ const EBAY_CONDITIONS = [
 ]
 
 const EBAY_CATEGORIES: { id: string; name: string }[] = [
-  { id: '58277',  name: 'Business & Industrial > Other Business & Industrial' },
+  { id: '26261',  name: 'Business & Industrial > Other Business & Industrial' },
   { id: '71580',  name: 'Business & Industrial > Automation > PLCs & HMIs' },
   { id: '42924',  name: 'Business & Industrial > Electrical Equipment > Circuit Breakers' },
-  { id: '26261',  name: 'Business & Industrial > Test & Measurement' },
+  { id: '58277',  name: 'Business & Industrial > Test, Measurement & Inspection' },
   { id: '56220',  name: 'Business & Industrial > Automation > Drives & Starters' },
   { id: '42917',  name: 'Business & Industrial > Electrical Equipment > Transformers' },
   { id: '3695',   name: 'Business & Industrial > Hydraulics & Pneumatics' },
