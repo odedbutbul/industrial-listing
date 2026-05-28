@@ -54,7 +54,7 @@ export default function PostPreview({ manufacturer, model, category, condition, 
         <p>📌 מצב: <span className="text-gray-900 dark:text-white font-medium">{conditionDisplay}</span></p>
         <p>📅 שנת ייצור: <span className="text-gray-900 dark:text-white font-medium">{year || 'לא צוין'}</span></p>
         <p>📍 מיקום: <span className="text-gray-900 dark:text-white font-medium">{location || 'לא צוין'}</span></p>
-        <p>💰 מחיר: <span className="text-orange-500 font-bold">₪{price?.toLocaleString() || 'לא צוין'}</span></p>
+        <p>💰 מחיר: <span className="text-orange-500 font-bold">${price?.toLocaleString() || 'לא צוין'}</span></p>
         {description && (
           <div className="pt-1">
             <p className="text-gray-500 dark:text-white/40 text-xs">📋 פרטים נוספים:</p>
