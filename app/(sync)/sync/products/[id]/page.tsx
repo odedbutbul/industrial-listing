@@ -6,6 +6,7 @@ import { api } from '@/components/sync/api'
 import { ACTION_LABEL, ago, dateTime, JOB_LABEL, LEDGER_REASON, LEDGER_SOURCE, money, num, stockStatus, WOO_NOT_LINKED } from '@/components/sync/format'
 import { useDataChanged } from '@/components/sync/hooks'
 import type { ProductDetail } from '@/components/sync/types'
+import { WooLink } from '@/components/sync/WooLink'
 import { LoadError, Pill, useLoad } from '@/components/sync/ui'
 import { AlertCircle, AlertTriangle, ArrowRight, Check, ExternalLink, Info, Scale } from 'lucide-react'
 
@@ -87,7 +88,7 @@ export default function ProductPage() {
           </div>
           <div className="ax-kv">
             <span>WooCommerce</span>
-            {m?.wooProductId ? <span className="ax-num ax-ltr">#{m.wooProductId}</span> : <Pill t={WOO_NOT_LINKED[1]}>{WOO_NOT_LINKED[0]}</Pill>}
+            {m?.wooProductId ? <WooLink id={m.wooProductId} /> : <Pill t={WOO_NOT_LINKED[1]}>{WOO_NOT_LINKED[0]}</Pill>}
           </div>
           <div className="ax-kv">
             <span>מחיר ב-eBay</span>

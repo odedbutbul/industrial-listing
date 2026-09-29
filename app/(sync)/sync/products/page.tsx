@@ -9,10 +9,11 @@ import { MISMATCH, money, num, stockStatus, SYNC_OFF, WOO_NOT_LINKED } from '@/c
 import { useDataChanged } from '@/components/sync/hooks'
 import type { ProductRow } from '@/components/sync/types'
 import { SendToStoreDialog } from '@/components/sync/SendToStoreDialog'
+import { WooLink } from '@/components/sync/WooLink'
 import { EmptyState, LoadError, Pill, Seg, Spin, useLoad } from '@/components/sync/ui'
 
 type Page = { products: ProductRow[]; total: number; inStock: number; nextOffset: number | null }
-type Filter = 'all' | 'in_stock' | 'sold_out' | 'mismatch' | 'no_woo' | 'ready'
+type Filter = 'all' | 'in_stock' | 'sold_out' | 'mismatch' | 'no_woo' | 'ready' | 'in_woo'
 const FILTERS: [Filter, string][] = [
   ['all', 'הכל'],
   ['in_stock', 'במלאי'],
@@ -20,6 +21,7 @@ const FILTERS: [Filter, string][] = [
   ['mismatch', 'פערים מול eBay'],
   ['no_woo', 'לא מקושרים לאתר'],
   ['ready', 'מוכנים לחנות'],
+  ['in_woo', 'בחנות'],
 ]
 
 /** כמה מוצרים אפשר לשלוח לחנות בפעם אחת (כמו MAX_SELECTION בשרת) */
@@ -147,7 +149,8 @@ function Products() {
         </div>
       ) : (
         <>
-          <div className="ax-card" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: '10px 20px' }}>
+          {filter !== 'in_woo' && (
+            <div className="ax-card" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: '10px 20px' }}>
             <label className="ax-check" style={{ minHeight: 44 }}>
               <input type="checkbox" checked={allSelected} onChange={toggleAll} disabled={!selectable.length} />
               בחירת כל המוצגים שעוד לא בחנות
@@ -171,7 +174,8 @@ function Products() {
               <Store size={18} aria-hidden="true" />
               שליחה לחנות
             </button>
-          </div>
+            </div>
+          )}
           <section className="ax-card" aria-label="רשימת מוצרים">
             <div className="ax-only-desktop">
               <div className="ax-table-wrap">
@@ -226,7 +230,7 @@ function Products() {
                           <td style={{ whiteSpace: 'nowrap' }}>
                             <span className="ax-num">{money(r.price, r.currency)}</span>
                           </td>
-                          <td>{r.wooProductId ? <span className="ax-num ax-ltr">#{r.wooProductId}</span> : <Pill t={WOO_NOT_LINKED[1]}>{WOO_NOT_LINKED[0]}</Pill>}</td>
+                          <td onClick={(e) => r.wooProductId && e.stopPropagation()}>{r.wooProductId ? <WooLink id={r.wooProductId} /> : <Pill t={WOO_NOT_LINKED[1]}>{WOO_NOT_LINKED[0]}</Pill>}</td>
                           <td>
                             <Pills r={r} mismatch={mismatch} />
                           </td>
@@ -268,6 +272,11 @@ function Products() {
                         </span>
                       </span>
                       <span className="ax-num">{money(r.price, r.currency)}</span>
+                      {r.wooProductId && (
+                        <span>
+                          <bdi className="ax-muted">בחנות</bdi> <WooLink id={r.wooProductId} />
+                        </span>
+                      )}
                     </div>
                     <Pills r={r} mismatch={mismatch} />
                   </div>

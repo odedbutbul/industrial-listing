@@ -85,6 +85,8 @@ export const JOB_LABEL: Record<string, string> = {
   'enrich-ebay': 'פרטי מוצרים מ-eBay',
   'ebay-auth': 'חיבור eBay',
   'poll-ebay-orders': 'הזמנות מ-eBay',
+  woo_products: 'שליחה לחנות',
+  woo_connection: 'חיבור WooCommerce',
 }
 
 export const ACTION_LABEL: Record<string, string> = {
@@ -98,6 +100,9 @@ export const ACTION_LABEL: Record<string, string> = {
   refresh: 'חידוש Token',
   apply_order: 'קליטת הזמנה',
   oversold: 'מכירה מעבר למלאי',
+  create_product: 'יצירת מוצר בחנות',
+  link_product: 'קישור למוצר קיים בחנות',
+  test: 'בדיקת חיבור',
 }
 
 export const SKIP_REASON: Record<string, string> = {

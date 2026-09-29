@@ -92,7 +92,17 @@ export default function OverviewPage() {
             ) : (
               <Kpi label="פערים מול eBay" value="0" sub="המלאי תואם ל-eBay" />
             )}
-            <Kpi label="מקושרים לאתר" value={num(c!.wooLinked)} sub="WooCommerce עוד לא מחובר" />
+            <Kpi
+              label="בחנות"
+              value={num(c!.wooLinked)}
+              sub={
+                c!.wooLinked ? (
+                  <Link href="/sync/products?filter=in_woo">לרשימת המוצרים שבחנות</Link>
+                ) : (
+                  <Link href="/sync/products?filter=ready">בחירת מוצרים לשליחה</Link>
+                )
+              }
+            />
             {c!.errors24h ? (
               <Kpi label="תקלות ב-24 שעות" value={num(c!.errors24h)} sub="פרטים בלוג" critical />
             ) : (
