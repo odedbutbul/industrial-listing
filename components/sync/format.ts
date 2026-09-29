@@ -82,6 +82,7 @@ export const LEDGER_SOURCE: Record<string, string> = {
 
 export const JOB_LABEL: Record<string, string> = {
   'import-ebay': 'ייבוא מ-eBay',
+  'enrich-ebay': 'פרטי מוצרים מ-eBay',
   'ebay-auth': 'חיבור eBay',
 }
 
@@ -90,6 +91,8 @@ export const ACTION_LABEL: Record<string, string> = {
   import_item: 'ייבוא מוצר',
   get_item: 'קריאת מודעה',
   qty_mismatch: 'פער כמות',
+  skip_item: 'דילוג על מודעה',
+  import_batch: 'שמירת מנה',
   connect: 'התחברות',
   refresh: 'חידוש Token',
 }
@@ -97,4 +100,5 @@ export const ACTION_LABEL: Record<string, string> = {
 export const SKIP_REASON: Record<string, string> = {
   variations_unsupported: 'מודעה עם וריאציות (לא נתמך עדיין)',
   duplicate_sku: 'SKU כפול',
+  no_quantity: 'בלי כמות זמינה',
 }

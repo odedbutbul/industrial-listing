@@ -86,9 +86,13 @@ export interface ActiveListingSummary {
   itemId: string
   title: string
   sku: string | null
+  /** כמות שנותרה למכירה (ב-ActiveList eBay כבר מחשב Quantity − QuantitySold) */
   quantityAvailable: number | null
+  totalQty: number | null
   price: string | null
   currency: string | null
+  galleryUrl: string | null
+  viewItemUrl: string | null
   hasVariations: boolean
   startTime: string | null
 }
@@ -100,12 +104,18 @@ export interface ActiveListingsPage {
 }
 
 export async function getActiveListingsPage(page: number, perPage = 200): Promise<ActiveListingsPage> {
+  // רק ActiveList. בלי ההחרגות eBay מחזיר גם SoldList/UnsoldList באותה תשובה.
   const r = await tradingCall(
     'GetMyeBaySelling',
     `  <ActiveList>
     <Include>true</Include>
     <Pagination><EntriesPerPage>${perPage}</EntriesPerPage><PageNumber>${page}</PageNumber></Pagination>
   </ActiveList>
+  <SoldList><Include>false</Include></SoldList>
+  <UnsoldList><Include>false</Include></UnsoldList>
+  <ScheduledList><Include>false</Include></ScheduledList>
+  <DeletedFromSoldList><Include>false</Include></DeletedFromSoldList>
+  <DeletedFromUnsoldList><Include>false</Include></DeletedFromUnsoldList>
   <DetailLevel>ReturnAll</DetailLevel>`,
   )
   const active = (r.ActiveList ?? {}) as XmlNode
@@ -118,15 +128,20 @@ export async function getActiveListingsPage(page: number, perPage = 200): Promis
     items: rawItems.map((i) => {
       const selling = (i.SellingStatus ?? {}) as XmlNode
       const { amount, currency } = money(selling.CurrentPrice ?? i.BuyItNowPrice)
+      const details = (i.ListingDetails ?? {}) as XmlNode
+      const pics = (i.PictureDetails ?? {}) as XmlNode
       return {
         itemId: String(i.ItemID),
         title: String(i.Title ?? ''),
         sku: str(i.SKU),
         quantityAvailable: int(i.QuantityAvailable),
+        totalQty: int(i.Quantity),
         price: amount,
         currency,
+        galleryUrl: str(pics.GalleryURL),
+        viewItemUrl: str(details.ViewItemURL),
         hasVariations: !!i.Variations,
-        startTime: str((i.ListingDetails as XmlNode | undefined)?.StartTime),
+        startTime: str(details.StartTime),
       }
     }),
   }

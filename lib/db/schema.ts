@@ -81,6 +81,8 @@ export const products = pgTable('products', {
   ebayCategoryId: text('ebay_category_id'),
   ebayCategoryName: text('ebay_category_name'),
   archived: boolean('archived').notNull().default(false),
+  /** מתי נקראו הפרטים המלאים (GetItem: תיאור, כל התמונות, מותג). null = רק מה שיש ברשימה. */
+  detailsFetchedAt: timestamp('details_fetched_at', { withTimezone: true }),
   ...timestamps,
 })
 

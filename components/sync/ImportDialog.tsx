@@ -1,63 +1,109 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { api, announceDataChanged } from './api'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { api, announceDataChanged, ApiError } from './api'
 import { num, SKIP_REASON } from './format'
-import type { ImportResult } from './types'
+import type { BackgroundRun, ImportResult } from './types'
 import { Modal, tone, useToast } from './ui'
 
 /**
- * ייבוא מ-eBay בשני שלבים: קודם dry-run שמראה מה ייובא (בלי לכתוב כלום),
- * ורק אחרי אישור — הייבוא עצמו. קריאה בלבד מול eBay בשני השלבים.
+ * ייבוא מ-eBay בשני שלבים, שניהם ברקע בשרת (בקשה ארוכה נחתכת ע"י Cloudflare):
+ * קודם תצוגה מקדימה (לא כותבת כלום), ורק אחרי אישור — הייבוא. קריאה בלבד מול eBay.
  */
 export function ImportDialog({ onClose }: { onClose: () => void }) {
   const toast = useToast()
+  const [run, setRun] = useState<BackgroundRun | null>(null)
   const [preview, setPreview] = useState<ImportResult | null>(null)
   const [error, setError] = useState('')
-  const [running, setRunning] = useState(false)
+  const timer = useRef<number>(0)
 
-  const loadPreview = () => {
-    setError('')
-    setPreview(null)
-    api.post<ImportResult>('/api/ebay/import', { dryRun: true }).then(setPreview, (e: Error) => setError(e.message))
-  }
-  useEffect(loadPreview, [])
+  const poll = useCallback(
+    (runId: string, onDone: (r: BackgroundRun) => void) => {
+      window.clearTimeout(timer.current)
+      const tick = async () => {
+        try {
+          const r = await api.get<BackgroundRun>(`/api/ebay/import?runId=${runId}`)
+          setRun(r)
+          if (r.status === 'running') timer.current = window.setTimeout(tick, 1500)
+          else if (r.status === 'failed') setError(r.error ?? 'הפעולה נכשלה')
+          else onDone(r)
+        } catch (e) {
+          setError(e instanceof Error ? e.message : 'אין חיבור לשרת')
+        }
+      }
+      void tick()
+    },
+    [],
+  )
 
-  const run = async () => {
-    setRunning(true)
-    try {
-      const r = await api.post<ImportResult>('/api/ebay/import', { dryRun: false })
-      toast(r.errors.length ? `יובאו ${num(r.created)} מוצרים, ${r.errors.length} נכשלו — פרטים בלוג` : `יובאו ${num(r.created)} מוצרים`, r.errors.length ? 'bad' : 'ok')
-      announceDataChanged()
-      onClose()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'הייבוא נכשל')
-      setRunning(false)
-    }
-  }
+  const start = useCallback(
+    async (mode: 'preview' | 'import') => {
+      setError('')
+      try {
+        const { runId } = await api.post<{ runId: string }>('/api/ebay/import', { mode })
+        poll(runId, (r) => {
+          const result = r.result as ImportResult
+          if (mode === 'preview') setPreview(result)
+          else {
+            toast(result.errors.length ? `יובאו ${num(result.created)} מוצרים, ${num(result.errors.length)} נכשלו — פרטים בלוג` : `יובאו ${num(result.created)} מוצרים`, result.errors.length ? 'bad' : 'ok')
+            announceDataChanged()
+            onClose()
+          }
+        })
+      } catch (e) {
+        // 409: כבר רצה פעולה — מצטרפים אליה במקום להתחיל חדשה
+        if (e instanceof ApiError && e.status === 409) {
+          const current = await api.get<BackgroundRun>('/api/ebay/import').catch(() => null)
+          if (current?.id) {
+            setError('')
+            poll(current.id, (r) => (r.kind === 'import-preview' ? setPreview(r.result as ImportResult) : (announceDataChanged(), onClose())))
+            return
+          }
+        }
+        setError(e instanceof Error ? e.message : 'הפעולה נכשלה')
+      }
+    },
+    [poll, toast, onClose],
+  )
 
+  useEffect(() => {
+    void start('preview')
+    return () => window.clearTimeout(timer.current)
+  }, [start])
+
+  const running = run?.status === 'running'
+  const importing = running && run?.kind === 'import'
+  const p = run?.progress
+  const pct = p && p.total ? Math.round((p.done / p.total) * 100) : 0
   const skippedByReason = preview
-    ? Object.entries(
-        preview.skipped.reduce<Record<string, number>>((acc, s) => ({ ...acc, [s.reason]: (acc[s.reason] ?? 0) + 1 }), {}),
-      )
+    ? Object.entries(preview.skipped.reduce<Record<string, number>>((acc, s) => ({ ...acc, [s.reason]: (acc[s.reason] ?? 0) + 1 }), {}))
     : []
 
   return (
-    <Modal label="ייבוא מוצרים מ-eBay" onClose={running ? () => {} : onClose} wide>
+    <Modal label="ייבוא מוצרים מ-eBay" onClose={importing ? () => {} : onClose} wide>
       <h2>ייבוא מוצרים מ-eBay</h2>
-      <p>קריאה בלבד — שום דבר לא משתנה בחשבון eBay. מוצר חדש נכנס עם המלאי שיש לו ב-eBay; מוצר קיים לא משתנה.</p>
+      <p>קריאה בלבד — שום דבר לא משתנה בחשבון eBay. נקראת רשימת המודעות הפעילות (SKU, כמות, כותרת, מחיר). מוצר חדש נכנס עם המלאי שיש לו ב-eBay; מוצר קיים לא משתנה.</p>
 
       {error ? (
         <div className="alert-box" style={tone('bad')} role="alert">
           <i className="ph-fill ph-warning-circle" />
           <span>{error}</span>
         </div>
-      ) : !preview ? (
-        <div className="inner" style={{ padding: 16, display: 'flex', alignItems: 'center', gap: 10, color: 'var(--text2)' }} role="status">
-          <i className="ph ph-circle-notch spin" style={{ fontSize: 18 }} />
-          בודק מה יש ב-eBay…
+      ) : running || (!preview && !error) ? (
+        <div className="inner" style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }} role="status" aria-live="polite">
+          <span style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--text2)' }}>
+            <i className="ph ph-circle-notch spin" style={{ fontSize: 18 }} />
+            {!p
+              ? 'מתחיל…'
+              : p.phase === 'pages'
+                ? `קורא מודעות מ-eBay — דף ${num(p.done)} מתוך ${num(p.total)}`
+                : `שומר מוצרים — ${num(p.done)} מתוך ${num(p.total)}`}
+          </span>
+          <div style={{ height: 6, borderRadius: 999, background: 'var(--hover2)', overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${pct}%`, borderRadius: 999, background: 'var(--accent)', transition: 'width 0.4s' }} />
+          </div>
         </div>
-      ) : (
+      ) : preview ? (
         <div className="inner" style={{ display: 'flex', flexDirection: 'column' }}>
           <Row label="מודעות פעילות ב-eBay" value={num(preview.totalOnEbay)} />
           <Row label="מוצרים חדשים שייובאו" value={num(preview.created)} strong />
@@ -67,23 +113,23 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
           ))}
           {preview.generatedSkus.length > 0 && <Row label="בלי SKU ב-eBay (יקבלו SKU פנימי EBAY-…)" value={num(preview.generatedSkus.length)} />}
           {preview.mismatches.length > 0 && <Row label="פערי כמות בין המערכת ל-eBay" value={num(preview.mismatches.length)} tone="warn" />}
-          {preview.errors.length > 0 && <Row label="מודעות שלא נקראו (שגיאה)" value={num(preview.errors.length)} tone="bad" last />}
+          <Row label="קריאות ל-eBay בתצוגה המקדימה" value={num(preview.ebayCalls)} last />
         </div>
-      )}
+      ) : null}
 
       <div className="row-actions">
         {error ? (
-          <button type="button" className="btn primary" onClick={loadPreview}>
+          <button type="button" className="btn primary" onClick={() => start('preview')}>
             נסה שוב
           </button>
         ) : (
-          <button type="button" className="btn primary" disabled={!preview || preview.created === 0 || running} onClick={run}>
-            {running && <i className="ph ph-circle-notch spin" />}
-            {running ? 'מייבא…' : preview && preview.created === 0 ? 'אין מוצרים חדשים' : `ייבוא ${preview ? num(preview.created) : ''} מוצרים`}
+          <button type="button" className="btn primary" disabled={!preview || preview.created === 0 || running} onClick={() => start('import')}>
+            {importing && <i className="ph ph-circle-notch spin" />}
+            {importing ? 'מייבא…' : preview && preview.created === 0 ? 'אין מוצרים חדשים' : `ייבוא ${preview ? num(preview.created) : ''} מוצרים`}
           </button>
         )}
-        <button type="button" className="btn" onClick={onClose} disabled={running}>
-          סגירה
+        <button type="button" className="btn" onClick={onClose} disabled={importing}>
+          {running && !importing ? 'סגירה (ממשיך ברקע)' : 'סגירה'}
         </button>
       </div>
     </Modal>

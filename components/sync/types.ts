@@ -95,12 +95,23 @@ export interface ImportResult {
   dryRun: boolean
   pagesRead: number
   totalOnEbay: number
+  ebayCalls: number
   created: number
-  updated: number
   unchanged: number
   skipped: { itemId: string; reason: string; detail?: string }[]
   mismatches: { itemId: string; sku: string; ledgerQty: number; ebayQty: number }[]
   errors: { itemId: string; error: string }[]
   generatedSkus: { itemId: string; sku: string }[]
   durationMs: number
+}
+
+export interface BackgroundRun {
+  id: string
+  kind: 'import-preview' | 'import' | 'enrich'
+  status: 'running' | 'done' | 'failed'
+  startedAt: string
+  finishedAt: string | null
+  progress: { phase: 'pages' | 'writing' | 'details'; done: number; total: number } | null
+  result: unknown
+  error: string | null
 }

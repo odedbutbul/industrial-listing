@@ -1,29 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { EbayAuthError } from '@/lib/ebay/auth'
-import { EbayConfigError } from '@/lib/ebay/config'
-import { importEbayListings } from '@/lib/sync/import-ebay'
-import { JobLockedError } from '@/lib/sync/lock'
+import { getRun, runningRun, startRun } from '@/lib/sync/background'
+import { enrichProductDetails, importEbayListings } from '@/lib/sync/import-ebay'
 
-// POST /api/ebay/import — ייבוא מודעות פעילות מ-eBay ל-Postgres. קריאה בלבד מול eBay.
-// body: { dryRun?: boolean, refreshExisting?: boolean, maxPages?: number }
+// ייבוא מ-eBay ברקע — קריאה בלבד מול eBay.
+// POST { mode: 'preview' | 'import' | 'enrich', limit? } → { runId } (202). ריצה שכבר רצה מוחזרת במקום חדשה (409).
+// GET ?runId=… → מצב הריצה והתוצאה.   GET בלי runId → הריצה שרצה עכשיו, אם יש.
 
 export const dynamic = 'force-dynamic'
-export const maxDuration = 300
 
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => ({}))
-  try {
-    const result = await importEbayListings({
-      dryRun: body.dryRun === true,
-      refreshExisting: body.refreshExisting === true,
-      maxPages: typeof body.maxPages === 'number' ? body.maxPages : undefined,
-    })
-    return NextResponse.json(result)
-  } catch (err) {
-    if (err instanceof JobLockedError) return NextResponse.json({ error: err.message }, { status: 409 })
-    if (err instanceof EbayConfigError) return NextResponse.json({ error: err.message }, { status: 400 })
-    if (err instanceof EbayAuthError) return NextResponse.json({ error: err.message }, { status: 401 })
-    console.error('[ebay/import] failed:', err)
-    return NextResponse.json({ error: err instanceof Error ? err.message : String(err) }, { status: 500 })
-  }
+  const mode = body.mode === 'import' || body.mode === 'enrich' ? body.mode : 'preview'
+
+  const { run, started } =
+    mode === 'enrich'
+      ? startRun('enrich', (onProgress) => enrichProductDetails({ limit: Number(body.limit) || 200, onProgress }))
+      : startRun(mode === 'import' ? 'import' : 'import-preview', (onProgress) => importEbayListings({ dryRun: mode !== 'import', onProgress }))
+
+  return NextResponse.json(
+    started ? { runId: run.id } : { runId: run.id, error: 'כבר רצה פעולה אחרת — מחכים שתסתיים', kind: run.kind },
+    { status: started ? 202 : 409 },
+  )
+}
+
+export async function GET(request: NextRequest) {
+  const id = request.nextUrl.searchParams.get('runId')
+  const run = id ? getRun(id) : runningRun()
+  if (!run) return NextResponse.json({ error: id ? 'הריצה לא נמצאה (ייתכן שהשרת הופעל מחדש)' : null }, { status: id ? 404 : 200 })
+  return NextResponse.json(run)
 }

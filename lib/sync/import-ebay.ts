@@ -1,28 +1,34 @@
 import { randomUUID } from 'node:crypto'
-import { eq, inArray, sql } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm'
 import { db, schema } from '@/lib/db/client'
-import { getActiveListingsPage, getItem, type ActiveListingSummary, type EbayItemDetail } from '@/lib/ebay/trading'
+import { getActiveListingsPage, getItem, type ActiveListingSummary } from '@/lib/ebay/trading'
 import { withJobLock } from './lock'
 import { writeSyncLog } from './log'
 
-// ייבוא מודעות פעילות מ-eBay ל-Postgres. קריאה בלבד מול eBay (GetMyeBaySelling + GetItem).
+// ייבוא מודעות פעילות מ-eBay ל-Postgres. קריאה בלבד מול eBay.
 //
-// - מוצר חדש: products + channel_mappings + רשומת מלאי פתיחה ב-ledger (פעם אחת, לפי idempotency key).
-// - מוצר קיים: לא נוגעים ב-ledger. משווים את הכמות ב-eBay למלאי ב-ledger ומדווחים על פער
-//   (התיקון הוא עניין של job ההתאמה, לא של הייבוא).
-// - מודעות עם וריאציות: מדולגות ומדווחות (לא נתמך בגרסה הזו).
-// - dryRun: אין שום כתיבה ל-DB.
+// שלב 1 — importEbayListings: רק GetMyeBaySelling (200 מודעות לקריאה; ~34 קריאות לחנות של 6,600).
+//   מספיק לסנכרון מלאי: ItemID, SKU, כמות זמינה, כותרת, מחיר, תמונה ראשית.
+//   - מוצר חדש: products + channel_mappings + מלאי פתיחה ב-ledger (פעם אחת, לפי idempotency key).
+//   - מוצר קיים: לא נוגעים ב-ledger. פער בין ה-ledger לכמות ב-eBay מדווח (התיקון — job ההתאמה).
+//   - וריאציות / SKU כפול: מדולגים ומדווחים.
+//   - dryRun: אין שום כתיבה ל-DB.
+// שלב 2 — enrichProductDetails: GetItem למוצרים בלי פרטים מלאים, במנות מוגבלות (מכסת קריאות יומית של eBay).
 
 export const IMPORT_JOB = 'import-ebay'
+export const ENRICH_JOB = 'enrich-ebay'
+
+export interface ImportProgress {
+  phase: 'pages' | 'writing' | 'details'
+  done: number
+  total: number
+}
 
 export interface ImportOptions {
   dryRun?: boolean
-  /** לקרוא GetItem גם למוצרים קיימים ולעדכן את פרטיהם (לא את המלאי) */
-  refreshExisting?: boolean
-  /** הגבלת מספר דפים (200 מודעות לדף) — לבדיקות */
+  /** הגבלת מספר דפים — לבדיקות */
   maxPages?: number
-  /** קריאות GetItem במקביל */
-  concurrency?: number
+  onProgress?: (p: ImportProgress) => void
 }
 
 export interface ImportResult {
@@ -30,8 +36,8 @@ export interface ImportResult {
   dryRun: boolean
   pagesRead: number
   totalOnEbay: number
+  ebayCalls: number
   created: number
-  updated: number
   unchanged: number
   skipped: { itemId: string; reason: string; detail?: string }[]
   mismatches: { itemId: string; sku: string; ledgerQty: number; ebayQty: number }[]
@@ -40,53 +46,26 @@ export interface ImportResult {
   durationMs: number
 }
 
-async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<PromiseSettledResult<R>[]> {
-  const results: PromiseSettledResult<R>[] = new Array(items.length)
-  let next = 0
-  async function worker() {
-    while (next < items.length) {
-      const i = next++
-      try {
-        results[i] = { status: 'fulfilled', value: await fn(items[i]) }
-      } catch (reason) {
-        results[i] = { status: 'rejected', reason }
-      }
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
-  return results
-}
-
 /** SKU אחרי ניקוי. אם אין SKU ב-eBay — מזהה פנימי יציב (לא נכתב חזרה ל-eBay). */
-function resolveSku(detail: EbayItemDetail | null, summary: ActiveListingSummary): { sku: string; generated: boolean } {
-  const raw = (detail?.sku ?? summary.sku ?? '').trim()
+function resolveSku(summary: ActiveListingSummary): { sku: string; generated: boolean } {
+  const raw = (summary.sku ?? '').trim()
   if (raw) return { sku: raw, generated: false }
   return { sku: `EBAY-${summary.itemId}`, generated: true }
 }
 
-async function ledgerAvailable(productIds: string[]): Promise<Map<string, number>> {
-  if (!productIds.length) return new Map()
-  const rows = await db
-    .select({ productId: schema.stockLedger.productId, qty: sql<number>`coalesce(sum(${schema.stockLedger.delta}), 0)::int` })
-    .from(schema.stockLedger)
-    .where(inArray(schema.stockLedger.productId, productIds))
-    .groupBy(schema.stockLedger.productId)
-  return new Map(rows.map((r) => [r.productId, r.qty]))
-}
+const chunk = <T,>(arr: T[], n: number) => Array.from({ length: Math.ceil(arr.length / n) }, (_, i) => arr.slice(i * n, i * n + n))
 
-function productFields(d: EbayItemDetail) {
-  return {
-    title: d.title,
-    description: d.description,
-    condition: d.condition,
-    price: d.price,
-    currency: d.currency ?? 'USD',
-    images: d.images,
-    brand: d.brand,
-    mpn: d.mpn,
-    ebayCategoryId: d.categoryId,
-    ebayCategoryName: d.categoryName,
+async function ledgerAvailable(productIds: string[]): Promise<Map<string, number>> {
+  const out = new Map<string, number>()
+  for (const ids of chunk(productIds, 1000)) {
+    const rows = await db
+      .select({ productId: schema.stockLedger.productId, qty: sql<number>`coalesce(sum(${schema.stockLedger.delta}), 0)::int` })
+      .from(schema.stockLedger)
+      .where(inArray(schema.stockLedger.productId, ids))
+      .groupBy(schema.stockLedger.productId)
+    for (const r of rows) out.set(r.productId, r.qty)
   }
+  return out
 }
 
 export async function importEbayListings(opts: ImportOptions = {}): Promise<ImportResult> {
@@ -96,13 +75,14 @@ export async function importEbayListings(opts: ImportOptions = {}): Promise<Impo
 async function runImport(opts: ImportOptions): Promise<ImportResult> {
   const started = Date.now()
   const dryRun = !!opts.dryRun
+  const progress = opts.onProgress ?? (() => {})
   const result: ImportResult = {
     runId: randomUUID(),
     dryRun,
     pagesRead: 0,
     totalOnEbay: 0,
+    ebayCalls: 0,
     created: 0,
-    updated: 0,
     unchanged: 0,
     skipped: [],
     mismatches: [],
@@ -110,8 +90,8 @@ async function runImport(opts: ImportOptions): Promise<ImportResult> {
     generatedSkus: [],
     durationMs: 0,
   }
-  const log = (entry: Omit<typeof schema.syncLog.$inferInsert, 'job' | 'runId' | 'channel'>) =>
-    dryRun ? Promise.resolve() : writeSyncLog({ job: IMPORT_JOB, runId: result.runId, channel: 'ebay', ...entry })
+  const log = (entries: Omit<typeof schema.syncLog.$inferInsert, 'job' | 'runId' | 'channel'>[]) =>
+    dryRun ? Promise.resolve() : writeSyncLog(entries.map((e) => ({ job: IMPORT_JOB, runId: result.runId, channel: 'ebay' as const, ...e })))
 
   // 1. כל המודעות הפעילות
   const summaries: ActiveListingSummary[] = []
@@ -119,172 +99,255 @@ async function runImport(opts: ImportOptions): Promise<ImportResult> {
   let totalPages = 1
   do {
     const p = await getActiveListingsPage(page)
+    result.ebayCalls++
     summaries.push(...p.items)
-    totalPages = p.totalPages
+    totalPages = opts.maxPages ? Math.min(p.totalPages, opts.maxPages) : p.totalPages
     result.totalOnEbay = p.totalEntries
     result.pagesRead = page
+    progress({ phase: 'pages', done: page, total: totalPages })
     page++
-  } while (page <= totalPages && (!opts.maxPages || page <= opts.maxPages))
+  } while (page <= totalPages)
+
+  // מודעה שמופיעה פעמיים (דפדוף תוך כדי שינוי ב-eBay) — פעם אחת בלבד
+  const seen = new Set<string>()
+  const listings = summaries.filter((s) => (seen.has(s.itemId) ? false : (seen.add(s.itemId), true)))
 
   // 2. מה כבר קיים
-  const itemIds = summaries.map((s) => s.itemId)
-  const existing = itemIds.length
-    ? await db.select().from(schema.channelMappings).where(inArray(schema.channelMappings.ebayItemId, itemIds))
-    : []
-  const byItemId = new Map(existing.map((m) => [m.ebayItemId!, m]))
-  const available = await ledgerAvailable(existing.map((m) => m.productId))
+  const byItemId = new Map<string, typeof schema.channelMappings.$inferSelect>()
+  for (const ids of chunk(listings.map((s) => s.itemId), 1000)) {
+    const rows = await db.select().from(schema.channelMappings).where(inArray(schema.channelMappings.ebayItemId, ids))
+    for (const m of rows) byItemId.set(m.ebayItemId!, m)
+  }
+  const available = await ledgerAvailable(Array.from(byItemId.values()).map((m) => m.productId))
 
-  // 3. סיווג
-  const needDetail: ActiveListingSummary[] = []
-  for (const s of summaries) {
+  // SKU → מי מחזיק בו (ב-DB)
+  const takenSkus = new Map<string, string | null>()
+  const candidateSkus = Array.from(new Set(listings.filter((s) => !byItemId.has(s.itemId)).map((s) => resolveSku(s).sku)))
+  for (const skus of chunk(candidateSkus, 1000)) {
+    const rows = await db
+      .select({ sku: schema.channelMappings.sku, ebayItemId: schema.channelMappings.ebayItemId })
+      .from(schema.channelMappings)
+      .where(inArray(schema.channelMappings.sku, skus))
+    for (const r of rows) takenSkus.set(r.sku, r.ebayItemId)
+  }
+  // SKU שמופיע ביותר ממודעה אחת בריצה הזו — אף אחת מהן לא ממופה (לא מנחשים איזו נכונה)
+  const skuCount = new Map<string, number>()
+  for (const s of listings) if (!byItemId.has(s.itemId)) skuCount.set(resolveSku(s).sku, (skuCount.get(resolveSku(s).sku) ?? 0) + 1)
+
+  // 3. סיווג וכתיבה
+  const toCreate: ActiveListingSummary[] = []
+  const qtyUpdates: { id: string; qty: number }[] = []
+  for (const s of listings) {
     if (s.hasVariations) {
       result.skipped.push({ itemId: s.itemId, reason: 'variations_unsupported' })
       continue
     }
     const m = byItemId.get(s.itemId)
-    if (!m) needDetail.push(s)
-    else if (opts.refreshExisting) needDetail.push(s)
-    else {
+    if (m) {
       result.unchanged++
       if (s.quantityAvailable !== null) {
         const ledgerQty = available.get(m.productId) ?? 0
-        if (ledgerQty !== s.quantityAvailable) {
-          result.mismatches.push({ itemId: s.itemId, sku: m.sku, ledgerQty, ebayQty: s.quantityAvailable })
-        }
-        if (!dryRun) {
-          await db
-            .update(schema.channelMappings)
-            .set({ lastEbayQty: s.quantityAvailable, lastSyncedAt: new Date() })
-            .where(eq(schema.channelMappings.id, m.id))
-        }
+        if (ledgerQty !== s.quantityAvailable) result.mismatches.push({ itemId: s.itemId, sku: m.sku, ledgerQty, ebayQty: s.quantityAvailable })
+        if (m.lastEbayQty !== s.quantityAvailable) qtyUpdates.push({ id: m.id, qty: s.quantityAvailable })
       }
-    }
-  }
-
-  // 4. GetItem
-  const details = await mapWithConcurrency(needDetail, opts.concurrency ?? 4, (s) => getItem(s.itemId))
-
-  // SKUs שכבר תפוסים (ב-DB או בריצה הזו)
-  const takenSkus = new Map(existing.map((m) => [m.sku, m.ebayItemId]))
-  const newSkus = needDetail
-    .map((s, i) => (details[i].status === 'fulfilled' ? resolveSku((details[i] as PromiseFulfilledResult<EbayItemDetail>).value, s).sku : null))
-    .filter((x): x is string => !!x)
-  if (newSkus.length) {
-    const rows = await db
-      .select({ sku: schema.channelMappings.sku, ebayItemId: schema.channelMappings.ebayItemId })
-      .from(schema.channelMappings)
-      .where(inArray(schema.channelMappings.sku, newSkus))
-    for (const r of rows) takenSkus.set(r.sku, r.ebayItemId)
-  }
-
-  // 5. כתיבה
-  for (let i = 0; i < needDetail.length; i++) {
-    const s = needDetail[i]
-    const d = details[i]
-    if (d.status === 'rejected') {
-      const error = d.reason instanceof Error ? d.reason.message : String(d.reason)
-      result.errors.push({ itemId: s.itemId, error })
-      await log({ action: 'get_item', success: false, error, details: { itemId: s.itemId } })
       continue
     }
-    const detail = d.value
-    if (detail.hasVariations) {
-      result.skipped.push({ itemId: s.itemId, reason: 'variations_unsupported' })
+    const { sku, generated } = resolveSku(s)
+    const owner = takenSkus.get(sku)
+    if (owner !== undefined && owner !== s.itemId) {
+      result.skipped.push({ itemId: s.itemId, reason: 'duplicate_sku', detail: `SKU ${sku} כבר ממופה למודעה ${owner}` })
       continue
     }
-    const { sku, generated } = resolveSku(detail, s)
-    const existingMapping = byItemId.get(s.itemId)
+    if ((skuCount.get(sku) ?? 0) > 1) {
+      result.skipped.push({ itemId: s.itemId, reason: 'duplicate_sku', detail: `SKU ${sku} מופיע ב-${skuCount.get(sku)} מודעות` })
+      continue
+    }
+    if (s.quantityAvailable === null) {
+      result.skipped.push({ itemId: s.itemId, reason: 'no_quantity' })
+      continue
+    }
+    if (generated) result.generatedSkus.push({ itemId: s.itemId, sku })
+    toCreate.push(s)
+  }
+  result.created = toCreate.length
 
-    if (!existingMapping) {
-      const owner = takenSkus.get(sku)
-      if (owner !== undefined && owner !== s.itemId) {
-        result.skipped.push({ itemId: s.itemId, reason: 'duplicate_sku', detail: `SKU ${sku} כבר שייך ל-${owner}` })
-        await log({ action: 'import_item', success: false, error: 'duplicate_sku', details: { itemId: s.itemId, sku, owner } })
-        continue
-      }
-      takenSkus.set(sku, s.itemId)
-      if (generated) result.generatedSkus.push({ itemId: s.itemId, sku })
-
-      if (!dryRun) {
-        try {
-          const productId = await db.transaction(async (tx) => {
-            const [product] = await tx.insert(schema.products).values(productFields(detail)).returning({ id: schema.products.id })
-            await tx.insert(schema.channelMappings).values({
-              productId: product.id,
-              sku,
-              ebayItemId: s.itemId,
-              lastEbayQty: detail.availableQty,
-              lastSyncedAt: new Date(),
-            })
-            if (detail.availableQty > 0) {
-              await tx
-                .insert(schema.stockLedger)
-                .values({
-                  productId: product.id,
-                  delta: detail.availableQty,
-                  source: 'import',
-                  reason: 'initial',
-                  idempotencyKey: `ebay:initial:${s.itemId}`,
-                  note: `מלאי פתיחה מ-eBay (Quantity ${detail.totalQty ?? '?'} − Sold ${detail.quantitySold ?? 0})`,
-                })
-                .onConflictDoNothing({ target: schema.stockLedger.idempotencyKey })
-            }
-            return product.id
-          })
-          await log({
-            action: 'import_item',
-            success: true,
-            productId,
-            details: { itemId: s.itemId, sku, skuGenerated: generated, qty: detail.availableQty },
-          })
-        } catch (err) {
-          const error = err instanceof Error ? err.message : String(err)
-          result.errors.push({ itemId: s.itemId, error })
-          await log({ action: 'import_item', success: false, error, details: { itemId: s.itemId, sku } })
-          continue
-        }
-      }
-      result.created++
-    } else {
-      // refreshExisting: עדכון פרטים בלבד, בלי ledger
-      const ledgerQty = available.get(existingMapping.productId) ?? 0
-      if (ledgerQty !== detail.availableQty) {
-        result.mismatches.push({ itemId: s.itemId, sku: existingMapping.sku, ledgerQty, ebayQty: detail.availableQty })
-      }
-      if (!dryRun) {
+  if (!dryRun) {
+    const now = new Date()
+    let written = 0
+    for (const batch of chunk(toCreate, 100)) {
+      try {
         await db.transaction(async (tx) => {
-          await tx.update(schema.products).set(productFields(detail)).where(eq(schema.products.id, existingMapping.productId))
-          await tx
-            .update(schema.channelMappings)
-            .set({ lastEbayQty: detail.availableQty, lastSyncedAt: new Date() })
-            .where(eq(schema.channelMappings.id, existingMapping.id))
+          const products = await tx
+            .insert(schema.products)
+            .values(
+              batch.map((s) => ({
+                title: s.title,
+                price: s.price,
+                currency: s.currency ?? 'USD',
+                images: s.galleryUrl ? [s.galleryUrl] : [],
+              })),
+            )
+            .returning({ id: schema.products.id })
+          await tx.insert(schema.channelMappings).values(
+            batch.map((s, i) => ({
+              productId: products[i].id,
+              sku: resolveSku(s).sku,
+              ebayItemId: s.itemId,
+              lastEbayQty: s.quantityAvailable,
+              lastSyncedAt: now,
+            })),
+          )
+          const opening = batch
+            .map((s, i) => ({ s, productId: products[i].id }))
+            .filter(({ s }) => (s.quantityAvailable ?? 0) > 0)
+            .map(({ s, productId }) => ({
+              productId,
+              delta: s.quantityAvailable!,
+              source: 'import' as const,
+              reason: 'initial' as const,
+              idempotencyKey: `ebay:initial:${s.itemId}`,
+              note: `מלאי פתיחה מ-eBay (QuantityAvailable ${s.quantityAvailable}${s.totalQty !== null ? ` מתוך ${s.totalQty}` : ''})`,
+            }))
+          if (opening.length) await tx.insert(schema.stockLedger).values(opening).onConflictDoNothing({ target: schema.stockLedger.idempotencyKey })
+          await tx.insert(schema.syncLog).values(
+            batch.map((s, i) => ({
+              job: IMPORT_JOB,
+              runId: result.runId,
+              channel: 'ebay' as const,
+              action: 'import_item',
+              success: true,
+              productId: products[i].id,
+              details: { itemId: s.itemId, sku: resolveSku(s).sku, qty: s.quantityAvailable },
+            })),
+          )
         })
+      } catch (err) {
+        // מנה שנכשלה לא נכתבת בכלל (טרנזקציה) — מדווחים על כל המודעות שבה
+        const error = err instanceof Error ? err.message : String(err)
+        for (const s of batch) result.errors.push({ itemId: s.itemId, error })
+        result.created -= batch.length
+        await log([{ action: 'import_batch', success: false, error, details: { itemIds: batch.map((s) => s.itemId) } }])
       }
-      result.updated++
+      written += batch.length
+      progress({ phase: 'writing', done: written, total: toCreate.length })
+    }
+
+    for (const batch of chunk(qtyUpdates, 500)) {
+      await db.transaction(async (tx) => {
+        for (const u of batch) {
+          await tx.update(schema.channelMappings).set({ lastEbayQty: u.qty, lastSyncedAt: now }).where(eq(schema.channelMappings.id, u.id))
+        }
+      })
     }
   }
 
-  for (const m of result.mismatches) {
-    await log({ action: 'qty_mismatch', success: false, error: 'ledger != eBay', details: m })
-  }
+  await log(
+    result.mismatches.map((m) => ({ action: 'qty_mismatch', success: false, error: 'ledger != eBay', details: m })),
+  )
+  await log(
+    result.skipped.map((s) => ({ action: 'skip_item', success: false, error: s.reason, details: { itemId: s.itemId, detail: s.detail ?? null } })),
+  )
 
   result.durationMs = Date.now() - started
-  await log({
-    action: 'run',
-    success: result.errors.length === 0,
-    error: result.errors.length ? `${result.errors.length} מודעות לא נקראו מ-eBay` : undefined,
-    durationMs: result.durationMs,
-    details: {
-      pagesRead: result.pagesRead,
-      totalOnEbay: result.totalOnEbay,
-      created: result.created,
-      updated: result.updated,
-      unchanged: result.unchanged,
-      skipped: result.skipped.length,
-      mismatches: result.mismatches.length,
-      errors: result.errors.length,
-      generatedSkus: result.generatedSkus.length,
+  await log([
+    {
+      action: 'run',
+      success: result.errors.length === 0,
+      error: result.errors.length ? `${result.errors.length} מודעות לא נכתבו` : undefined,
+      durationMs: result.durationMs,
+      details: {
+        pagesRead: result.pagesRead,
+        totalOnEbay: result.totalOnEbay,
+        ebayCalls: result.ebayCalls,
+        created: result.created,
+        unchanged: result.unchanged,
+        skipped: result.skipped.length,
+        mismatches: result.mismatches.length,
+        errors: result.errors.length,
+        generatedSkus: result.generatedSkus.length,
+      },
     },
-  })
+  ])
   return result
+}
+
+// ── שלב 2: פרטים מלאים ───────────────────────────────────────────────────────
+
+export interface EnrichResult {
+  runId: string
+  requested: number
+  enriched: number
+  errors: { itemId: string; error: string }[]
+  remaining: number
+  durationMs: number
+}
+
+/**
+ * GetItem למוצרים שעוד אין להם פרטים מלאים (תיאור, כל התמונות, מותג, קטגוריה).
+ * `limit` שומר על מכסת הקריאות היומית של eBay — המכסה משותפת לכל מה שמשתמש באותו App ID.
+ * לא נוגע במלאי.
+ */
+export async function enrichProductDetails(opts: { limit: number; concurrency?: number; onProgress?: (p: ImportProgress) => void }): Promise<EnrichResult> {
+  return withJobLock(ENRICH_JOB, async () => {
+    const started = Date.now()
+    const runId = randomUUID()
+    const limit = Math.max(0, Math.min(opts.limit, 2000))
+    const rows = await db
+      .select({ productId: schema.products.id, itemId: schema.channelMappings.ebayItemId })
+      .from(schema.products)
+      .innerJoin(schema.channelMappings, eq(schema.channelMappings.productId, schema.products.id))
+      .where(and(isNull(schema.products.detailsFetchedAt), sql`${schema.channelMappings.ebayItemId} is not null`))
+      .orderBy(asc(schema.products.createdAt))
+      .limit(limit)
+
+    const result: EnrichResult = { runId, requested: rows.length, enriched: 0, errors: [], remaining: 0, durationMs: 0 }
+    let next = 0
+    let done = 0
+    const worker = async () => {
+      while (next < rows.length) {
+        const r = rows[next++]
+        try {
+          const d = await getItem(r.itemId!)
+          await db
+            .update(schema.products)
+            .set({
+              title: d.title,
+              description: d.description,
+              condition: d.condition,
+              price: d.price,
+              currency: d.currency ?? 'USD',
+              images: d.images,
+              brand: d.brand,
+              mpn: d.mpn,
+              ebayCategoryId: d.categoryId,
+              ebayCategoryName: d.categoryName,
+              detailsFetchedAt: new Date(),
+            })
+            .where(eq(schema.products.id, r.productId))
+          result.enriched++
+        } catch (err) {
+          const error = err instanceof Error ? err.message : String(err)
+          result.errors.push({ itemId: r.itemId!, error })
+          await writeSyncLog({ job: ENRICH_JOB, runId, channel: 'ebay', action: 'get_item', success: false, error, productId: r.productId, details: { itemId: r.itemId } })
+        }
+        opts.onProgress?.({ phase: 'details', done: ++done, total: rows.length })
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(opts.concurrency ?? 3, rows.length) }, worker))
+
+    const [{ n }] = await db.select({ n: sql<number>`count(*)::int` }).from(schema.products).where(isNull(schema.products.detailsFetchedAt))
+    result.remaining = n
+    result.durationMs = Date.now() - started
+    await writeSyncLog({
+      job: ENRICH_JOB,
+      runId,
+      channel: 'ebay',
+      action: 'run',
+      success: result.errors.length === 0,
+      error: result.errors.length ? `${result.errors.length} מודעות לא נקראו` : undefined,
+      durationMs: result.durationMs,
+      details: { requested: result.requested, enriched: result.enriched, errors: result.errors.length, remaining: result.remaining, ebayCalls: result.requested },
+    })
+    return result
+  })
 }
