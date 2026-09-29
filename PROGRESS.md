@@ -41,7 +41,7 @@ npm run db:studio    # דפדפן טבלאות
 
 ## ❓ החלטות פתוחות (לא מכריעים בלי עודד)
 
-**א. איפה Postgres** — ✅ נענה 29/09/2026: "הכל ירוץ על השרת xCloud" → Postgres מותקן על shape-projects (פורש כך — ממתין לאישור עודד שזה לא שרת Docker נפרד). פיתוח ממשיך על Postgres מקומי.
+**א. איפה Postgres** — ✅ הוכרע 29/09/2026: על shape-projects. נבדק ב-SSH (קריאה בלבד): **PostgreSQL 16 כבר מותקן ורץ** (`postgresql@16-main`, מאזין רק ל-127.0.0.1:5432) — אין צורך בהתקנה. xCloud לא מציע Postgres כשירות בשרת הזה (רק MySQL/MariaDB). נשאר: ליצור role + DB ייעודיים (דורש sudo — ראה פעולות שממתינות לעודד). גיבוי: לא נבדק אם גיבויי xCloud כוללים את ה-DB — לתכנן `pg_dump` ב-Cron.
 - פיתוח רץ על Postgres 16 — בייצור צריך 16 ומעלה.
 - התקנה ידנית על shape-projects: localhost, בלי עלות; התקנה/עדכונים/גיבוי `pg_dump` באחריותנו, חולק משאבים. לא נבדק אם גיבויי xCloud כוללים אותו.
 - שרת Docker נפרד ב-xCloud (one-click דורש docker_nginx): מבודד + גיבויים מנוהלים; עלות נוספת, חיבור ברשת (firewall + SSL), רכיב נוסף שיכול ליפול.
@@ -74,6 +74,8 @@ npm run db:studio    # דפדפן טבלאות
 - CLAUDE.md הישן (בהיסטוריית git) הכיל כתובת Supabase ו-anon key. הוסרו מהגרסה הנוכחית; נשארים בהיסטוריה עד שיכובה Supabase.
 
 ## 🙋 פעולות שממתינות לעודד
+
+- ליצור ב-shape-projects DB ו-role בשם `stock_sync` (דורש sudo; למשתמש `claude` בשרת אין sudo בלי סיסמה). הפקודה בשיחה מ-29/09/2026. את ה-`DATABASE_URL` שהיא מדפיסה — לשמור לסביבת האתר ב-xCloud, לא בריפו.
 
 - להוסיף ל-`.env.local` את `EBAY_CERT_ID` ו-`EBAY_RUNAME` (היום נמצאים רק בטבלת settings ב-Supabase). בלעדיהם הגדרות eBay מציגות "חסרים משתני סביבה".
 - `EBAY_USER_TOKEN` ב-`.env.local` כבר לא בשימוש — אפשר למחוק.
