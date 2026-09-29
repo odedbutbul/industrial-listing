@@ -400,3 +400,57 @@ export const marketingSpend = pgTable(
   },
   (t) => [uniqueIndex('marketing_spend_month_channel_uq').on(t.month, t.channel), check('marketing_spend_amount_nonneg', sql`${t.amount} >= 0`)],
 )
+
+// ── לידים מהאתר (Request a Part + Contact) ──────────────────────────────────
+// האתר שומר כל פנייה אצלו קודם (wp-admin → Requests) ושולח עותק חתום ל-/api/leads/ingest.
+// job משיכה (jobs/pull-leads.ts) משלים מה שלא הגיע. ref ייחודי = ליד שנשלח פעמיים נרשם פעם אחת.
+
+export const leadKindEnum = pgEnum('lead_kind', ['rfq', 'msg'])
+
+export const leadStatusEnum = pgEnum('lead_status', ['new', 'in_progress', 'quoted', 'won', 'lost'])
+
+export const leads = pgTable(
+  'leads',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    /** RFQ-20123 / MSG-20124 — המספר שהלקוח רואה באתר */
+    ref: text('ref').notNull(),
+    kind: leadKindEnum('kind').notNull(),
+    /** מזהה הרשומה ב-WordPress (vz_request) — לקבצים ולסמן המשיכה */
+    wpId: integer('wp_id').notNull(),
+    status: leadStatusEnum('status').notNull().default('new'),
+    name: text('name'),
+    company: text('company'),
+    email: text('email').notNull(),
+    phone: text('phone'),
+    country: text('country'),
+    countryName: text('country_name'),
+    part: text('part'),
+    maker: text('maker'),
+    qty: integer('qty'),
+    condition: text('condition'),
+    neededBy: text('needed_by'),
+    /** Notes בבקשת חלק / גוף ההודעה בצור קשר */
+    message: text('message'),
+    orderRef: text('order_ref'),
+    sourceUrl: text('source_url'),
+    /** הטופס הקצר (אין תוצאות / פריט שנמכר) */
+    short: boolean('short').notNull().default(false),
+    /** [{ n, name, size }] — הקבצים עצמם נשארים באתר, מחוץ לתיקייה הציבורית */
+    files: jsonb('files').$type<{ n: number; name: string; size: number }[]>().notNull().default([]),
+    /** push = נשלח מהאתר מיד · pull = נמשך ע"י job הגיבוי */
+    receivedVia: text('received_via').notNull(),
+    submittedAt: timestamp('submitted_at', { withTimezone: true }).notNull(),
+    /** הערה פנימית — לא נשלחת לשום מקום */
+    note: text('note'),
+    statusChangedAt: timestamp('status_changed_at', { withTimezone: true }),
+    raw: jsonb('raw').notNull(),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('leads_ref_uq').on(t.ref),
+    index('leads_submitted_idx').on(t.submittedAt),
+    index('leads_status_idx').on(t.status),
+    check('leads_qty_pos', sql`${t.qty} is null or ${t.qty} > 0`),
+  ],
+)

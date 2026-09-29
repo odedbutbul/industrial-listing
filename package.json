@@ -16,7 +16,8 @@
     "job:import-ebay": "tsx jobs/import-ebay.ts",
     "start:prod": "next start -H 127.0.0.1 -p ${PORT:-3141}",
     "job:poll-ebay-orders": "tsx jobs/poll-ebay-orders.ts",
-    "job:fetch-analytics": "tsx jobs/fetch-analytics.ts"
+    "job:fetch-analytics": "tsx jobs/fetch-analytics.ts",
+    "job:pull-leads": "tsx jobs/pull-leads.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.1",

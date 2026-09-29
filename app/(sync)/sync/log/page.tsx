@@ -30,6 +30,8 @@ function summary(r: LogRow): string {
     if (d.oversold) parts.push(`${num(Number(d.oversold))} מעבר למלאי`)
     return parts.join(' · ')
   }
+  if (r.action === 'pull_leads') return `${num(Number(d.fetched ?? 0))} נבדקו · ${num(Number(d.created ?? 0))} חדשים`
+  if (r.action === 'receive_lead') return `${d.ref ?? ''} · ${d.via === 'pull' ? 'נמשך מהאתר' : 'נשלח מהאתר'}`
   if (r.action === 'run') {
     const parts = [`${num(Number(d.created ?? 0))} חדשים`, `${num(Number(d.unchanged ?? 0))} קיימים`]
     if (d.skipped) parts.push(`${num(Number(d.skipped))} דולגו`)

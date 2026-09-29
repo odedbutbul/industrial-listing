@@ -105,6 +105,7 @@ export const JOB_LABEL: Record<string, string> = {
   woo_products: 'שליחה לחנות',
   woo_connection: 'חיבור WooCommerce',
   analytics: 'אנליטיקס (גוגל)',
+  leads: 'לידים מהאתר',
 }
 
 export const ACTION_LABEL: Record<string, string> = {
@@ -125,10 +126,32 @@ export const ACTION_LABEL: Record<string, string> = {
   ga4_fetch: 'משיכה מ-Google Analytics',
   woo_catalog_fetch: 'תמונת מצב של מוצרי החנות',
   google_connection: 'בדיקת חיבור לגוגל',
+  receive_lead: 'קליטת ליד',
+  pull_leads: 'משיכה מהאתר',
+  reject_lead: 'ליד נדחה (חתימה)',
+  invalid_lead: 'ליד לא תקין',
 }
 
 export const SKIP_REASON: Record<string, string> = {
   variations_unsupported: 'מודעה עם וריאציות (לא נתמך עדיין)',
   duplicate_sku: 'SKU כפול',
   no_quantity: 'בלי כמות זמינה',
+}
+
+/** סטטוס ליד → תווית + טון */
+export const LEAD_STATUS: Record<string, [string, Tone]> = {
+  new: ['חדש', 'accent'],
+  in_progress: ['בטיפול', 'blue'],
+  quoted: ['נשלחה הצעה', 'violet'],
+  won: ['נסגר · נמכר', 'ok'],
+  lost: ['נסגר · לא נמכר', 'gray'],
+}
+
+export const LEAD_KIND: Record<string, string> = { rfq: 'בקשת חלק', msg: 'הודעה' }
+
+/** 2.4 MB */
+export function bytes(n: number): string {
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`
+  return `${(n / 1024 / 1024).toFixed(1)} MB`
 }

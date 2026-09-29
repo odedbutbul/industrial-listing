@@ -178,3 +178,47 @@ export interface WooPushResult extends WooPlan {
   failed: { productId: string; sku: string; error: string }[]
   brandsCreated: string[]
 }
+
+// ── לידים מהאתר ──
+
+export type LeadStatus = 'new' | 'in_progress' | 'quoted' | 'won' | 'lost'
+export type LeadKind = 'rfq' | 'msg'
+
+export interface LeadRow {
+  id: string
+  ref: string
+  kind: LeadKind
+  status: LeadStatus
+  name: string | null
+  company: string | null
+  email: string
+  countryName: string | null
+  part: string | null
+  maker: string | null
+  qty: number | null
+  message: string | null
+  short: boolean
+  filesCount: number
+  submittedAt: string
+}
+
+export interface LeadList {
+  rows: LeadRow[]
+  counts: { all: number; open: number; new: number; closed: number }
+  nextBefore: string | null
+}
+
+export interface LeadDetail extends Omit<LeadRow, 'filesCount'> {
+  wpId: number
+  phone: string | null
+  country: string | null
+  condition: string | null
+  neededBy: string | null
+  orderRef: string | null
+  sourceUrl: string | null
+  files: { n: number; name: string; size: number }[]
+  receivedVia: 'push' | 'pull'
+  note: string | null
+  statusChangedAt: string | null
+  createdAt: string
+}
