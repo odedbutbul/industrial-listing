@@ -7,6 +7,7 @@ import { dateTime } from '@/components/sync/format'
 import type { Overview } from '@/components/sync/types'
 import { ThemePicker } from '@/components/sync/ThemePicker'
 import { CardHead } from '@/components/sync/CardHead'
+import { GoogleCard } from '@/components/sync/GoogleCard'
 import { WooCard } from '@/components/sync/WooCard'
 import { LoadError, Pill, Spin, useLoad, useToast } from '@/components/sync/ui'
 
@@ -148,6 +149,8 @@ export default function SettingsPage() {
           </section>
 
           <WooCard />
+
+          <GoogleCard />
 
           <section className="ax-card" aria-labelledby="theme-h">
             <CardHead id="theme-h" icon={Palette} title="צבעי הממשק" text="נשמר בדפדפן הזה בלבד" />

@@ -280,3 +280,123 @@ export const syncLog = pgTable(
     index('sync_log_run_idx').on(t.runId),
   ],
 )
+
+// ── אנליטיקס: Search Console + Google Analytics 4 (קריאה בלבד מגוגל) ─────────
+// שורה לכל יום. job יומי (jobs/fetch-analytics.ts) מושך שוב את הימים האחרונים ומעדכן (upsert),
+// כי גוגל משלים נתונים באיחור של 2–3 ימים. כתובות נשמרות כנתיב מנורמל (lib/analytics/paths.ts).
+
+/** Search Console לפי דף. position_sum = מיקום ממוצע × חשיפות, כדי לסכם כמה ימים בממוצע משוקלל. */
+export const gscPagesDaily = pgTable(
+  'gsc_pages_daily',
+  {
+    date: text('date').notNull(),
+    page: text('page').notNull(),
+    clicks: integer('clicks').notNull(),
+    impressions: integer('impressions').notNull(),
+    positionSum: numeric('position_sum', { precision: 16, scale: 2 }).notNull(),
+  },
+  (t) => [uniqueIndex('gsc_pages_daily_uq').on(t.date, t.page)],
+)
+
+/** Search Console לפי מילת חיפוש + דף. */
+export const gscQueriesDaily = pgTable(
+  'gsc_queries_daily',
+  {
+    date: text('date').notNull(),
+    query: text('query').notNull(),
+    page: text('page').notNull(),
+    clicks: integer('clicks').notNull(),
+    impressions: integer('impressions').notNull(),
+    positionSum: numeric('position_sum', { precision: 16, scale: 2 }).notNull(),
+  },
+  (t) => [uniqueIndex('gsc_queries_daily_uq').on(t.date, t.query, t.page), index('gsc_queries_daily_date_idx').on(t.date)],
+)
+
+/** GA4 ברמת האתר, יום. עלות פרסום רק אם Google Ads מקושר ל-GA (אחרת null). */
+export const gaSiteDaily = pgTable('ga_site_daily', {
+  date: text('date').primaryKey(),
+  users: integer('users').notNull(),
+  newUsers: integer('new_users').notNull(),
+  sessions: integer('sessions').notNull(),
+  engagedSessions: integer('engaged_sessions').notNull(),
+  engagementSeconds: numeric('engagement_seconds', { precision: 16, scale: 2 }).notNull(),
+  pageViews: integer('page_views').notNull(),
+  addToCarts: integer('add_to_carts').notNull(),
+  checkouts: integer('checkouts').notNull(),
+  purchases: integer('purchases').notNull(),
+  revenue: numeric('revenue', { precision: 14, scale: 2 }).notNull(),
+  adCost: numeric('ad_cost', { precision: 14, scale: 2 }),
+  adClicks: integer('ad_clicks'),
+})
+
+/** GA4 לפי מימד (ערוץ תנועה / מכשיר / מדינה), יום. */
+export const gaBreakdownDaily = pgTable(
+  'ga_breakdown_daily',
+  {
+    date: text('date').notNull(),
+    dimension: text('dimension').notNull(), // channel | device | country
+    value: text('value').notNull(),
+    users: integer('users').notNull(),
+    sessions: integer('sessions').notNull(),
+    engagedSessions: integer('engaged_sessions').notNull(),
+    purchases: integer('purchases').notNull(),
+    revenue: numeric('revenue', { precision: 14, scale: 2 }).notNull(),
+  },
+  (t) => [uniqueIndex('ga_breakdown_daily_uq').on(t.date, t.dimension, t.value)],
+)
+
+/** GA4 לפי דף. */
+export const gaPagesDaily = pgTable(
+  'ga_pages_daily',
+  {
+    date: text('date').notNull(),
+    page: text('page').notNull(),
+    views: integer('views').notNull(),
+    users: integer('users').notNull(),
+    engagementSeconds: numeric('engagement_seconds', { precision: 16, scale: 2 }).notNull(),
+  },
+  (t) => [uniqueIndex('ga_pages_daily_uq').on(t.date, t.page)],
+)
+
+/** GA4 לפי מוצר (אירועי ecommerce: view_item / add_to_cart / purchase). item_id = מה שהתוסף בחנות שולח (SKU או מזהה). */
+export const gaItemsDaily = pgTable(
+  'ga_items_daily',
+  {
+    date: text('date').notNull(),
+    itemId: text('item_id').notNull(),
+    itemName: text('item_name').notNull(),
+    viewed: integer('viewed').notNull(),
+    addedToCart: integer('added_to_cart').notNull(),
+    purchased: integer('purchased').notNull(),
+    revenue: numeric('revenue', { precision: 14, scale: 2 }).notNull(),
+  },
+  (t) => [uniqueIndex('ga_items_daily_uq').on(t.date, t.itemId, t.itemName)],
+)
+
+/** תמונת מצב של מוצרי החנות (GET בלבד) — לחיבור בין כתובת דף / item_id לבין מוצר, מלאי ומחיר. */
+export const wooCatalog = pgTable('woo_catalog', {
+  wooProductId: bigint('woo_product_id', { mode: 'number' }).primaryKey(),
+  sku: text('sku'),
+  name: text('name').notNull(),
+  path: text('path'),
+  status: text('status').notNull(),
+  stockStatus: text('stock_status'),
+  stockQuantity: integer('stock_quantity'),
+  price: numeric('price', { precision: 12, scale: 2 }),
+  wooCreatedAt: timestamp('woo_created_at', { withTimezone: true }),
+  fetchedAt: timestamp('fetched_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
+/** הוצאות שיווק שמוזנות ידנית (לחישוב ROI / ROAS). חודש בפורמט YYYY-MM. */
+export const marketingSpend = pgTable(
+  'marketing_spend',
+  {
+    id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+    month: text('month').notNull(),
+    channel: text('channel').notNull(),
+    amount: numeric('amount', { precision: 12, scale: 2 }).notNull(),
+    note: text('note'),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex('marketing_spend_month_channel_uq').on(t.month, t.channel), check('marketing_spend_amount_nonneg', sql`${t.amount} >= 0`)],
+)

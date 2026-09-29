@@ -62,7 +62,7 @@ Render ו-Supabase יכובו רק אחרי שהמערכת החדשה רצה ב�
 ## מבנה תיקיות (יעד)
 
 ```
-app/(sync)/sync/     המערכת החדשה (shape-design): סקירה · products · products/[id] · log · settings
+app/(sync)/sync/     המערכת החדשה (shape-design): סקירה · orders · products · products/[id] · insights · insights/glossary · log · settings
 app/(legacy)/        המסכים הישנים על Supabase — לא נוגעים עד אישור מחיקה (כלל 10)
 components/sync/     app-ui.css · fonts.css + fonts/ · ui.tsx · ThemeProvider · ThemePicker מהסקיל + Shell · ImportDialog · format · api
 lib/                 ui-theme.ts · ui-theme-server.ts · a11y/contrast.ts (מנוע הערכות והניגודיות מהסקיל)
@@ -71,7 +71,9 @@ lib/db/              schema.ts · client.ts · migrations/
 lib/ebay/            auth.ts · trading.ts · fulfillment.ts
 lib/woo/             client.ts · products.ts · orders.ts · verify-webhook.ts
 lib/sync/            ledger.ts · apply-order.ts · push.ts · import.ts · reconcile.ts · log.ts
-jobs/                poll-ebay-orders.ts · push-pending.ts · reconcile.ts · refresh-token.ts
+lib/google/          config.ts · auth.ts (JWT של service account, בלי תלות) · gsc.ts · ga4.ts — קריאה בלבד
+lib/analytics/       fetch.ts (משיכה ל-Postgres) · report.ts (מדדים) · insights.ts (כללי התובנות, בלי AI) · connection.ts · paths.ts
+jobs/                poll-ebay-orders.ts · fetch-analytics.ts · push-pending.ts · reconcile.ts · refresh-token.ts
 drizzle.config.ts
 ```
 
@@ -87,6 +89,10 @@ drizzle.config.ts
 | `pending_pushes` | עדכוני כמות שממתינים/נכשלו + ניסיונות חוזרים |
 | `sync_cursors` | מיקום ה-polling (למשל lastModified של הזמנות eBay) |
 | `sync_log` | לוג לכל פעולה: job, כיוון, פעולה, תוצאה, שגיאה, משך |
+| `gsc_pages_daily` · `gsc_queries_daily` | Search Console לפי יום (דף / ביטוי+דף); מיקום נשמר כ-`position_sum` לממוצע משוקלל |
+| `ga_site_daily` · `ga_breakdown_daily` · `ga_pages_daily` · `ga_items_daily` | GA4 לפי יום: אתר, ערוץ/מכשיר/מדינה, דף, מוצר |
+| `woo_catalog` | תמונת מצב של מוצרי החנות (GET) — מחבר כתובת דף / item_id למוצר ולמלאי |
+| `marketing_spend` | הוצאות שיווק ידניות לפי חודש + ערוץ (ל-ROI / ROAS) |
 
 ---
 
@@ -109,6 +115,7 @@ drizzle.config.ts
 - **eBay:** `EBAY_APP_ID`, `EBAY_CERT_ID`, `EBAY_RUNAME`, `EBAY_SANDBOX`, `TOKEN_ENCRYPTION_KEY`, `EBAY_WRITES_ENABLED` (ברירת מחדל: כבוי); בהמשך `EBAY_NOTIFICATION_VERIFICATION_TOKEN`
 - **WooCommerce:** `WC_BASE_URL`, `WC_CONSUMER_KEY`, `WC_CONSUMER_SECRET`, `WC_WEBHOOK_SECRET`
 - **סנכרון:** `CRON_SECRET`, `SYNC_PUSH_ENABLED`
+- **Google (תובנות, קריאה בלבד):** `GOOGLE_SERVICE_ACCOUNT_JSON`, `GSC_SITE_URL`, `GA4_PROPERTY_ID`
 - **מתבטלים:** `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `WEBHOOK_URL`, `EBAY_USER_TOKEN`, `EBAY_DEV_ID`, `CLOUDINARY_*`, `NEXT_PUBLIC_BASE_URL` (→ `APP_BASE_URL`)
 
 `.env.local` נמצא ב-`.gitignore` ואסור שיעלה לריפו.

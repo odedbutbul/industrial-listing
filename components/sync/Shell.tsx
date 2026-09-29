@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState, type ReactNode } from 'react'
-import { ArrowLeftRight, Download, History, LayoutDashboard, LogOut, Menu, Package, Palette, Receipt, ScrollText, Search, Settings, X } from 'lucide-react'
+import { ArrowLeftRight, Download, History, LayoutDashboard, Lightbulb, LogOut, Menu, Package, Palette, Receipt, ScrollText, Search, Settings, X } from 'lucide-react'
 import { api, DATA_CHANGED, OPEN_IMPORT } from './api'
 import { ImportDialog } from './ImportDialog'
 import { ThemePicker } from './ThemePicker'
@@ -19,6 +19,7 @@ const NAV = [
   { href: '/sync', label: 'סקירה', icon: LayoutDashboard },
   { href: '/sync/orders', label: 'הזמנות', icon: Receipt },
   { href: '/sync/products', label: 'מוצרים', icon: Package },
+  { href: '/sync/insights', label: 'תובנות', icon: Lightbulb },
   { href: '/sync/log', label: 'לוג', icon: ScrollText },
   { href: '/sync/settings', label: 'הגדרות', icon: Settings },
 ]

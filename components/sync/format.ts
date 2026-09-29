@@ -53,6 +53,23 @@ export function money(amount: string | number | null | undefined, currency = 'US
 
 export const num = (n: number) => n.toLocaleString('en-US')
 
+/** 12.4% / 0.8% — null → — */
+export function pct(v: number | null | undefined, digits?: number): string {
+  if (v === null || v === undefined || !Number.isFinite(v)) return '—'
+  const x = v * 100
+  return `${x.toFixed(digits ?? (Math.abs(x) < 10 ? 1 : 0))}%`
+}
+
+/** 1m 24s */
+export function duration(sec: number | null | undefined): string {
+  if (sec === null || sec === undefined || !Number.isFinite(sec)) return '—'
+  const s = Math.round(sec)
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`
+}
+
+/** 12,400 → 12.4K (לגרפים) */
+export const compact = (n: number) => (Math.abs(n) >= 10_000 ? `${(n / 1000).toFixed(n >= 100_000 ? 0 : 1)}K` : num(Math.round(n)))
+
 // ── טבלת סטטוסים אחת לכל המסכים ──────────────────────────────────────────────
 
 export function stockStatus(available: number): [string, Tone] {
@@ -87,6 +104,7 @@ export const JOB_LABEL: Record<string, string> = {
   'poll-ebay-orders': 'הזמנות מ-eBay',
   woo_products: 'שליחה לחנות',
   woo_connection: 'חיבור WooCommerce',
+  analytics: 'אנליטיקס (גוגל)',
 }
 
 export const ACTION_LABEL: Record<string, string> = {
@@ -103,6 +121,10 @@ export const ACTION_LABEL: Record<string, string> = {
   create_product: 'יצירת מוצר בחנות',
   link_product: 'קישור למוצר קיים בחנות',
   test: 'בדיקת חיבור',
+  gsc_fetch: 'משיכה מ-Search Console',
+  ga4_fetch: 'משיכה מ-Google Analytics',
+  woo_catalog_fetch: 'תמונת מצב של מוצרי החנות',
+  google_connection: 'בדיקת חיבור לגוגל',
 }
 
 export const SKIP_REASON: Record<string, string> = {

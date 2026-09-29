@@ -27,6 +27,7 @@
 | 11 | job התאמה תקופתי | ⏳ | | |
 | 12 | דיפלוי xCloud + Cron + RuName חדש + OAuth מחדש + ריצה במקביל | 🔨 | 29/09/2026 | ✅ דיפלוי עובד (06:18 UTC, deployed, בלי failed_steps), עודד נכנס למערכת. נשאר: RuName חדש, התחברות eBay, Cron, גיבוי pg_dump. | אתר נוצר: `https://stock-sync.1wp.site` (site uuid `9c8b71e4-314e-46eb-b501-568c937bf68a`, משתמש `stock_sync`, Node 24, ssr, פורט 3141, branch `sync`, push-to-deploy כבוי — דיפלוי ידני). Deploy Script: `bash scripts/xcloud-deploy.sh` (npm ci + migrations). חזרה מקומית על כל התהליך ב-clone נקי ✓. דיפלוי ראשון נכשל בכוונה ב-deploy script ("DATABASE_URL חסר") — אומת ב-diagnosis. אחרי שהסודות נכנסים: retry לדיפלוי (sites.provision-retry, בלי תיקונים) |
 | 13 | אימות המערכת החדשה מול eBay אמיתי → רשימת מחיקה של Supabase והמסכים הישנים → **אישור עודד** → export גיבוי → מחיקה, כיבוי Render + Supabase | ⏳ | | לא מתחילים בלי אישור מפורש |
+| 14 | מסך תובנות: Search Console + Google Analytics 4 + מכירות eBay, מילון מונחים | 🔨 | 29/09/2026 | **נבנה ואומת מקומית; לא מחובר לגוגל אמיתי, לא נפרס.** חיבור: service account (JWT חתום ב-`node:crypto`, בלי תלות), הרשאות `webmasters.readonly` + `analytics.readonly`; קריאות לגוגל רק token / `searchAnalytics.query` / `runReport`. משיכה: `lib/analytics/fetch.ts` + `npm run job:fetch-analytics` (ריצה ראשונה 90 יום, אחר כך 5 הימים האחרונים; כל מקור בנפרד, כשל נרשם ב-sync_log ולא מוחק נתונים קיימים — טרנזקציה). migration 0005: 8 טבלאות (`gsc_*`, `ga_*`, `woo_catalog`, `marketing_spend`). מסך `/sync/insights` בחמש לשוניות — סקירה ותובנות / תנועה ומכירות (משפך, ערוצים, מכשירים, מדינות) / חיפוש בגוגל / מוצרים / שיווק ו-ROI (הזנת הוצאות ידנית + עלות Google Ads אם מקושר) — ו-`/sync/insights/glossary` (51 מונחים, כל מדד במסך מקשר אליו). כרטיס Google בהגדרות. **התובנות = 16 כללים קבועים (`lib/analytics/insights.ts`), בלי AI.** אומת: 37/37 בדיקות מול גוגל וחנות מדומים (חתימת JWT נבדקת מול המפתח הציבורי, מיזוג כתובות, upsert בלי כפילויות, Ads לא מקושר → null, כשל GA לא עוצר את GSC, שגיאת DB נרשמת בקיצור, 0 קריאות שאינן GET לחנות, חישובי המרה/AOV/ROAS/ROI, כל כלל תובנה נדלק); בדפדפן עם נתוני דמו (נמחקו): classic + teal, 1280px ו-375px בלי גלילה אופקית, הזנה/מחיקה/ולידציה של הוצאות, בדיקת חיבור עם מפתח לא תקין → הודעה ברורה. tsc ✓ lint ✓ build ✓. **לא נבדק:** מול Search Console / GA4 אמיתיים; האם החנות שולחת אירועי איקומרס ל-GA (ומה ה-item_id — SKU או מזהה); עלות Google Ads דרך GA. **נשאר:** service account + משתני סביבה (עודד), Cron יומי בשרת, דיפלוי |
 
 ---
 
@@ -65,6 +66,10 @@ npm run db:studio    # דפדפן טבלאות
 - קוד: להסיר את כתובת ה-onrender הקשיחה (`app/api/ebay/oauth/callback/route.ts:15`), `EBAY_RUNAME` מ-env, `PUBLIC_PATHS` ב-middleware כולל callback / notifications / woo webhook. אחרי הדיפלוי — להתחבר מחדש.
 
 ---
+
+**ה. שכבת AI לתובנות** — לא נדרש עכשיו. התובנות הנוכחיות הן כללים קבועים. אופציה בהמשך: סיכום שבועי בשפה חופשית / הצעות לכותרות דרך Claude API, רק עם נתונים מסוכמים (בלי פרטי לקוחות). עלות לכל דוח — לא נמדדה. לא בונים בלי החלטת עודד.
+
+**ו. דוח תנועה של eBay (Analytics API, `getTrafficReport`)** — חשיפות/צפיות/CTR לכל מודעה, קריאה בלבד. דורש scope נוסף (`sell.analytics.readonly`) → התחברות מחדש ל-eBay. לא נבדק מה ה-scopes של הטוקן הנוכחי. ממתין להחלטה.
 
 ## ⚠️ בעיות ידועות (מהסריקה, 29/09/2026 — יטופלו בשלבים)
 
@@ -105,6 +110,7 @@ npm run db:studio    # דפדפן טבלאות
 |---|---|---|
 | `jobs/poll-ebay-orders.ts` — הזמנות מ-eBay (קריאה בלבד) | כל 5 דקות | `d18da33e-3e28-4134-9006-67d012e4b3a7` |
 | `jobs/import-ebay.ts --enrich=1500` — פרטים מלאים ל-1,500 מוצרים | כל לילה 02:30 UTC | `9f2b13f4-c156-4b06-9959-27bdb1f019dd` |
+| ⏳ זמני: `--enrich=500` — הרצה ידנית אחת (בקשת עודד 29/09, 12:53 UTC). לא רץ לבד (31/2). **למחוק אחרי בדיקת הפלט** | ידני | `4f39a265-399c-417e-812c-8e356e3f7fbd` |
 
 ## 📝 החלטות שהתקבלו
 
