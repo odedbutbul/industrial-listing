@@ -1,15 +1,10 @@
 import type { Metadata, Viewport } from 'next'
-import '@fontsource-variable/heebo'
-import '@fontsource-variable/rubik'
-import '@fontsource-variable/jetbrains-mono'
-import '@phosphor-icons/web/regular'
-import '@phosphor-icons/web/bold'
-import '@phosphor-icons/web/fill'
-import '@/components/sync/tokens.css'
-import '@/components/sync/base.css'
+import '@/components/sync/fonts.css'
+import { ThemeProvider } from '@/components/sync/ThemeProvider'
 import { ToastProvider } from '@/components/sync/ui'
+import { getUiTheme } from '@/lib/ui-theme-server'
 
-// Root layout נפרד למסכי /sync (עיצוב shape-design). המסכים הישנים ב-app/(legacy) עם ה-layout שלהם.
+// Root layout נפרד למסכי /sync (עיצוב shape-design, מחלקות ax-*). המסכים הישנים ב-app/(legacy) עם ה-layout שלהם.
 
 export const metadata: Metadata = {
   title: 'סנכרון מלאי — eBay ↔ WooCommerce',
@@ -22,17 +17,15 @@ export const viewport: Viewport = {
   viewportFit: 'cover',
 }
 
-// כהה כברירת מחדל; בהיר רק אם נבחר ונשמר. רץ לפני הציור — בלי הבהוב.
-const themeScript = `try{document.documentElement.dataset.theme=localStorage.getItem('sync-theme')==='light'?'light':'dark'}catch(e){document.documentElement.dataset.theme='dark'}`
-
-export default function SyncRootLayout({ children }: { children: React.ReactNode }) {
+export default async function SyncRootLayout({ children }: { children: React.ReactNode }) {
+  // הערכה והמבטא מהעוגייה ui_theme — העמוד מרונדר בצבעים הנכונים בלי הבהוב
+  const theme = await getUiTheme()
   return (
-    <html lang="he" dir="rtl" data-theme="dark" suppressHydrationWarning>
-      <head>
-        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
-      </head>
-      <body>
-        <ToastProvider>{children}</ToastProvider>
+    <html lang="he" dir="rtl">
+      <body style={{ margin: 0 }}>
+        <ThemeProvider initial={theme}>
+          <ToastProvider>{children}</ToastProvider>
+        </ThemeProvider>
       </body>
     </html>
   )

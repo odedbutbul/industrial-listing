@@ -64,7 +64,8 @@ Render ו-Supabase יכובו רק אחרי שהמערכת החדשה רצה ב�
 ```
 app/(sync)/sync/     המערכת החדשה (shape-design): סקירה · products · products/[id] · log · settings
 app/(legacy)/        המסכים הישנים על Supabase — לא נוגעים עד אישור מחיקה (כלל 10)
-components/sync/     base.css · tokens.css · ui.tsx · tables.ts מהסקיל + Shell · ImportDialog · format · api
+components/sync/     app-ui.css · fonts.css + fonts/ · ui.tsx · ThemeProvider · ThemePicker מהסקיל + Shell · ImportDialog · format · api
+lib/                 ui-theme.ts · ui-theme-server.ts · a11y/contrast.ts (מנוע הערכות והניגודיות מהסקיל)
 app/api/             auth/* · ebay/oauth/{authorize,callback} · ebay/notifications · woo/webhook
 lib/db/              schema.ts · client.ts · migrations/
 lib/ebay/            auth.ts · trading.ts · fulfillment.ts
@@ -91,11 +92,11 @@ drizzle.config.ts
 
 ## 🎨 עיצוב — לפי הסקיל `shape-design`
 
-- **חובה לטעון את הסקיל `shape-design` לפני כל עבודת UI.** אפליקציית הייחוס: `~/Projects/flowbot-license`.
-- מעתיקים את `base.css`, `tokens.css`/`theme.ts`, `ui.tsx`, `tables.ts` מהסקיל — לא ממציאים.
-- הכלל: *שומרים את הצבעים, לוקחים את כל השאר*. פלטה: ברירת המחדל של הסקיל (teal כהה / sunrise בהיר) — אלא אם עודד יגדיר אחרת.
-- Heebo / Rubik / JetBrains Mono (מספרים, SKU, מזהי הזמנות), אייקונים Phosphor, RTL, כהה כברירת מחדל + בהיר.
-- מובייל ≤860px: tab bar תחתון (עד 4), דיאלוגים כ-bottom sheet, טבלאות הופכות לכרטיסים.
+- **חובה לטעון את הסקיל `shape-design` לפני כל עבודת UI.** אפליקציית הייחוס: `~/Projects/quotes-app` (מערכת `ax-*`).
+- מעתיקים מהסקיל את `app-ui.css`, `ui-theme.ts`, `contrast.ts`, `ThemeProvider`, `ThemePicker`, `ui.tsx` והפונטים — לא ממציאים. רק מחלקות `ax-*` ומשתני `--ax-*`, אין צבע קשיח ברכיב.
+- 5 ערכות רקע + צבע מבטא שהמשתמש בוחר (בורר בכותרת ובהגדרות, נשמר בעוגייה `ui_theme`). ברירת מחדל: **classic** (`DEFAULT_PRESET`).
+- Heebo / Rubik / JetBrains Mono מקומיים (`.ax-num` למספרים, SKU, מזהי הזמנות), אייקונים **lucide-react**, RTL.
+- מובייל: ≤900px סרגל הצד הופך למגירה מימין; ≤860px טבלאות מוחלפות בכרטיסים (`.ax-only-desktop` / `.ax-only-mobile`, אותם נתונים).
 - נגישות IS 5568 / WCAG AA. מצבי טעינה, ריק ושגיאה לכל מסך.
 - ה-UI הקיים (Tailwind + shadcn, כתום #f97316) הוא מהפרויקט הקודם — יוחלף מסך-מסך.
 

@@ -2,42 +2,35 @@
 
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
+import { ArrowLeftRight, Download, History, LayoutDashboard, LogOut, Menu, Package, Palette, ScrollText, Search, Settings, X } from 'lucide-react'
 import { api, OPEN_IMPORT } from './api'
 import { ImportDialog } from './ImportDialog'
-import { labelTables } from './tables'
+import { ThemePicker } from './ThemePicker'
 import type { EbayStatus } from './types'
-import { useMobile } from './ui'
+import { useDismiss } from './ui'
 
 /**
- * מעטפת מסכי /sync: סרגל צד (מעל 860px), header עם חיפוש ופעולה ראשית, tab bar בטלפון.
- * לפי ~/Projects/flowbot-license/src/web/App.tsx.
+ * מעטפת מסכי /sync: סרגל צד (מגירה מימין ≤900px), כותרת עם חיפוש, פעולה ראשית, בורר צבעים ותפריט משתמש.
+ * לפי ~/Projects/quotes-app/components/app/AppShell.tsx.
  */
 
-const NAV: [string, string, string][] = [
-  ['/sync', 'סקירה', 'ph-house'],
-  ['/sync/products', 'מוצרים', 'ph-package'],
-  ['/sync/log', 'לוג', 'ph-list-bullets'],
-  ['/sync/settings', 'הגדרות', 'ph-gear-six'],
+const NAV = [
+  { href: '/sync', label: 'סקירה', icon: LayoutDashboard },
+  { href: '/sync/products', label: 'מוצרים', icon: Package },
+  { href: '/sync/log', label: 'לוג', icon: ScrollText },
+  { href: '/sync/settings', label: 'הגדרות', icon: Settings },
 ]
-
-const THEME_KEY = 'sync-theme'
-type Theme = 'dark' | 'light'
-
-let tablesLabelled = false
 
 export function Shell({ children }: { children: ReactNode }) {
   const pathname = usePathname()
-  const mobile = useMobile()
   const [importOpen, setImportOpen] = useState(false)
   const [ebay, setEbay] = useState<EbayStatus | null>(null)
-
-  useEffect(() => {
-    if (!tablesLabelled) {
-      labelTables()
-      tablesLabelled = true
-    }
-  }, [])
+  const [drawer, setDrawer] = useState(false)
+  const [userMenu, setUserMenu] = useState(false)
+  const [themeMenu, setThemeMenu] = useState(false)
+  const userRef = useDismiss(userMenu, () => setUserMenu(false))
+  const themeRef = useDismiss(themeMenu, () => setThemeMenu(false))
 
   useEffect(() => {
     const open = () => setImportOpen(true)
@@ -49,169 +42,15 @@ export function Shell({ children }: { children: ReactNode }) {
     api.get<EbayStatus>('/api/ebay/oauth/status').then(setEbay, () => setEbay(null))
   }, [pathname])
 
-  const active = NAV.slice()
-    .reverse()
-    .find(([href]) => (href === '/sync' ? pathname === '/sync' : pathname.startsWith(href)))?.[0]
-
-  return (
-    <div className="root">
-      <div className="app">
-        {!mobile && (
-          <aside className="side">
-            <Brand />
-            <nav aria-label="ניווט ראשי" className="nav">
-              {NAV.map(([href, label, icon]) => {
-                const on = href === active
-                return (
-                  <Link key={href} href={href} className={'nav-item' + (on ? ' on' : '')} aria-current={on ? 'page' : undefined} style={{ textDecoration: 'none' }}>
-                    <i className={(on ? 'ph-fill ' : 'ph ') + icon} />
-                    <span style={{ flex: 1 }}>{label}</span>
-                  </Link>
-                )
-              })}
-            </nav>
-            <SideFoot ebay={ebay} />
-          </aside>
-        )}
-
-        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-          <header className="header">
-            <HeaderSearch />
-            <div style={{ marginInlineStart: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
-              <button
-                type="button"
-                aria-label="ייבוא מוצרים מ-eBay"
-                className="btn primary"
-                style={{ height: 44, padding: mobile ? '0 15px' : '0 18px', fontSize: 14 }}
-                onClick={() => setImportOpen(true)}
-              >
-                <i className="ph-bold ph-download-simple" />
-                {!mobile && <span>ייבוא מ-eBay</span>}
-              </button>
-              <UserMenu />
-            </div>
-          </header>
-
-          <main className="main">{children}</main>
-        </div>
-      </div>
-
-      {mobile && (
-        <nav className="tabbar" aria-label="ניווט מהיר">
-          {NAV.map(([href, label, icon]) => {
-            const on = href === active
-            return (
-              <Link key={href} href={href} className={'tab' + (on ? ' on' : '')} aria-current={on ? 'page' : undefined} style={{ textDecoration: 'none' }}>
-                <span className="tab-icon">
-                  <i className={(on ? 'ph-fill ' : 'ph ') + icon} />
-                </span>
-                {label}
-              </Link>
-            )
-          })}
-        </nav>
-      )}
-
-      {importOpen && <ImportDialog onClose={() => setImportOpen(false)} />}
-    </div>
-  )
-}
-
-function Brand() {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 6px' }}>
-      <div className="brand">
-        <i className="ph-bold ph-arrows-left-right" />
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.25 }}>
-        <span className="rubik" style={{ fontWeight: 600, fontSize: 15.5 }}>
-          סנכרון מלאי
-        </span>
-        <span style={{ fontSize: 12, color: 'var(--muted)' }}>eBay ↔ WooCommerce</span>
-      </div>
-    </div>
-  )
-}
-
-/** כל מסך מראה את מצב החיבורים — חיבור שנפל לא מחכה שמישהו יפתח הגדרות. */
-function SideFoot({ ebay }: { ebay: EbayStatus | null }) {
-  const ebayState: [string, string] = !ebay
-    ? ['לא נבדק', 'var(--muted)']
-    : !ebay.configured
-      ? ['לא הוגדר', 'var(--muted)']
-      : ebay.connected
-        ? ['מחובר', 'var(--ok)']
-        : ['לא מחובר', 'var(--bad)']
-  const rows: [string, [string, string]][] = [
-    ['eBay', ebayState],
-    ['WooCommerce', ['לא הוגדר', 'var(--muted)']],
-  ]
-  return (
-    <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
-      <div className="inner" style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: 6 }}>
-        {rows.map(([label, [text, color]]) => (
-          <Link key={label} href="/sync/settings" className="nav-item" style={{ height: 34, fontSize: 13, gap: 8, textDecoration: 'none' }}>
-            <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, flexShrink: 0 }} />
-            <span style={{ flex: 1 }}>{label}</span>
-            <span style={{ fontSize: 12, color }}>{text}</span>
-          </Link>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-/** חיפוש ב-header: Enter מעביר לרשימת המוצרים מסוננת. */
-function HeaderSearch() {
-  const router = useRouter()
-  const [q, setQ] = useState('')
-  return (
-    <form
-      role="search"
-      className="search"
-      onSubmit={(e) => {
-        e.preventDefault()
-        const v = q.trim()
-        router.push(v ? `/sync/products?q=${encodeURIComponent(v)}` : '/sync/products')
-      }}
-    >
-      <i className="ph ph-magnifying-glass" />
-      <input type="search" aria-label="חיפוש מוצר" placeholder="חיפוש: כותרת, SKU או מספר מודעה" value={q} onChange={(e) => setQ(e.target.value)} />
-    </form>
-  )
-}
-
-function UserMenu() {
-  const [open, setOpen] = useState(false)
-  const [theme, setTheme] = useState<Theme>('dark')
-  const ref = useRef<HTMLDivElement>(null)
-
+  // המגירה נסגרת גם ב-Escape
   useEffect(() => {
-    setTheme(document.documentElement.dataset.theme === 'light' ? 'light' : 'dark')
-  }, [])
-
-  useEffect(() => {
-    if (!open) return
-    const close = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false)
-    const esc = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
-    document.addEventListener('mousedown', close)
+    if (!drawer) return
+    const esc = (e: KeyboardEvent) => e.key === 'Escape' && setDrawer(false)
     document.addEventListener('keydown', esc)
-    return () => {
-      document.removeEventListener('mousedown', close)
-      document.removeEventListener('keydown', esc)
-    }
-  }, [open])
+    return () => document.removeEventListener('keydown', esc)
+  }, [drawer])
 
-  const switchTheme = () => {
-    const next: Theme = theme === 'dark' ? 'light' : 'dark'
-    document.documentElement.dataset.theme = next
-    try {
-      localStorage.setItem(THEME_KEY, next)
-    } catch {
-      /* חלון פרטי: הערכה פשוט לא נזכרת */
-    }
-    setTheme(next)
-  }
+  const isActive = (href: string) => (href === '/sync' ? pathname === '/sync' : pathname === href || pathname.startsWith(href + '/'))
 
   const logout = async () => {
     await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {})
@@ -219,33 +58,151 @@ function UserMenu() {
   }
 
   return (
-    <div ref={ref} style={{ position: 'relative' }}>
-      <button
-        type="button"
-        aria-label="תפריט משתמש"
-        aria-expanded={open}
-        aria-haspopup="menu"
-        onClick={() => setOpen((v) => !v)}
-        style={{ width: 44, height: 44, borderRadius: '50%', border: 'none', background: 'var(--tint)', boxShadow: 'var(--tint-ring)', color: 'var(--accent-text)', fontSize: 20, cursor: 'pointer', display: 'grid', placeItems: 'center' }}
-      >
-        <i className="ph ph-user" />
-      </button>
-      {open && (
-        <div role="menu" className="menu" style={{ insetInlineEnd: 0, width: 230 }}>
-          <button type="button" role="menuitem" className="menu-item" onClick={switchTheme}>
-            <i className={theme === 'dark' ? 'ph ph-sun' : 'ph ph-moon'} style={{ fontSize: 18 }} />
-            {theme === 'dark' ? 'ערכה בהירה' : 'ערכה כהה'}
-          </button>
-          <a role="menuitem" className="menu-item" href="/dashboard" style={{ textDecoration: 'none' }}>
-            <i className="ph ph-clock-counter-clockwise" style={{ fontSize: 18 }} />
-            המערכת הישנה
-          </a>
-          <button type="button" role="menuitem" className="menu-item" onClick={logout}>
-            <i className="ph ph-sign-out" style={{ fontSize: 18 }} />
-            התנתקות
-          </button>
+    <div className="ax-shell">
+      {drawer && <div className="ax-drawer-overlay" onClick={() => setDrawer(false)} aria-hidden="true" />}
+      <aside className={'ax-side' + (drawer ? ' is-open' : '')} aria-label="סרגל צד">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Link href="/sync" className="ax-brand" onClick={() => setDrawer(false)} style={{ flex: 1, minWidth: 0 }}>
+            <span className="ax-logo" aria-hidden="true">
+              <ArrowLeftRight size={20} strokeWidth={2.2} />
+            </span>
+            <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+              <span className="ax-brand-name">סנכרון מלאי</span>
+              <span className="ax-brand-sub ax-ltr" style={{ textAlign: 'right' }}>
+                eBay ↔ WooCommerce
+              </span>
+            </span>
+          </Link>
+          {drawer && (
+            <button type="button" className="ax-btn is-icon is-sm is-ghost" onClick={() => setDrawer(false)} aria-label="סגירת תפריט">
+              <X size={18} />
+            </button>
+          )}
         </div>
-      )}
+
+        <nav className="ax-nav" aria-label="ניווט ראשי">
+          {NAV.map(({ href, label, icon: Icon }) => (
+            <Link key={href} href={href} className="ax-nav-item" onClick={() => setDrawer(false)} aria-current={isActive(href) ? 'page' : undefined}>
+              <Icon size={20} aria-hidden="true" />
+              <span>{label}</span>
+            </Link>
+          ))}
+        </nav>
+
+        <SideFoot ebay={ebay} onNavigate={() => setDrawer(false)} />
+      </aside>
+
+      <div className="ax-body">
+        <header className="ax-header">
+          <button type="button" className="ax-btn is-icon ax-menu-btn" onClick={() => setDrawer(true)} aria-label="פתיחת תפריט" aria-expanded={drawer}>
+            <Menu size={22} />
+          </button>
+
+          <HeaderSearch />
+
+          <div className="ax-header-end">
+            <button type="button" className="ax-btn is-primary" aria-label="ייבוא מוצרים מ-eBay" onClick={() => setImportOpen(true)}>
+              <Download size={18} strokeWidth={2.4} aria-hidden="true" />
+              <span className="ax-hide-sm">ייבוא מ-eBay</span>
+            </button>
+
+            <div ref={themeRef} style={{ position: 'relative' }}>
+              <button
+                type="button"
+                className="ax-btn is-icon"
+                onClick={() => (setThemeMenu((v) => !v), setUserMenu(false))}
+                aria-label="צבעי הממשק"
+                aria-expanded={themeMenu}
+                title="צבעי הממשק"
+              >
+                <Palette size={20} />
+              </button>
+              {themeMenu && (
+                <div className="ax-picker-pop" role="dialog" aria-label="צבעי הממשק">
+                  <ThemePicker />
+                </div>
+              )}
+            </div>
+
+            <div ref={userRef} style={{ position: 'relative' }}>
+              <button
+                type="button"
+                className="ax-avatar"
+                onClick={() => (setUserMenu((v) => !v), setThemeMenu(false))}
+                aria-label="תפריט משתמש"
+                aria-expanded={userMenu}
+                aria-haspopup="menu"
+              >
+                מנ
+              </button>
+              {userMenu && (
+                <div className="ax-menu" role="menu">
+                  <a role="menuitem" className="ax-menu-item" href="/dashboard">
+                    <History size={18} aria-hidden="true" /> המערכת הישנה
+                  </a>
+                  <button type="button" role="menuitem" className="ax-menu-item" onClick={logout}>
+                    <LogOut size={18} aria-hidden="true" /> התנתקות
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </header>
+
+        <main className="ax-main">{children}</main>
+      </div>
+
+      {importOpen && <ImportDialog onClose={() => setImportOpen(false)} />}
     </div>
+  )
+}
+
+/** כל מסך מראה את מצב החיבורים — חיבור שנפל לא מחכה שמישהו יפתח הגדרות. */
+function SideFoot({ ebay, onNavigate }: { ebay: EbayStatus | null; onNavigate: () => void }) {
+  const ebayState: [string, string] = !ebay
+    ? ['לא נבדק', 'gray']
+    : !ebay.configured
+      ? ['לא הוגדר', 'gray']
+      : ebay.connected
+        ? ['מחובר', 'ok']
+        : ['לא מחובר', 'bad']
+  const rows: [string, [string, string]][] = [
+    ['eBay', ebayState],
+    ['WooCommerce', ['לא הוגדר', 'gray']],
+  ]
+  return (
+    <div className="ax-side-foot">
+      <div className="ax-inner" style={{ padding: 6, display: 'flex', flexDirection: 'column', gap: 2 }}>
+        {rows.map(([label, [text, t]]) => (
+          <Link key={label} href="/sync/settings" className="ax-nav-item" onClick={onNavigate} style={{ fontSize: 13.5 }}>
+            <span style={{ flex: 1 }}>{label}</span>
+            <span className={`ax-pill tone-${t}`}>
+              <span className="dot" />
+              {text}
+            </span>
+          </Link>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/** חיפוש בכותרת: Enter מעביר לרשימת המוצרים מסוננת. */
+function HeaderSearch() {
+  const router = useRouter()
+  const [q, setQ] = useState('')
+  return (
+    <form
+      role="search"
+      className="ax-search"
+      onSubmit={(e) => {
+        e.preventDefault()
+        const v = q.trim()
+        router.push(v ? `/sync/products?q=${encodeURIComponent(v)}` : '/sync/products')
+      }}
+    >
+      <Search size={18} aria-hidden="true" />
+      <input type="search" className="ax-input" aria-label="חיפוש מוצר" placeholder="חיפוש: כותרת, SKU או מספר מודעה" value={q} onChange={(e) => setQ(e.target.value)} />
+    </form>
   )
 }

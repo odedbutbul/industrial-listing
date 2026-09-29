@@ -1,6 +1,6 @@
 import type { Tone } from './ui'
 
-// פורמטים וטבלאות סטטוס למסכי /sync. מבוסס על ~/Projects/flowbot-license/src/web/format.ts.
+// פורמטים וטבלאות סטטוס למסכי /sync. טונים לפי shape-design (ax-*).
 
 /** 25.9.2026 */
 export function date(iso: string | null | undefined): string {
@@ -56,7 +56,7 @@ export const num = (n: number) => n.toLocaleString('en-US')
 // ── טבלת סטטוסים אחת לכל המסכים ──────────────────────────────────────────────
 
 export function stockStatus(available: number): [string, Tone] {
-  return available > 0 ? ['במלאי', 'ok'] : ['אזל', 'dark']
+  return available > 0 ? ['במלאי', 'ok'] : ['אזל', 'gray']
 }
 
 export const WOO_NOT_LINKED: [string, Tone] = ['לא מקושר', 'gray']

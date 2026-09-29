@@ -4,7 +4,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, announceDataChanged, ApiError } from './api'
 import { num, SKIP_REASON } from './format'
 import type { BackgroundRun, ImportResult } from './types'
-import { Modal, tone, useToast } from './ui'
+import { AlertCircle } from 'lucide-react'
+import { Modal, Spin, useToast } from './ui'
 
 /**
  * ייבוא מ-eBay בשני שלבים, שניהם ברקע בשרת (בקשה ארוכה נחתכת ע"י Cloudflare):
@@ -79,68 +80,71 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
     ? Object.entries(preview.skipped.reduce<Record<string, number>>((acc, s) => ({ ...acc, [s.reason]: (acc[s.reason] ?? 0) + 1 }), {}))
     : []
 
+  const foot = (
+    <>
+      <button type="button" className="ax-btn" onClick={onClose} disabled={importing}>
+        {running && !importing ? 'סגירה (ממשיך ברקע)' : 'סגירה'}
+      </button>
+      {error ? (
+        <button type="button" className="ax-btn is-primary" onClick={() => start('preview')}>
+          נסה שוב
+        </button>
+      ) : (
+        <button type="button" className="ax-btn is-primary" disabled={!preview || preview.created === 0 || running} onClick={() => start('import')}>
+          {importing && <Spin />}
+          {importing ? 'מייבא…' : preview && preview.created === 0 ? 'אין מוצרים חדשים' : `ייבוא ${preview ? num(preview.created) : ''} מוצרים`}
+        </button>
+      )}
+    </>
+  )
+
   return (
-    <Modal label="ייבוא מוצרים מ-eBay" onClose={importing ? () => {} : onClose} wide>
-      <h2>ייבוא מוצרים מ-eBay</h2>
-      <p>קריאה בלבד — שום דבר לא משתנה בחשבון eBay. נקראת רשימת המודעות הפעילות (SKU, כמות, כותרת, מחיר). מוצר חדש נכנס עם המלאי שיש לו ב-eBay; מוצר קיים לא משתנה.</p>
+    <Modal title="ייבוא מוצרים מ-eBay" onClose={importing ? () => {} : onClose} foot={foot} maxWidth={560}>
+      <p style={{ margin: 0, color: 'var(--ax-text2)' }}>
+        קריאה בלבד — שום דבר לא משתנה בחשבון eBay. נקראת רשימת המודעות הפעילות (SKU, כמות, כותרת, מחיר). מוצר חדש נכנס עם המלאי שיש לו ב-eBay; מוצר קיים לא משתנה.
+      </p>
 
       {error ? (
-        <div className="alert-box" style={tone('bad')} role="alert">
-          <i className="ph-fill ph-warning-circle" />
+        <div className="ax-alert is-bad" role="alert">
+          <AlertCircle size={18} aria-hidden="true" />
           <span>{error}</span>
         </div>
       ) : running || (!preview && !error) ? (
-        <div className="inner" style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }} role="status" aria-live="polite">
-          <span style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--text2)' }}>
-            <i className="ph ph-circle-notch spin" style={{ fontSize: 18 }} />
+        <div className="ax-inner" style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }} role="status" aria-live="polite">
+          <span style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--ax-text2)' }}>
+            <Spin size={18} />
             {!p
               ? 'מתחיל…'
               : p.phase === 'pages'
                 ? `קורא מודעות מ-eBay — דף ${num(p.done)} מתוך ${num(p.total)}`
                 : `שומר מוצרים — ${num(p.done)} מתוך ${num(p.total)}`}
           </span>
-          <div style={{ height: 6, borderRadius: 999, background: 'var(--hover2)', overflow: 'hidden' }}>
-            <div style={{ height: '100%', width: `${pct}%`, borderRadius: 999, background: 'var(--accent)', transition: 'width 0.4s' }} />
+          <div className="ax-bar">
+            <span style={{ width: `${pct}%`, transition: 'width 0.4s' }} />
           </div>
         </div>
       ) : preview ? (
-        <div className="inner" style={{ display: 'flex', flexDirection: 'column' }}>
+        <div className="ax-inner">
           <Row label="מודעות פעילות ב-eBay" value={num(preview.totalOnEbay)} />
           <Row label="מוצרים חדשים שייובאו" value={num(preview.created)} strong />
           <Row label="כבר קיימים במערכת" value={num(preview.unchanged)} />
           {skippedByReason.map(([reason, n]) => (
-            <Row key={reason} label={`ידולגו — ${SKIP_REASON[reason] ?? reason}`} value={num(n)} tone="warn" />
+            <Row key={reason} label={`ידולגו — ${SKIP_REASON[reason] ?? reason}`} value={num(n)} warn />
           ))}
           {preview.generatedSkus.length > 0 && <Row label="בלי SKU ב-eBay (יקבלו SKU פנימי EBAY-…)" value={num(preview.generatedSkus.length)} />}
-          {preview.mismatches.length > 0 && <Row label="פערי כמות בין המערכת ל-eBay" value={num(preview.mismatches.length)} tone="warn" />}
-          <Row label="קריאות ל-eBay בתצוגה המקדימה" value={num(preview.ebayCalls)} last />
+          {preview.mismatches.length > 0 && <Row label="פערי כמות בין המערכת ל-eBay" value={num(preview.mismatches.length)} warn />}
+          <Row label="קריאות ל-eBay בתצוגה המקדימה" value={num(preview.ebayCalls)} />
         </div>
       ) : null}
-
-      <div className="row-actions">
-        {error ? (
-          <button type="button" className="btn primary" onClick={() => start('preview')}>
-            נסה שוב
-          </button>
-        ) : (
-          <button type="button" className="btn primary" disabled={!preview || preview.created === 0 || running} onClick={() => start('import')}>
-            {importing && <i className="ph ph-circle-notch spin" />}
-            {importing ? 'מייבא…' : preview && preview.created === 0 ? 'אין מוצרים חדשים' : `ייבוא ${preview ? num(preview.created) : ''} מוצרים`}
-          </button>
-        )}
-        <button type="button" className="btn" onClick={onClose} disabled={importing}>
-          {running && !importing ? 'סגירה (ממשיך ברקע)' : 'סגירה'}
-        </button>
-      </div>
     </Modal>
   )
 }
 
-function Row({ label, value, strong, tone: t, last }: { label: string; value: string; strong?: boolean; tone?: 'warn' | 'bad'; last?: boolean }) {
+function Row({ label, value, strong, warn }: { label: string; value: string; strong?: boolean; warn?: boolean }) {
   return (
-    <div className="kv" style={last ? { borderBottom: 'none' } : undefined}>
+    <div className="ax-kv" style={{ padding: '10px 16px' }}>
       <span>{label}</span>
-      <span className="mono" style={{ fontWeight: strong ? 700 : 600, color: t ? `var(--${t})` : undefined, fontVariantNumeric: 'tabular-nums' }}>
+      <span className="ax-num" style={{ fontWeight: strong ? 700 : 600, color: warn ? 'var(--ax-warn)' : undefined }}>
         {value}
       </span>
     </div>

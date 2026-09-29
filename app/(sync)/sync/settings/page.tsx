@@ -1,10 +1,12 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
+import { AlertTriangle, Palette, Plug, RefreshCw, ShieldCheck, Store, type LucideIcon } from 'lucide-react'
 import { api } from '@/components/sync/api'
 import { dateTime } from '@/components/sync/format'
 import type { Overview } from '@/components/sync/types'
-import { Badge, LoadError, tone, useLoad, useToast } from '@/components/sync/ui'
+import { ThemePicker } from '@/components/sync/ThemePicker'
+import { LoadError, Pill, Spin, useLoad, useToast } from '@/components/sync/ui'
 
 export default function SettingsPage() {
   const toast = useToast()
@@ -52,91 +54,130 @@ export default function SettingsPage() {
     }
   }
 
+  const ebayPill = !ebay ? null : !ebay.configured ? (
+    <Pill t="gray">לא הוגדר</Pill>
+  ) : ebay.connected ? (
+    <Pill t="ok" dot>
+      מחובר
+    </Pill>
+  ) : (
+    <Pill t="bad" dot>
+      לא מחובר
+    </Pill>
+  )
+
   return (
-    <section className="section" style={{ gap: 24 }}>
-      <div>
-        <h1 className="h1">הגדרות</h1>
-        <p className="sub">{sub}</p>
+    <>
+      <div className="ax-page-head">
+        <div>
+          <h1 className="ax-h1">הגדרות</h1>
+          <p className="ax-sub">{sub}</p>
+        </div>
       </div>
 
       {!data ? (
-        <div className="skeleton" style={{ height: 260 }} />
+        <div className="ax-skel" style={{ height: 260 }} />
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 420px), 1fr))', gap: 16, alignItems: 'start' }}>
-          <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
-            <div className="card-head">
-              <h2 className="h2">eBay</h2>
-              {!ebay!.configured ? <Badge t="gray">לא הוגדר</Badge> : ebay!.connected ? <Badge t="ok" dot>מחובר</Badge> : <Badge t="bad" dot>לא מחובר</Badge>}
-            </div>
+        <div className="ax-grid-auto" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 420px), 1fr))' }}>
+          <section className="ax-card" aria-labelledby="ebay-h">
+            <CardHead id="ebay-h" icon={Plug} title="eBay" text="חשבון המוכר שממנו נקראות המודעות" pill={ebayPill} />
             {!ebay!.configured ? (
-              <div style={{ padding: 20 }}>
-                <div className="alert-box" style={tone('warn')}>
-                  <i className="ph-fill ph-warning" />
+              <div className="ax-card-pad">
+                <div className="ax-alert is-warn">
+                  <AlertTriangle size={18} aria-hidden="true" />
                   <span>
-                    חסרים בשרת: <span className="mono ltr">{ebay!.missingEnv.join(', ')}</span>
+                    חסרים בשרת: <span className="ax-num ax-ltr">{ebay!.missingEnv.join(', ')}</span>
                   </span>
                 </div>
               </div>
             ) : (
               <>
-                <div className="kv">
+                <div className="ax-kv">
                   <span>סביבה</span>
                   <span>{ebay!.environment === 'sandbox' ? 'Sandbox — לבדיקות' : 'Production — החשבון האמיתי'}</span>
                 </div>
-                <div className="kv">
+                <div className="ax-kv">
                   <span>Token תקף עד</span>
-                  <span className="mono">{dateTime(ebay!.accessExpiresAt)}</span>
+                  <span className="ax-num">{dateTime(ebay!.accessExpiresAt)}</span>
                 </div>
-                <div className="kv">
+                <div className="ax-kv">
                   <span>החיבור תקף עד</span>
-                  <span className="mono">{dateTime(ebay!.refreshExpiresAt)}</span>
+                  <span className="ax-num">{dateTime(ebay!.refreshExpiresAt)}</span>
                 </div>
                 <div style={{ padding: '16px 20px', display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                  <a href="/api/ebay/oauth/authorize?return=/sync/settings" className={'btn' + (ebay!.connected ? '' : ' primary')} style={{ textDecoration: 'none' }}>
-                    <i className="ph ph-plug" />
+                  <a href="/api/ebay/oauth/authorize?return=/sync/settings" className={'ax-btn' + (ebay!.connected ? '' : ' is-primary')}>
+                    <Plug size={18} aria-hidden="true" />
                     {ebay!.connected ? 'התחברות מחדש' : 'התחברות ל-eBay'}
                   </a>
                   {ebay!.connected && (
-                    <button type="button" className="btn" onClick={refresh} disabled={!!busy}>
-                      {busy === 'refresh' ? <i className="ph ph-circle-notch spin" /> : <i className="ph ph-arrows-clockwise" />}
+                    <button type="button" className="ax-btn" onClick={refresh} disabled={!!busy}>
+                      {busy === 'refresh' ? <Spin /> : <RefreshCw size={16} aria-hidden="true" />}
                       חידוש Token
                     </button>
                   )}
-                  <button type="button" className="btn ghost" onClick={test} disabled={!!busy}>
-                    {busy === 'test' && <i className="ph ph-circle-notch spin" />}
+                  <button type="button" className="ax-btn is-ghost" onClick={test} disabled={!!busy}>
+                    {busy === 'test' && <Spin />}
                     בדיקת פרטי האפליקציה
                   </button>
                 </div>
               </>
             )}
-          </div>
+          </section>
 
-          <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
-            <div className="card-head">
-              <h2 className="h2">בטיחות</h2>
-            </div>
-            <div className="kv">
+          <section className="ax-card" aria-labelledby="safety-h">
+            <CardHead
+              id="safety-h"
+              icon={ShieldCheck}
+              title="בטיחות"
+              text="מה המערכת רשאית לשנות"
+              pill={data.safety.ebayWritesEnabled ? <Pill t="warn" dot>כתיבה פעילה</Pill> : <Pill t="ok" dot>קריאה בלבד</Pill>}
+            />
+            <div className="ax-kv">
               <span>כתיבה ל-eBay</span>
-              {data.safety.ebayWritesEnabled ? <Badge t="warn" dot>מופעלת</Badge> : <Badge t="ok" dot>חסומה — קריאה בלבד</Badge>}
+              {data.safety.ebayWritesEnabled ? <Pill t="warn" dot>מופעלת</Pill> : <Pill t="ok" dot>חסומה — קריאה בלבד</Pill>}
             </div>
-            <div className="kv">
+            <div className="ax-kv">
               <span>עדכון כמויות בין הערוצים</span>
-              {data.safety.pushEnabled ? <Badge t="warn" dot>מופעל</Badge> : <Badge t="gray" dot>כבוי</Badge>}
+              {data.safety.pushEnabled ? <Pill t="warn" dot>מופעל</Pill> : <Pill t="gray" dot>כבוי</Pill>}
             </div>
-            <p className="hint" style={{ margin: 0, padding: '14px 20px' }}>
-              שני המתגים מוגדרים בשרת (<span className="mono ltr">EBAY_WRITES_ENABLED</span>, <span className="mono ltr">SYNC_PUSH_ENABLED</span>). הפעלה — רק בהחלטה מפורשת.
+            <p className="ax-hint" style={{ margin: 0, padding: '14px 20px' }}>
+              שני המתגים מוגדרים בשרת (<span className="ax-num ax-ltr">EBAY_WRITES_ENABLED</span>, <span className="ax-num ax-ltr">SYNC_PUSH_ENABLED</span>). הפעלה — רק בהחלטה מפורשת.
             </p>
-          </div>
+          </section>
 
-          <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
-            <div className="card-head">
-              <h2 className="h2">WooCommerce</h2>
-              <Badge t="gray">לא הוגדר</Badge>
+          <section className="ax-card" aria-labelledby="woo-h">
+            <CardHead id="woo-h" icon={Store} title="WooCommerce" text="החנות שאליה יסונכרן המלאי" pill={<Pill t="gray">לא הוגדר</Pill>} />
+            <p style={{ margin: 0, padding: 20, color: 'var(--ax-text2)' }}>החיבור לחנות ייבנה בשלב הבא, אחרי שנחליט אם זו החנות הקיימת או חנות חדשה.</p>
+          </section>
+
+          <section className="ax-card" aria-labelledby="theme-h">
+            <CardHead id="theme-h" icon={Palette} title="צבעי הממשק" text="נשמר בדפדפן הזה בלבד" />
+            <div className="ax-card-pad">
+              <ThemePicker />
             </div>
-            <p style={{ margin: 0, padding: 20, color: 'var(--text2)' }}>החיבור לחנות ייבנה בשלב הבא, אחרי שנחליט אם זו החנות הקיימת או חנות חדשה.</p>
-          </div>
+          </section>
         </div>
       )}
-    </section>
+    </>
+  )
+}
+
+/** ראש כרטיס הגדרות: אריח אייקון, כותרת והסבר, תג מצב בצד. */
+function CardHead({ id, icon: Icon, title, text, pill }: { id: string; icon: LucideIcon; title: string; text: string; pill?: ReactNode }) {
+  return (
+    <div className="ax-card-head" style={{ justifyContent: 'flex-start' }}>
+      <span className="ax-tile" aria-hidden="true">
+        <Icon size={20} />
+      </span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <h2 id={id} className="ax-h2">
+          {title}
+        </h2>
+        <p className="ax-muted" style={{ margin: 0, fontSize: 13 }}>
+          {text}
+        </p>
+      </div>
+      {pill}
+    </div>
   )
 }

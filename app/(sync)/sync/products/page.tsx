@@ -3,11 +3,12 @@
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useCallback, useEffect, useState } from 'react'
+import { Download, ImageOff, Search } from 'lucide-react'
 import { api, openImport } from '@/components/sync/api'
 import { MISMATCH, money, num, stockStatus, SYNC_OFF, WOO_NOT_LINKED } from '@/components/sync/format'
 import { useDataChanged } from '@/components/sync/hooks'
 import type { ProductRow } from '@/components/sync/types'
-import { Badge, EmptyState, LoadError, Pills, useLoad } from '@/components/sync/ui'
+import { EmptyState, LoadError, Pill, Seg, Spin, useLoad } from '@/components/sync/ui'
 
 type Page = { products: ProductRow[]; total: number; inStock: number; nextOffset: number | null }
 type Filter = 'all' | 'in_stock' | 'sold_out' | 'mismatch' | 'no_woo'
@@ -21,7 +22,7 @@ const FILTERS: [Filter, string][] = [
 
 export default function ProductsPage() {
   return (
-    <Suspense fallback={<div className="skeleton" />}>
+    <Suspense fallback={<div className="ax-skel" />}>
       <Products />
     </Suspense>
   )
@@ -86,132 +87,175 @@ function Products() {
   const filtered = filter !== 'all' || !!q
 
   return (
-    <section className="section">
-      <div>
-        <h1 className="h1">מוצרים</h1>
-        <p className="sub">{!data ? ' ' : filtered ? `${num(data.total)} תוצאות` : `${num(data.total)} מוצרים · ${num(data.inStock)} במלאי`}</p>
+    <>
+      <div className="ax-page-head">
+        <div>
+          <h1 className="ax-h1">מוצרים</h1>
+          <p className="ax-sub">{!data ? ' ' : filtered ? `${num(data.total)} תוצאות` : `${num(data.total)} מוצרים · ${num(data.inStock)} במלאי`}</p>
+        </div>
       </div>
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
-        <Pills label="סינון מוצרים" options={FILTERS} value={filter} onChange={(f) => setParams({ filter: f })} />
-        <div className="search" style={{ minWidth: 220 }}>
-          <i className="ph ph-magnifying-glass" />
-          <input type="search" aria-label="חיפוש מוצר" placeholder="כותרת, SKU, מספר מודעה או MPN" value={query} onChange={(e) => setQuery(e.target.value)} />
+        <Seg label="סינון מוצרים" options={FILTERS} value={filter} onChange={(f) => setParams({ filter: f })} />
+        <div className="ax-search" style={{ minWidth: 220 }} role="search">
+          <Search size={18} aria-hidden="true" />
+          <input type="search" className="ax-input" aria-label="חיפוש מוצר" placeholder="כותרת, SKU, מספר מודעה או MPN" value={query} onChange={(e) => setQuery(e.target.value)} />
         </div>
       </div>
 
       {error ? (
         <LoadError error={error} retry={reload} />
       ) : !rows ? (
-        <div className="skeleton" style={{ height: 320 }} />
+        <div className="ax-skel" style={{ height: 320 }} />
       ) : rows.length === 0 && !filtered ? (
         <EmptyState
-          icon="ph ph-package"
+          icon={Download}
           title="עדיין אין מוצרים"
           text="מייבאים את המודעות הפעילות מ-eBay — קודם תצוגה מקדימה, ושום דבר לא משתנה ב-eBay."
           action={
-            <button type="button" className="btn primary lg" onClick={openImport}>
-              <i className="ph-bold ph-download-simple" />
+            <button type="button" className="ax-btn is-primary" onClick={openImport}>
+              <Download size={18} aria-hidden="true" />
               ייבוא מ-eBay
             </button>
           }
         />
       ) : rows.length === 0 ? (
-        <div className="card">
-          <div className="empty" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-            <span>אין מוצרים שמתאימים לסינון.</span>
-            <button type="button" className="link-btn" onClick={() => (setQuery(''), setParams({ filter: 'all', q: '' }))}>
-              ניקוי הסינון
-            </button>
-          </div>
+        <div className="ax-card" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', paddingInlineEnd: 20 }}>
+          <p className="ax-note">אין מוצרים שמתאימים לסינון.</p>
+          <button type="button" className="ax-btn is-link" onClick={() => (setQuery(''), setParams({ filter: 'all', q: '' }))}>
+            ניקוי הסינון
+          </button>
         </div>
       ) : (
         <>
-          <div className="card scroll-x">
-            <table className="table" style={{ minWidth: 920 }}>
-              <thead>
-                <tr>
-                  <th>מוצר</th>
-                  <th>SKU</th>
-                  <th style={{ whiteSpace: 'nowrap' }}>מודעת eBay</th>
-                  <th>מלאי</th>
-                  <th style={{ whiteSpace: 'nowrap' }}>ב-eBay</th>
-                  <th>מחיר</th>
-                  <th>האתר</th>
-                  <th>סטטוס</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r) => {
-                  const [stockLabel, stockTone] = stockStatus(r.available)
-                  const mismatch = r.lastEbayQty !== null && r.lastEbayQty !== r.available
-                  return (
-                    <tr key={r.id} className="hover" style={{ cursor: 'pointer' }} onClick={() => router.push(`/sync/products/${r.id}`)}>
-                      <td>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 240 }}>
-                          {r.image ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img
-                              src={r.image}
-                              alt=""
-                              width={40}
-                              height={40}
-                              loading="lazy"
-                              style={{ width: 40, height: 40, borderRadius: 10, objectFit: 'cover', flexShrink: 0, boxShadow: 'var(--ring)' }}
-                            />
-                          ) : (
-                            <span className="tile" aria-hidden="true">
-                              <i className="ph ph-image" />
+          <section className="ax-card" aria-label="רשימת מוצרים">
+            <div className="ax-only-desktop">
+              <div className="ax-table-wrap">
+                <table className="ax-table" style={{ minWidth: 920 }}>
+                  <thead>
+                    <tr>
+                      <th>מוצר</th>
+                      <th>SKU</th>
+                      <th>מודעת eBay</th>
+                      <th>מלאי</th>
+                      <th>ב-eBay</th>
+                      <th>מחיר</th>
+                      <th>האתר</th>
+                      <th>סטטוס</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((r) => {
+                      const mismatch = r.lastEbayQty !== null && r.lastEbayQty !== r.available
+                      return (
+                        <tr key={r.id} style={{ cursor: 'pointer' }} onClick={() => router.push(`/sync/products/${r.id}`)}>
+                          <td>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 240 }}>
+                              <Thumb src={r.image} />
+                              <Link href={`/sync/products/${r.id}`} className="ax-row-title" onClick={(e) => e.stopPropagation()}>
+                                {r.title || '—'}
+                              </Link>
+                            </div>
+                          </td>
+                          <td style={{ whiteSpace: 'nowrap' }}>
+                            <span className="ax-num ax-ltr">{r.sku}</span>
+                          </td>
+                          <td style={{ whiteSpace: 'nowrap' }}>
+                            <span className="ax-num ax-ltr">{r.ebayItemId ?? '—'}</span>
+                          </td>
+                          <td>
+                            <span className="ax-num" style={{ fontWeight: 600 }}>
+                              {num(r.available)}
                             </span>
-                          )}
-                          <Link href={`/sync/products/${r.id}`} onClick={(e) => e.stopPropagation()} style={{ color: 'var(--text)', fontWeight: 600, textDecoration: 'none' }}>
-                            {r.title || '—'}
-                          </Link>
-                        </div>
-                      </td>
-                      <td style={{ whiteSpace: 'nowrap' }}>
-                        <span className="mono ltr">{r.sku}</span>
-                      </td>
-                      <td style={{ whiteSpace: 'nowrap' }}>
-                        <span className="mono ltr">{r.ebayItemId ?? '—'}</span>
-                      </td>
-                      <td>
-                        <span className="mono" style={{ fontWeight: 600 }}>
+                          </td>
+                          <td>
+                            <span className="ax-num" style={{ color: mismatch ? 'var(--ax-warn)' : undefined, fontWeight: mismatch ? 600 : undefined }}>
+                              {r.lastEbayQty === null ? '—' : num(r.lastEbayQty)}
+                            </span>
+                          </td>
+                          <td style={{ whiteSpace: 'nowrap' }}>
+                            <span className="ax-num">{money(r.price, r.currency)}</span>
+                          </td>
+                          <td>{r.wooProductId ? <span className="ax-num ax-ltr">#{r.wooProductId}</span> : <Pill t={WOO_NOT_LINKED[1]}>{WOO_NOT_LINKED[0]}</Pill>}</td>
+                          <td>
+                            <Pills r={r} mismatch={mismatch} />
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="ax-only-mobile ax-mcards">
+              {rows.map((r) => {
+                const mismatch = r.lastEbayQty !== null && r.lastEbayQty !== r.available
+                return (
+                  <div key={r.id} className="ax-mcard">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <Thumb src={r.image} />
+                      <Link href={`/sync/products/${r.id}`} className="ax-row-title" style={{ minWidth: 0 }}>
+                        {r.title || '—'}
+                      </Link>
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px', fontSize: 13 }}>
+                      <span>
+                        <bdi className="ax-muted">SKU</bdi> 
+                        <span className="ax-num ax-ltr">{r.sku}</span>
+                      </span>
+                      <span>
+                        <bdi className="ax-muted">מלאי</bdi> 
+                        <span className="ax-num" style={{ fontWeight: 600 }}>
                           {num(r.available)}
                         </span>
-                      </td>
-                      <td>
-                        <span className="mono" style={{ color: mismatch ? 'var(--warn)' : undefined, fontWeight: mismatch ? 600 : undefined }}>
+                      </span>
+                      <span>
+                        <bdi className="ax-muted">ב-eBay</bdi> 
+                        <span className="ax-num" style={{ color: mismatch ? 'var(--ax-warn)' : undefined }}>
                           {r.lastEbayQty === null ? '—' : num(r.lastEbayQty)}
                         </span>
-                      </td>
-                      <td style={{ whiteSpace: 'nowrap' }}>
-                        <span className="mono">{money(r.price, r.currency)}</span>
-                      </td>
-                      <td>{r.wooProductId ? <span className="mono ltr">#{r.wooProductId}</span> : <Badge t={WOO_NOT_LINKED[1]}>{WOO_NOT_LINKED[0]}</Badge>}</td>
-                      <td>
-                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                          <Badge t={stockTone} dot>
-                            {stockLabel}
-                          </Badge>
-                          {mismatch && <Badge t={MISMATCH[1]}>{MISMATCH[0]}</Badge>}
-                          {!r.syncEnabled && <Badge t={SYNC_OFF[1]}>{SYNC_OFF[0]}</Badge>}
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+                      </span>
+                      <span className="ax-num">{money(r.price, r.currency)}</span>
+                    </div>
+                    <Pills r={r} mismatch={mismatch} />
+                  </div>
+                )
+              })}
+            </div>
+          </section>
           {nextOffset !== null && data && (
-            <button type="button" className="btn" style={{ alignSelf: 'center' }} onClick={loadMore} disabled={loadingMore}>
-              {loadingMore && <i className="ph ph-circle-notch spin" />}
+            <button type="button" className="ax-btn" style={{ alignSelf: 'center' }} onClick={loadMore} disabled={loadingMore}>
+              {loadingMore && <Spin />}
               טעינת עוד מוצרים ({num(data.total - rows.length)} נותרו)
             </button>
           )}
         </>
       )}
-    </section>
+    </>
+  )
+}
+
+function Thumb({ src }: { src: string | null }) {
+  return src ? (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src={src} alt="" width={40} height={40} loading="lazy" style={{ width: 40, height: 40, borderRadius: 12, objectFit: 'cover', flexShrink: 0, boxShadow: 'var(--ax-ring)' }} />
+  ) : (
+    <span className="ax-tile" aria-hidden="true">
+      <ImageOff size={18} />
+    </span>
+  )
+}
+
+function Pills({ r, mismatch }: { r: ProductRow; mismatch: boolean }) {
+  const [stockLabel, stockTone] = stockStatus(r.available)
+  return (
+    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+      <Pill t={stockTone} dot>
+        {stockLabel}
+      </Pill>
+      {mismatch && <Pill t={MISMATCH[1]}>{MISMATCH[0]}</Pill>}
+      {!r.syncEnabled && <Pill t={SYNC_OFF[1]}>{SYNC_OFF[0]}</Pill>}
+    </div>
   )
 }
