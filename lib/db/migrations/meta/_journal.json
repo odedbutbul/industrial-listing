@@ -15,6 +15,13 @@
       "when": 1790666688470,
       "tag": "0001_product_details_fetched_at",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790667829770,
+      "tag": "0002_product_full_details",
+      "breakpoints": true
     }
   ]
 }

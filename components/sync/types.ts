@@ -73,6 +73,24 @@ export interface ProductDetail {
     mpn: string | null
     ebayCategoryId: string | null
     ebayCategoryName: string | null
+    subtitle: string | null
+    conditionId: string | null
+    conditionDescription: string | null
+    itemSpecifics: Record<string, string[]> | null
+    shipping: {
+      weightMajor: number | null
+      weightMinor: number | null
+      weightUnit: string | null
+      length: number | null
+      width: number | null
+      depth: number | null
+      dimensionUnit: string | null
+      packageType: string | null
+    } | null
+    location: string | null
+    country: string | null
+    ebayListingStartedAt: string | null
+    detailsFetchedAt: string | null
     createdAt: string
     updatedAt: string
   }

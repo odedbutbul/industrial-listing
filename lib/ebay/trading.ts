@@ -14,7 +14,7 @@ const parser = new XMLParser({
   attributeNamePrefix: '@_',
   parseTagValue: false,
   parseAttributeValue: false,
-  isArray: (name) => ['Item', 'PictureURL', 'NameValueList', 'Errors', 'Variation'].includes(name),
+  isArray: (name) => ['Item', 'PictureURL', 'NameValueList', 'Value', 'Errors', 'Variation'].includes(name),
 })
 
 export class EbayApiError extends Error {
@@ -169,6 +169,36 @@ export interface EbayItemDetail {
   listingStatus: string | null
   viewItemUrl: string | null
   hasVariations: boolean
+  subtitle: string | null
+  conditionId: string | null
+  conditionDescription: string | null
+  /** כל ה-Item Specifics: שם → ערכים */
+  itemSpecifics: Record<string, string[]>
+  /** משקל ומידות אריזה (ShippingPackageDetails) */
+  shipping: {
+    weightMajor: number | null
+    weightMinor: number | null
+    weightUnit: string | null
+    length: number | null
+    width: number | null
+    depth: number | null
+    dimensionUnit: string | null
+    packageType: string | null
+  } | null
+  location: string | null
+  country: string | null
+  listingStartedAt: string | null
+}
+
+/** ערך עם יחידה: <WeightMajor unit="lbs">2</WeightMajor> */
+function measure(v: unknown): { value: number | null; unit: string | null } {
+  if (v && typeof v === 'object') {
+    const o = v as XmlNode
+    const n = Number(o['#text'])
+    return { value: Number.isFinite(n) ? n : null, unit: str(o['@_unit'] ?? o['@_measurementSystem']) }
+  }
+  const n = Number(v)
+  return { value: v === undefined || v === null || v === '' || !Number.isFinite(n) ? null : n, unit: null }
 }
 
 function specific(list: XmlNode[] | undefined, ...names: string[]): string | null {
@@ -223,5 +253,35 @@ export async function getItem(itemId: string): Promise<EbayItemDetail> {
     listingStatus: str(selling.ListingStatus),
     viewItemUrl: str((item.ListingDetails as XmlNode | undefined)?.ViewItemURL),
     hasVariations: !!item.Variations,
+    subtitle: str(item.SubTitle),
+    conditionId: str(item.ConditionID),
+    conditionDescription: str(item.ConditionDescription),
+    itemSpecifics: Object.fromEntries(
+      (specifics ?? [])
+        .map((nv) => [String(nv.Name ?? '').trim(), (Array.isArray(nv.Value) ? nv.Value : [nv.Value]).map((v) => String(v ?? '').trim()).filter(Boolean)] as const)
+        .filter(([name, values]) => name && values.length),
+    ),
+    shipping: (() => {
+      const pkg = item.ShippingPackageDetails as XmlNode | undefined
+      if (!pkg) return null
+      const major = measure(pkg.WeightMajor)
+      const minor = measure(pkg.WeightMinor)
+      const len = measure(pkg.PackageLength)
+      const wid = measure(pkg.PackageWidth)
+      const dep = measure(pkg.PackageDepth)
+      return {
+        weightMajor: major.value,
+        weightMinor: minor.value,
+        weightUnit: major.unit ?? minor.unit,
+        length: len.value,
+        width: wid.value,
+        depth: dep.value,
+        dimensionUnit: len.unit ?? wid.unit ?? dep.unit,
+        packageType: str(pkg.ShippingPackage),
+      }
+    })(),
+    location: str(item.Location),
+    country: str(item.Country),
+    listingStartedAt: str((item.ListingDetails as XmlNode | undefined)?.StartTime),
   }
 }

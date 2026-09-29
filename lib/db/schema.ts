@@ -81,7 +81,25 @@ export const products = pgTable('products', {
   ebayCategoryId: text('ebay_category_id'),
   ebayCategoryName: text('ebay_category_name'),
   archived: boolean('archived').notNull().default(false),
-  /** מתי נקראו הפרטים המלאים (GetItem: תיאור, כל התמונות, מותג). null = רק מה שיש ברשימה. */
+  // פרטים מלאים מ-GetItem (שלב 2)
+  subtitle: text('subtitle'),
+  conditionId: text('condition_id'),
+  conditionDescription: text('condition_description'),
+  itemSpecifics: jsonb('item_specifics').$type<Record<string, string[]>>(),
+  shipping: jsonb('shipping').$type<{
+    weightMajor: number | null
+    weightMinor: number | null
+    weightUnit: string | null
+    length: number | null
+    width: number | null
+    depth: number | null
+    dimensionUnit: string | null
+    packageType: string | null
+  } | null>(),
+  location: text('location'),
+  country: text('country'),
+  ebayListingStartedAt: timestamp('ebay_listing_started_at', { withTimezone: true }),
+  /** מתי נקראו הפרטים המלאים (GetItem). null = רק מה שיש ברשימה. */
   detailsFetchedAt: timestamp('details_fetched_at', { withTimezone: true }),
   ...timestamps,
 })

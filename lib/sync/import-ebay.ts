@@ -321,6 +321,14 @@ export async function enrichProductDetails(opts: { limit: number; concurrency?: 
               mpn: d.mpn,
               ebayCategoryId: d.categoryId,
               ebayCategoryName: d.categoryName,
+              subtitle: d.subtitle,
+              conditionId: d.conditionId,
+              conditionDescription: d.conditionDescription,
+              itemSpecifics: d.itemSpecifics,
+              shipping: d.shipping,
+              location: d.location,
+              country: d.country,
+              ebayListingStartedAt: d.listingStartedAt ? new Date(d.listingStartedAt) : null,
               detailsFetchedAt: new Date(),
             })
             .where(eq(schema.products.id, r.productId))

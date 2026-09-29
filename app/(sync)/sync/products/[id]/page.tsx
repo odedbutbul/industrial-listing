@@ -132,7 +132,7 @@ export default function ProductPage() {
           </div>
           {p.images.length > 0 && (
             <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 2 }}>
-              {p.images.slice(0, 12).map((src, i) => (
+              {p.images.slice(0, 24).map((src, i) => (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img key={src} src={src} alt={`תמונה ${i + 1} של ${p.title}`} width={72} height={72} loading="lazy" style={{ width: 72, height: 72, borderRadius: 12, objectFit: 'cover', flexShrink: 0, boxShadow: 'var(--ring)' }} />
               ))}
@@ -140,6 +140,8 @@ export default function ProductPage() {
           )}
         </div>
       </div>
+
+      <FullDetails p={p} />
 
       <div className="card">
         <div className="card-head">
@@ -211,5 +213,104 @@ export default function ProductPage() {
         </div>
       </div>
     </section>
+  )
+}
+
+/** פרטים מלאים מ-GetItem (שלב 2). לפני שנמשכו — הודעה קצרה במקום הכרטיסים. */
+function FullDetails({ p }: { p: ProductDetail['product'] }) {
+  if (!p.detailsFetchedAt)
+    return (
+      <div className="alert-box" style={tone('gray')}>
+        <i className="ph-fill ph-info" />
+        <span>לפריט הזה נמשכו עד עכשיו רק פרטי הרשימה (SKU, כמות, כותרת, מחיר, תמונה ראשית). התיאור, כל התמונות והמפרט ייקראו בשלב הפרטים המלאים.</span>
+      </div>
+    )
+
+  const specifics = Object.entries(p.itemSpecifics ?? {})
+  const s = p.shipping
+  const weight = s && (s.weightMajor || s.weightMinor) ? `${s.weightMajor ?? 0} ${s.weightUnit === 'kg' ? 'ק״ג' : s.weightUnit ?? ''} ${s.weightMinor ? `+ ${s.weightMinor}` : ''}`.trim() : null
+  const dims = s && (s.length || s.width || s.depth) ? `${s.length ?? '—'} × ${s.width ?? '—'} × ${s.depth ?? '—'} ${s.dimensionUnit ?? ''}`.trim() : null
+  // תיאור eBay הוא HTML חיצוני: מוצג במסגרת מבודדת (sandbox בלי סקריפטים), על רקע לבן כמו ב-eBay
+  const doc = p.description
+    ? `<!doctype html><meta charset="utf-8"><base target="_blank"><style>:root{color-scheme:light}body{margin:16px;font:14px/1.5 system-ui,sans-serif;color:#1c1512;background:#fff}img{max-width:100%;height:auto}</style>${p.description}`
+    : null
+
+  return (
+    <>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 380px), 1fr))', gap: 16, alignItems: 'start' }}>
+        <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
+          <div className="card-head">
+            <h2 className="h2">מפרט מ-eBay</h2>
+            <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>{specifics.length} שדות</span>
+          </div>
+          {specifics.length === 0 ? (
+            <div className="empty">אין מפרט במודעה.</div>
+          ) : (
+            specifics.map(([name, values], i) => (
+              <div key={name} className="kv" style={i === specifics.length - 1 ? { borderBottom: 'none' } : undefined}>
+                <span className="ltr" style={{ textAlign: 'start' }}>{name}</span>
+                <span className="ltr" style={{ textAlign: 'end' }}>{values.join(', ')}</span>
+              </div>
+            ))
+          )}
+        </div>
+
+        <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
+          <div className="card-head">
+            <h2 className="h2">פרטי מודעה ומשלוח</h2>
+          </div>
+          {p.subtitle && (
+            <div className="kv">
+              <span>כותרת משנה</span>
+              <span className="ltr">{p.subtitle}</span>
+            </div>
+          )}
+          <div className="kv">
+            <span>מצב</span>
+            <span>{[p.condition, p.conditionId && `(${p.conditionId})`].filter(Boolean).join(' ') || '—'}</span>
+          </div>
+          {p.conditionDescription && (
+            <div className="kv">
+              <span>תיאור המצב</span>
+              <span className="ltr" style={{ textAlign: 'end' }}>{p.conditionDescription}</span>
+            </div>
+          )}
+          <div className="kv">
+            <span>משקל</span>
+            <span className="mono ltr">{weight ?? '—'}</span>
+          </div>
+          <div className="kv">
+            <span>מידות אריזה</span>
+            <span className="mono ltr">{dims ?? '—'}</span>
+          </div>
+          <div className="kv">
+            <span>מיקום הפריט</span>
+            <span className="ltr">{[p.location, p.country].filter(Boolean).join(', ') || '—'}</span>
+          </div>
+          <div className="kv">
+            <span>המודעה עלתה</span>
+            <span className="mono">{dateTime(p.ebayListingStartedAt)}</span>
+          </div>
+          <div className="kv" style={{ borderBottom: 'none' }}>
+            <span>פרטים נמשכו</span>
+            <span className="mono">{dateTime(p.detailsFetchedAt)}</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
+        <div className="card-head">
+          <h2 className="h2">תיאור המוצר</h2>
+          <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>כפי שמופיע ב-eBay</span>
+        </div>
+        {doc ? (
+          <div style={{ padding: 12 }}>
+            <iframe title={`תיאור המוצר ${p.title}`} sandbox="allow-popups" srcDoc={doc} loading="lazy" style={{ width: '100%', height: 520, border: 'none', borderRadius: 14, boxShadow: 'var(--ring)' }} />
+          </div>
+        ) : (
+          <div className="empty">אין תיאור במודעה.</div>
+        )}
+      </div>
+    </>
   )
 }
