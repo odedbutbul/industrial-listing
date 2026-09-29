@@ -42,3 +42,6 @@ next-env.d.ts
 /public/workbox-*.js.map
 /public/swe-worker-*.js
 !.env.example
+
+# .env של השרת — נכתב ע"י xCloud (Site → Node.js → Environment). חייב להיות ignored כדי ש-git clean בדיפלוי לא ימחק אותו.
+/.env
