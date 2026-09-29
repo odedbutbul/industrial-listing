@@ -16,14 +16,14 @@
 | 3 | Drizzle + סכמה + migrations + Postgres מקומי לפיתוח | ✅ | 29/09/2026 | 8 טבלאות ב-`lib/db/schema.ts`, migration `0000_init`. אומת: migrate ✓, 9 בדיקות אילוצים ב-psql (אידמפוטנטיות, delta≠0, שורת הזמנה פעם אחת לכל ערוץ, pending יחיד לכל מוצר+ערוץ, כמות לא שלילית, FK מונע מחיקת מוצר, SUM(delta)) ✓, שאילתה דרך Drizzle ✓, `tsc` ✓, `next build` ✓. הקוד הקיים עדיין על Supabase |
 | 4 | OAuth eBay → `ebay_tokens` (מוצפן), הגדרות מ-env, `lib/ebay/auth.ts` עם refresh | ✅ | 29/09/2026 | `lib/crypto.ts` (AES-256-GCM), `lib/ebay/{config,auth}.ts`, state נגד CSRF, `/api/ebay/oauth/status` חדש. listing/sync/diagnose לוקחים טוקן מ-`getValidAccessToken()`. אומת: 10/10 בדיקות מול DB מקומי עם eBay מדומה (כולל 5 קריאות מקבילות → חידוש אחד), build ✓, lint ✓, בדיקת routes על שרת מקומי ✓, דף הגדרות נטען ✓. **לא נבדק:** התחברות OAuth אמיתית — ה-RuName מפנה ל-Render; ייבדק אחרי RuName חדש (החלטה ד׳) |
 | 5 | משיכת מוצרים מ-eBay → Postgres (תיקון SKU + כמות), קריאה בלבד מול eBay | ✅ | 29/09/2026 | `lib/ebay/{guard,trading}.ts`, `lib/sync/{import-ebay,lock,log}.ts`, `POST /api/ebay/import`, `npm run job:import-ebay [-- --dry-run]`. אומת מול eBay מדומה: 9/9 (dry-run לא כותב, SKU "00123" נשמר כמחרוזת, כמות = Quantity−Sold, וריאציות ו-SKU כפול מדולגים ומדווחים, ריצה שנייה לא משכפלת, פער כמות מדווח בלי לגעת ב-ledger, נעילה נגד ריצה כפולה, **0 קריאות כתיבה ל-eBay**). build ✓ lint ✓. על שרת מקומי: listing add/revise/end → 403 חסום. **לא נבדק מול eBay אמיתי** — אין חיבור (החלטה ד׳) |
-| 6 | הסרת Supabase (supabase-js, lib/supabase.ts, תלויות) | ⏳ | | build בלי משתני Supabase |
+| 6 | ~~הסרת Supabase~~ → **הרצה במקביל**: Supabase והמסכים הישנים נשארים ללא שינוי; המערכת החדשה על Postgres נבנית לצדם | 🔨 | 29/09/2026 | הוראת עודד: לא מוחקים שום דבר של Supabase עד שהשיטה החדשה מאומתת |
 | 7 | UI חדש לפי `shape-design`: login, dashboard, מוצר, לוג, הגדרות | ⏳ | | מסך-מסך, כהה+בהיר, 375px |
 | 8 | יצירת מוצרים ב-WooCommerce (טיוטות, הפעלה ידנית) | ⏸️ | | החלטה ב׳ |
 | 9 | קליטת הזמנות ל-ledger (webhook Woo + polling eBay) — מצב צפייה בלבד | ⏳ | | |
 | 10 | דחיפת כמויות בין הערוצים (`SYNC_PUSH_ENABLED`) | ⏸️ | | החלטה ג׳ |
 | 11 | job התאמה תקופתי | ⏳ | | |
 | 12 | דיפלוי xCloud + Cron + RuName חדש + OAuth מחדש + ריצה במקביל | ⏸️ | | החלטות א׳, ד׳ |
-| 13 | export גיבוי Supabase, כיבוי Render + Supabase | ⏳ | | רק אחרי 12 יציב |
+| 13 | אימות המערכת החדשה מול eBay אמיתי → רשימת מחיקה של Supabase והמסכים הישנים → **אישור עודד** → export גיבוי → מחיקה, כיבוי Render + Supabase | ⏳ | | לא מתחילים בלי אישור מפורש |
 
 ---
 
@@ -80,6 +80,7 @@ npm run db:studio    # דפדפן טבלאות
 
 ## 📝 החלטות שהתקבלו
 
+- 29/09/2026 — **Supabase לא נמחק עד אימות** (הוראת עודד): כל קוד, טבלה, תלות ומשתנה של Supabase נשארים. המערכת החדשה (Postgres) רצה לצדם במסכים ובנתיבים נפרדים. מחיקה — רק בשלב 13 ובאישור.
 - 29/09/2026 — **חשבון eBay חי: קריאה בלבד** (הוראת עודד). guard ברמת הקוד חוסם כל קריאת כתיבה ל-Trading API אלא אם `EBAY_WRITES_ENABLED=true`. חל גם על כפתורי הפרסום הקיימים.
 - 29/09/2026 — **הכל רץ על שרת xCloud** (shape-projects), כולל Postgres ו-Cron.
 - 29/09/2026 — מודעה בלי SKU ב-eBay מקבלת SKU פנימי `EBAY-<ItemID>` (לא נכתב ל-eBay). מודעות עם וריאציות לא נתמכות בגרסה הזו — מדולגות ומדווחות.
