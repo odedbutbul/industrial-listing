@@ -84,6 +84,7 @@ export const JOB_LABEL: Record<string, string> = {
   'import-ebay': 'ייבוא מ-eBay',
   'enrich-ebay': 'פרטי מוצרים מ-eBay',
   'ebay-auth': 'חיבור eBay',
+  'poll-ebay-orders': 'הזמנות מ-eBay',
 }
 
 export const ACTION_LABEL: Record<string, string> = {
@@ -95,6 +96,8 @@ export const ACTION_LABEL: Record<string, string> = {
   import_batch: 'שמירת מנה',
   connect: 'התחברות',
   refresh: 'חידוש Token',
+  apply_order: 'קליטת הזמנה',
+  oversold: 'מכירה מעבר למלאי',
 }
 
 export const SKIP_REASON: Record<string, string> = {

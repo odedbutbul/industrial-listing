@@ -125,7 +125,7 @@ export interface ImportResult {
 
 export interface BackgroundRun {
   id: string
-  kind: 'import-preview' | 'import' | 'enrich'
+  kind: 'import-preview' | 'import' | 'enrich' | 'orders-poll'
   status: 'running' | 'done' | 'failed'
   startedAt: string
   finishedAt: string | null

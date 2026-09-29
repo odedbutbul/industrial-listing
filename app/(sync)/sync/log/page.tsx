@@ -24,6 +24,12 @@ export default function LogPage() {
 function summary(r: LogRow): string {
   if (r.error) return r.error
   const d = r.details ?? {}
+  if (r.action === 'run' && r.job === 'poll-ebay-orders') {
+    const parts = [`${num(Number(d.orders ?? 0))} הזמנות`, `${num(Number(d.applied ?? 0))} הורידו מלאי`]
+    if (d.unmapped) parts.push(`${num(Number(d.unmapped))} לבדיקה`)
+    if (d.oversold) parts.push(`${num(Number(d.oversold))} מעבר למלאי`)
+    return parts.join(' · ')
+  }
   if (r.action === 'run') {
     const parts = [`${num(Number(d.created ?? 0))} חדשים`, `${num(Number(d.unchanged ?? 0))} קיימים`]
     if (d.skipped) parts.push(`${num(Number(d.skipped))} דולגו`)

@@ -14,7 +14,9 @@ import { writeSyncLog } from './log'
 // - מכירה מורידה מלאי רק אם ההזמנה נוצרה *אחרי* מלאי הפתיחה של המוצר (זמן הייבוא).
 //   הזמנה מלפני כן כבר כלולה ב-QuantityAvailable שיובא — נרשמת כ-ignored, בלי ledger.
 // - ביטול של הזמנה שהורידה מלאי מחזיר את הכמות (פעם אחת).
-// - שורה שלא מזוהה (לא מודעה ולא SKU שממופים) — unmapped, לבדיקה.
+// - שורה שלא מזוהה ונמכרה *לפני* הייבוא — ignored (המודעה הסתיימה ולא יובאה; היסטוריה בלבד).
+// - שורה שלא מזוהה ונמכרה *אחרי* הייבוא — unmapped, לבדיקה.
+// - שורה unmapped שבריצה מאוחרת כבר אפשר לזהות (למשל אחרי תיקון SKU כפול) — מסווגת מחדש.
 // - מכירה שמורידה מלאי מתחת ל-0 — נרשמת (זה קרה בפועל) ומסומנת oversold ב-sync_log.
 
 export const EBAY_ORDERS_JOB = 'poll-ebay-orders'
@@ -96,10 +98,17 @@ async function runPoll(opts: { from?: Date; to?: Date; onProgress?: (p: ImportPr
   const bySku = new Map(mappings.map((m) => [m.sku, m]))
   const resolve = (l: EbayOrderLine) => (l.itemId && byItem.get(l.itemId)) || (l.sku && bySku.get(l.sku)) || null
 
+  // זמן הייבוא הראשון — הזמנה מלפניו של מודעה שלא יובאה היא היסטוריה, לא בעיה
+  const [imp] = await db
+    .select({ at: sql<Date | null>`min(${schema.stockLedger.createdAt})` })
+    .from(schema.stockLedger)
+    .where(eq(schema.stockLedger.reason, 'initial'))
+  const importAt = imp?.at ? new Date(imp.at) : null
+
   let done = 0
   for (const o of orders) {
     try {
-      await applyOrder(o, resolve, result)
+      await applyOrder(o, resolve, result, importAt)
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err)
       result.errors.push({ orderId: o.orderId, error })
@@ -146,6 +155,7 @@ async function applyOrder(
   o: EbayOrder,
   resolve: (l: EbayOrderLine) => typeof schema.channelMappings.$inferSelect | null,
   result: PollResult,
+  importAt: Date | null,
 ) {
   const state = orderState(o)
   const cancelled = isCancelled(o)
@@ -171,9 +181,16 @@ async function applyOrder(
 
     for (const l of o.lines) {
       const m = resolve(l)
-      const existing = await tx.query.processedOrders.findFirst({
+      let existing = await tx.query.processedOrders.findFirst({
         where: and(eq(schema.processedOrders.channel, 'ebay'), eq(schema.processedOrders.externalOrderId, o.orderId), eq(schema.processedOrders.externalLineId, l.lineItemId)),
       })
+      // unmapped שאפשר עכשיו לסווג (מופה בינתיים, או שהתברר שהוא מלפני הייבוא) — מתחילים אותו מחדש
+      const beforeImport = !!importAt && o.createdAt <= importAt
+      if (existing?.status === 'unmapped' && (m || beforeImport)) {
+        await tx.delete(schema.processedOrders).where(eq(schema.processedOrders.id, existing.id))
+        existing = undefined
+        result.newLines--
+      }
 
       if (!existing) {
         result.newLines++
@@ -190,9 +207,14 @@ async function applyOrder(
           lineTotal: l.lineTotal,
           currency: l.currency,
         }
+        if (!m && beforeImport) {
+          result.ignoredBeforeImport++
+          await tx.insert(schema.processedOrders).values({ ...base, status: 'ignored', note: 'נמכר לפני הייבוא — המודעה כבר לא פעילה ולא יובאה' })
+          continue
+        }
         if (!m) {
           result.unmapped++
-          await tx.insert(schema.processedOrders).values({ ...base, status: 'unmapped', note: 'המודעה וה-SKU לא ממופים במערכת' })
+          await tx.insert(schema.processedOrders).values({ ...base, status: 'unmapped', note: 'נמכר אחרי הייבוא, אבל המודעה וה-SKU לא ממופים במערכת — לבדיקה' })
           continue
         }
         // מלאי הפתיחה של המוצר — הזמנה מלפניו כבר כלולה בכמות שיובאה
