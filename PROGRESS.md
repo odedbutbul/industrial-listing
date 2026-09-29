@@ -22,7 +22,7 @@
 | 9 | קליטת הזמנות ל-ledger (webhook Woo + polling eBay) — מצב צפייה בלבד | ⏳ | | |
 | 10 | דחיפת כמויות בין הערוצים (`SYNC_PUSH_ENABLED`) | ⏸️ | | החלטה ג׳ |
 | 11 | job התאמה תקופתי | ⏳ | | |
-| 12 | דיפלוי xCloud + Cron + RuName חדש + OAuth מחדש + ריצה במקביל | ⏸️ | | החלטות א׳, ד׳ |
+| 12 | דיפלוי xCloud + Cron + RuName חדש + OAuth מחדש + ריצה במקביל | 🔨 | 29/09/2026 | אתר נוצר: `https://stock-sync.1wp.site` (site uuid `9c8b71e4-314e-46eb-b501-568c937bf68a`, משתמש `stock_sync`, Node 24, ssr, פורט 3141, branch `sync`, push-to-deploy כבוי — דיפלוי ידני). Deploy Script: `bash scripts/xcloud-deploy.sh` (npm ci + migrations). חזרה מקומית על כל התהליך ב-clone נקי ✓. דיפלוי ראשון נכשל בכוונה ב-deploy script ("DATABASE_URL חסר") — אומת ב-diagnosis. אחרי שהסודות נכנסים: retry לדיפלוי (sites.provision-retry, בלי תיקונים) |
 | 13 | אימות המערכת החדשה מול eBay אמיתי → רשימת מחיקה של Supabase והמסכים הישנים → **אישור עודד** → export גיבוי → מחיקה, כיבוי Render + Supabase | ⏳ | | לא מתחילים בלי אישור מפורש |
 
 ---
@@ -74,6 +74,9 @@ npm run db:studio    # דפדפן טבלאות
 - CLAUDE.md הישן (בהיסטוריית git) הכיל כתובת Supabase ו-anon key. הוסרו מהגרסה הנוכחית; נשארים בהיסטוריה עד שיכובה Supabase.
 
 ## 🙋 פעולות שממתינות לעודד
+
+- **xCloud → האתר stock-sync.1wp.site → Node.js → Environment** — להוסיף (ערכים לא עוברים בשיחה): `DATABASE_URL`, `TOKEN_ENCRYPTION_KEY` (`openssl rand -base64 32`), `EBAY_APP_ID`, `EBAY_CERT_ID`, `EBAY_RUNAME` (החדש), `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `SESSION_SECRET`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` (למסכים הישנים). כבר קיימים שם: `APP_BASE_URL`, `PORT`, `EBAY_SANDBOX=false`, `EBAY_WRITES_ENABLED=false`, `SYNC_PUSH_ENABLED=false`.
+- **eBay Developer → User Tokens (Production)** — RuName חדש עם Auth accepted URL `https://stock-sync.1wp.site/api/ebay/oauth/callback`. לא לערוך את ה-RuName הקיים (Render ממשיך לעבוד עליו).
 
 
 - להוסיף ל-`.env.local` את `EBAY_CERT_ID` ו-`EBAY_RUNAME` (היום נמצאים רק בטבלת settings ב-Supabase). בלעדיהם הגדרות eBay מציגות "חסרים משתני סביבה".
