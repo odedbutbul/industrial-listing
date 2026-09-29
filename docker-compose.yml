@@ -1,0 +1,22 @@
+# Postgres לפיתוח מקומי בלבד. בייצור — ראה החלטה א׳ ב-PROGRESS.md.
+# הפעלה: npm run db:up   ·   עצירה: npm run db:down
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: stock-sync-db
+    environment:
+      POSTGRES_USER: sync
+      POSTGRES_PASSWORD: sync_dev_only
+      POSTGRES_DB: stock_sync
+    ports:
+      - "5442:5432"
+    volumes:
+      - stock-sync-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sync -d stock_sync"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  stock-sync-db:

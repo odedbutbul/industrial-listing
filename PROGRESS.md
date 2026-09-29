@@ -13,7 +13,7 @@
 | 0 | סריקה + דוח + תוכנית | ✅ | 29/09/2026 | אושר ע"י עודד |
 | 1 | tag + branch `sync` + CLAUDE.md + PROGRESS.md | ✅ | 29/09/2026 | `pre-sync-baseline` → f3b677f |
 | 2 | מחיקת מה שלא קשור ל-eBay: פייסבוק, webhook ל-Make, CSV, ZIP תמונות, מחיקת-הכל, PWA artifacts, railway.json | ✅ | 29/09/2026 | `next build` ✓, `tsc --noEmit` ✓, diff של `app/api/ebay` מול baseline = 0 שורות. לא נבדק בדפדפן |
-| 3 | Drizzle + סכמה + migrations + Postgres מקומי לפיתוח | ⏳ | | |
+| 3 | Drizzle + סכמה + migrations + Postgres מקומי לפיתוח | ✅ | 29/09/2026 | 8 טבלאות ב-`lib/db/schema.ts`, migration `0000_init`. אומת: migrate ✓, 9 בדיקות אילוצים ב-psql (אידמפוטנטיות, delta≠0, שורת הזמנה פעם אחת לכל ערוץ, pending יחיד לכל מוצר+ערוץ, כמות לא שלילית, FK מונע מחיקת מוצר, SUM(delta)) ✓, שאילתה דרך Drizzle ✓, `tsc` ✓, `next build` ✓. הקוד הקיים עדיין על Supabase |
 | 4 | OAuth eBay → `ebay_tokens` (מוצפן), הגדרות מ-env, `lib/ebay/auth.ts` עם refresh | ⏳ | | |
 | 5 | משיכת מוצרים מ-eBay → Postgres (תיקון SKU + כמות), קריאה בלבד מול eBay | ⏳ | | |
 | 6 | הסרת Supabase (supabase-js, lib/supabase.ts, תלויות) | ⏳ | | build בלי משתני Supabase |
@@ -27,9 +27,22 @@
 
 ---
 
+## 🛠️ פיתוח מקומי
+
+```bash
+npm run db:up        # Postgres 16 ב-Docker, פורט 5442 (5432/5433 תפוסים ע"י פרויקטים אחרים)
+npm run db:migrate   # החלת migrations
+npm run db:generate  # אחרי שינוי ב-lib/db/schema.ts
+npm run db:studio    # דפדפן טבלאות
+```
+`DATABASE_URL` לפיתוח נמצא ב-`.env.local`; רשימת כל המשתנים (שמות בלבד) ב-`.env.example`.
+
+---
+
 ## ❓ החלטות פתוחות (לא מכריעים בלי עודד)
 
 **א. איפה Postgres** — נדרש לפני שלב 12 (פיתוח על Postgres מקומי).
+- פיתוח רץ על Postgres 16 — בייצור צריך 16 ומעלה.
 - התקנה ידנית על shape-projects: localhost, בלי עלות; התקנה/עדכונים/גיבוי `pg_dump` באחריותנו, חולק משאבים. לא נבדק אם גיבויי xCloud כוללים אותו.
 - שרת Docker נפרד ב-xCloud (one-click דורש docker_nginx): מבודד + גיבויים מנוהלים; עלות נוספת, חיבור ברשת (firewall + SSL), רכיב נוסף שיכול ליפול.
 
