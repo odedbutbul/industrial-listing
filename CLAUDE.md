@@ -16,6 +16,7 @@
 6. **החלטות פתוחות** (רשימה ב-PROGRESS.md) — לא מכריעים בהן לבד. שואלים את עודד.
 7. **UI:** כל מסך נבנה לפי הסקיל `shape-design` (ראה סעיף עיצוב). אין להמציא שפה חזותית.
 8. **לא מוחקים חיבורים קיימים ל-eBay** (`app/api/ebay/*` וה-UI שמפעיל אותם). מותר להתאים; מחיקה רק באישור מפורש של עודד.
+9. **חשבון ה-eBay חי ומוכר — קריאה בלבד.** אסור לבצע שום שינוי ב-eBay (AddItem, ReviseItem, EndItem, ReviseInventoryStatus, וכל קריאה שמשנה משהו). כל קריאת Trading API עוברת את `lib/ebay/guard.ts` (allowlist של קריאות קריאה); כתיבה חסומה אלא אם `EBAY_WRITES_ENABLED=true` — ורק עודד מחליט להפעיל אותו. בבדיקות — eBay מדומה בלבד.
 
 ---
 
@@ -49,7 +50,7 @@
 | DB | Postgres + Drizzle ORM (במקום Supabase) |
 | eBay | OAuth (authorization code + refresh), Trading API (GetMyeBaySelling, GetItem, ReviseInventoryStatus), Fulfillment API (getOrders) |
 | WooCommerce | REST API v3 (consumer key/secret) + webhooks |
-| אירוח | xCloud, שרת shape-projects (Node 24, nginx רגיל), דיפלוי מ-Git |
+| אירוח | xCloud, שרת shape-projects (Node 24, nginx רגיל), דיפלוי מ-Git — **הכל רץ על השרת הזה, כולל Postgres** |
 | תזמון | Cron של השרת (לא WP-Cron) שמריץ סקריפטים ב-`jobs/` |
 | הזדהות | כניסת מנהל יחיד (cookie) — `middleware.ts` + `app/api/auth/*` |
 
@@ -101,7 +102,7 @@ drizzle.config.ts
 
 - **אפליקציה:** `APP_BASE_URL`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `SESSION_SECRET`
 - **DB:** `DATABASE_URL`
-- **eBay:** `EBAY_APP_ID`, `EBAY_CERT_ID`, `EBAY_RUNAME`, `EBAY_SANDBOX`, `TOKEN_ENCRYPTION_KEY`; בהמשך `EBAY_NOTIFICATION_VERIFICATION_TOKEN`
+- **eBay:** `EBAY_APP_ID`, `EBAY_CERT_ID`, `EBAY_RUNAME`, `EBAY_SANDBOX`, `TOKEN_ENCRYPTION_KEY`, `EBAY_WRITES_ENABLED` (ברירת מחדל: כבוי); בהמשך `EBAY_NOTIFICATION_VERIFICATION_TOKEN`
 - **WooCommerce:** `WC_BASE_URL`, `WC_CONSUMER_KEY`, `WC_CONSUMER_SECRET`, `WC_WEBHOOK_SECRET`
 - **סנכרון:** `CRON_SECRET`, `SYNC_PUSH_ENABLED`
 - **מתבטלים:** `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `WEBHOOK_URL`, `EBAY_USER_TOKEN`, `EBAY_DEV_ID`, `CLOUDINARY_*`, `NEXT_PUBLIC_BASE_URL` (→ `APP_BASE_URL`)

@@ -15,7 +15,7 @@
 | 2 | מחיקת מה שלא קשור ל-eBay: פייסבוק, webhook ל-Make, CSV, ZIP תמונות, מחיקת-הכל, PWA artifacts, railway.json | ✅ | 29/09/2026 | `next build` ✓, `tsc --noEmit` ✓, diff של `app/api/ebay` מול baseline = 0 שורות. לא נבדק בדפדפן |
 | 3 | Drizzle + סכמה + migrations + Postgres מקומי לפיתוח | ✅ | 29/09/2026 | 8 טבלאות ב-`lib/db/schema.ts`, migration `0000_init`. אומת: migrate ✓, 9 בדיקות אילוצים ב-psql (אידמפוטנטיות, delta≠0, שורת הזמנה פעם אחת לכל ערוץ, pending יחיד לכל מוצר+ערוץ, כמות לא שלילית, FK מונע מחיקת מוצר, SUM(delta)) ✓, שאילתה דרך Drizzle ✓, `tsc` ✓, `next build` ✓. הקוד הקיים עדיין על Supabase |
 | 4 | OAuth eBay → `ebay_tokens` (מוצפן), הגדרות מ-env, `lib/ebay/auth.ts` עם refresh | ✅ | 29/09/2026 | `lib/crypto.ts` (AES-256-GCM), `lib/ebay/{config,auth}.ts`, state נגד CSRF, `/api/ebay/oauth/status` חדש. listing/sync/diagnose לוקחים טוקן מ-`getValidAccessToken()`. אומת: 10/10 בדיקות מול DB מקומי עם eBay מדומה (כולל 5 קריאות מקבילות → חידוש אחד), build ✓, lint ✓, בדיקת routes על שרת מקומי ✓, דף הגדרות נטען ✓. **לא נבדק:** התחברות OAuth אמיתית — ה-RuName מפנה ל-Render; ייבדק אחרי RuName חדש (החלטה ד׳) |
-| 5 | משיכת מוצרים מ-eBay → Postgres (תיקון SKU + כמות), קריאה בלבד מול eBay | ⏳ | | |
+| 5 | משיכת מוצרים מ-eBay → Postgres (תיקון SKU + כמות), קריאה בלבד מול eBay | ✅ | 29/09/2026 | `lib/ebay/{guard,trading}.ts`, `lib/sync/{import-ebay,lock,log}.ts`, `POST /api/ebay/import`, `npm run job:import-ebay [-- --dry-run]`. אומת מול eBay מדומה: 9/9 (dry-run לא כותב, SKU "00123" נשמר כמחרוזת, כמות = Quantity−Sold, וריאציות ו-SKU כפול מדולגים ומדווחים, ריצה שנייה לא משכפלת, פער כמות מדווח בלי לגעת ב-ledger, נעילה נגד ריצה כפולה, **0 קריאות כתיבה ל-eBay**). build ✓ lint ✓. על שרת מקומי: listing add/revise/end → 403 חסום. **לא נבדק מול eBay אמיתי** — אין חיבור (החלטה ד׳) |
 | 6 | הסרת Supabase (supabase-js, lib/supabase.ts, תלויות) | ⏳ | | build בלי משתני Supabase |
 | 7 | UI חדש לפי `shape-design`: login, dashboard, מוצר, לוג, הגדרות | ⏳ | | מסך-מסך, כהה+בהיר, 375px |
 | 8 | יצירת מוצרים ב-WooCommerce (טיוטות, הפעלה ידנית) | ⏸️ | | החלטה ב׳ |
@@ -41,7 +41,7 @@ npm run db:studio    # דפדפן טבלאות
 
 ## ❓ החלטות פתוחות (לא מכריעים בלי עודד)
 
-**א. איפה Postgres** — נדרש לפני שלב 12 (פיתוח על Postgres מקומי).
+**א. איפה Postgres** — ✅ נענה 29/09/2026: "הכל ירוץ על השרת xCloud" → Postgres מותקן על shape-projects (פורש כך — ממתין לאישור עודד שזה לא שרת Docker נפרד). פיתוח ממשיך על Postgres מקומי.
 - פיתוח רץ על Postgres 16 — בייצור צריך 16 ומעלה.
 - התקנה ידנית על shape-projects: localhost, בלי עלות; התקנה/עדכונים/גיבוי `pg_dump` באחריותנו, חולק משאבים. לא נבדק אם גיבויי xCloud כוללים אותו.
 - שרת Docker נפרד ב-xCloud (one-click דורש docker_nginx): מבודד + גיבויים מנוהלים; עלות נוספת, חיבור ברשת (firewall + SSL), רכיב נוסף שיכול ליפול.
@@ -64,7 +64,8 @@ npm run db:studio    # דפדפן טבלאות
 ## ⚠️ בעיות ידועות (מהסריקה, 29/09/2026 — יטופלו בשלבים)
 
 - ~~`oauth/refresh/route.ts` היה עותק של listing~~ — תוקן בשלב 4: עכשיו מחדש טוקן באמת. פעולות הפרסום נשארו ב-`listing/route.ts`.
-- `components/ProductForm.tsx` מריץ ReviseItem ב-eBay אוטומטית בכל שמירה של מוצר שפורסם — מנוגד לכלל "רק דרך כפתור". **נשמר** (הוראת עודד: לא למחוק חיבורי eBay) — לשאול את עודד לפני שלב 10 אם להפוך אותו לכפתור.
+- `components/ProductForm.tsx` מנסה ReviseItem ב-eBay בכל שמירה של מוצר שפורסם. הקוד נשמר (לא מוחקים חיבורי eBay), אבל מאז שלב 5 הקריאה **נחסמת** ע"י `lib/ebay/guard.ts` והמשתמש רואה "נשמר במערכת, אבל עדכון eBay נכשל". לשאול את עודד לפני שלב 10.
+- `/api/ebay/sync` הישן (כותב ל-Supabase) עדיין מחובר ל-`SyncModal`. הייבוא החדש ל-Postgres הוא `/api/ebay/import`. בשלב 6 ה-UI יעבור לייבוא החדש.
 - `/api/ebay/notifications` חסום ע"י `middleware.ts:4` (לא ב-PUBLIC_PATHS), וה-challenge לא מחושב כנדרש.
 - `app/api/ebay/sync/route.ts` לא שומר SKU, וכמות עלולה לכלול יחידות שנמכרו (חידוש טוקן — תוקן בשלב 4).
 - `middleware.ts` מפנה את `sw.js`/`workbox-*.js` ל-`/login` כשאין cookie → רישום ה-Service Worker נכשל בדף הכניסה. קיים גם ב-main. לתקן יחד עם PUBLIC_PATHS (או להסיר PWA — לשאול את עודד).
@@ -78,6 +79,11 @@ npm run db:studio    # דפדפן טבלאות
 - `EBAY_USER_TOKEN` ב-`.env.local` כבר לא בשימוש — אפשר למחוק.
 
 ## 📝 החלטות שהתקבלו
+
+- 29/09/2026 — **חשבון eBay חי: קריאה בלבד** (הוראת עודד). guard ברמת הקוד חוסם כל קריאת כתיבה ל-Trading API אלא אם `EBAY_WRITES_ENABLED=true`. חל גם על כפתורי הפרסום הקיימים.
+- 29/09/2026 — **הכל רץ על שרת xCloud** (shape-projects), כולל Postgres ו-Cron.
+- 29/09/2026 — מודעה בלי SKU ב-eBay מקבלת SKU פנימי `EBAY-<ItemID>` (לא נכתב ל-eBay). מודעות עם וריאציות לא נתמכות בגרסה הזו — מדולגות ומדווחות.
+- 29/09/2026 — הייבוא לא משנה מלאי של מוצר קיים; פער בין ה-ledger ל-eBay רק מדווח (`qty_mismatch` ב-sync_log). התיקון — job ההתאמה (שלב 11).
 
 - 29/09/2026 — Postgres + Drizzle במקום Supabase; xCloud (shape-projects) במקום Render; Cron של השרת.
 - 29/09/2026 — polling ל-Fulfillment API כבסיס; webhooks של eBay בהמשך.

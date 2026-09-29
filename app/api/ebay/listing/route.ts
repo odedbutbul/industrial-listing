@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { XMLParser } from 'fast-xml-parser'
 import { getValidAccessToken } from '@/lib/ebay/auth'
 import { getEbayConfig } from '@/lib/ebay/config'
+import { EbayWriteBlockedError, assertEbayCallAllowed } from '@/lib/ebay/guard'
 
 function getClient() {
   return createClient(
@@ -189,6 +190,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'חסרים פרמטרים: action ו-productId' }, { status: 400 })
   }
 
+  const CALL_BY_ACTION: Record<string, string> = { verify: 'VerifyAddItem', add: 'AddItem', revise: 'ReviseItem', end: 'EndItem' }
+  try {
+    if (CALL_BY_ACTION[action]) assertEbayCallAllowed(CALL_BY_ACTION[action])
+  } catch (err) {
+    if (err instanceof EbayWriteBlockedError) {
+      return NextResponse.json({ error: err.message, blocked: true }, { status: 403 })
+    }
+    throw err
+  }
+
   const supabase = getClient()
 
   const { data: product, error: pErr } = await supabase
@@ -223,6 +234,8 @@ export async function POST(request: NextRequest) {
   const endpoint = config.tradingEndpoint
 
   async function callEbay(callName: string, xmlBody: string): Promise<string> {
+    // חשבון eBay חי — AddItem/ReviseItem/EndItem חסומים אלא אם EBAY_WRITES_ENABLED=true
+    assertEbayCallAllowed(callName)
     const res = await fetch(endpoint, {
       method: 'POST',
       headers: buildHeaders(validToken, callName),
