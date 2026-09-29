@@ -19,6 +19,9 @@ export const EBAY_SCOPES = [
 
 /** cookie שמחזיק את ה-state של OAuth בין authorize ל-callback */
 export const OAUTH_STATE_COOKIE = 'ebay-oauth-state'
+/** לאן לחזור אחרי ההתחברות — רק מתוך רשימה סגורה */
+export const OAUTH_RETURN_COOKIE = 'ebay-oauth-return'
+export const OAUTH_RETURN_PATHS = ['/settings', '/sync/settings'] as const
 
 /** מרווח ביטחון לפני פקיעת ה-access token */
 const REFRESH_BUFFER_MS = 5 * 60 * 1000

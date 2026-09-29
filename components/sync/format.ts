@@ -1,0 +1,100 @@
+import type { Tone } from './ui'
+
+// פורמטים וטבלאות סטטוס למסכי /sync. מבוסס על ~/Projects/flowbot-license/src/web/format.ts.
+
+/** 25.9.2026 */
+export function date(iso: string | null | undefined): string {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return '—'
+  return `${d.getDate()}.${d.getMonth() + 1}.${d.getFullYear()}`
+}
+
+/** 25.9.2026 · 09:14 */
+export function dateTime(iso: string | null | undefined): string {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return '—'
+  return `${date(iso)} · ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+/** "לפני 20 דקות", "אתמול, 18:40", ואז תאריך */
+export function ago(iso: string | null | undefined, now = Date.now()): string {
+  if (!iso) return ''
+  const t = new Date(iso).getTime()
+  if (Number.isNaN(t)) return ''
+  const min = Math.max(0, Math.round((now - t) / 60_000))
+  if (min < 1) return 'עכשיו'
+  if (min === 1) return 'לפני דקה'
+  if (min < 60) return `לפני ${min} דקות`
+  const h = Math.round(min / 60)
+  if (h === 1) return 'לפני שעה'
+  if (h === 2) return 'לפני שעתיים'
+  if (h < 24) return `לפני ${h} שעות`
+  const d = new Date(t)
+  const y = new Date(now)
+  y.setDate(y.getDate() - 1)
+  if (d.toDateString() === y.toDateString()) return `אתמול, ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  const days = Math.round(min / 1440)
+  if (days < 7) return days === 2 ? 'לפני יומיים' : `לפני ${days} ימים`
+  return date(iso)
+}
+
+const CURRENCY_SIGN: Record<string, string> = { USD: '$', ILS: '₪', EUR: '€', GBP: '£' }
+
+/** $450 או $99.50, מבודד (U+2066…U+2069) כדי שלא יתהפך בתוך משפט עברי */
+export function money(amount: string | number | null | undefined, currency = 'USD'): string {
+  if (amount === null || amount === undefined || amount === '') return '—'
+  const n = Number(amount)
+  if (!Number.isFinite(n)) return '—'
+  const digits = n % 1 ? { minimumFractionDigits: 2, maximumFractionDigits: 2 } : {}
+  return `⁦${CURRENCY_SIGN[currency] ?? currency + ' '}${n.toLocaleString('en-US', digits)}⁩`
+}
+
+export const num = (n: number) => n.toLocaleString('en-US')
+
+// ── טבלת סטטוסים אחת לכל המסכים ──────────────────────────────────────────────
+
+export function stockStatus(available: number): [string, Tone] {
+  return available > 0 ? ['במלאי', 'ok'] : ['אזל', 'dark']
+}
+
+export const WOO_NOT_LINKED: [string, Tone] = ['לא מקושר', 'gray']
+export const MISMATCH: [string, Tone] = ['פער מול eBay', 'warn']
+export const SYNC_OFF: [string, Tone] = ['סנכרון כבוי', 'gray']
+
+export const LEDGER_REASON: Record<string, string> = {
+  initial: 'מלאי פתיחה',
+  sale: 'מכירה',
+  cancel: 'ביטול הזמנה',
+  refund: 'החזר',
+  manual_adjust: 'תיקון ידני',
+  reconcile_correction: 'תיקון מהתאמה',
+}
+
+export const LEDGER_SOURCE: Record<string, string> = {
+  ebay: 'eBay',
+  woo: 'האתר',
+  manual: 'ידני',
+  reconcile: 'התאמה',
+  import: 'ייבוא',
+}
+
+export const JOB_LABEL: Record<string, string> = {
+  'import-ebay': 'ייבוא מ-eBay',
+  'ebay-auth': 'חיבור eBay',
+}
+
+export const ACTION_LABEL: Record<string, string> = {
+  run: 'ריצה',
+  import_item: 'ייבוא מוצר',
+  get_item: 'קריאת מודעה',
+  qty_mismatch: 'פער כמות',
+  connect: 'התחברות',
+  refresh: 'חידוש Token',
+}
+
+export const SKIP_REASON: Record<string, string> = {
+  variations_unsupported: 'מודעה עם וריאציות (לא נתמך עדיין)',
+  duplicate_sku: 'SKU כפול',
+}

@@ -272,6 +272,7 @@ async function runImport(opts: ImportOptions): Promise<ImportResult> {
   await log({
     action: 'run',
     success: result.errors.length === 0,
+    error: result.errors.length ? `${result.errors.length} מודעות לא נקראו מ-eBay` : undefined,
     durationMs: result.durationMs,
     details: {
       pagesRead: result.pagesRead,

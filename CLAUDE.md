@@ -62,7 +62,9 @@ Render ו-Supabase יכובו רק אחרי שהמערכת החדשה רצה ב�
 ## מבנה תיקיות (יעד)
 
 ```
-app/                 dashboard · products/[id] · logs · settings · login
+app/(sync)/sync/     המערכת החדשה (shape-design): סקירה · products · products/[id] · log · settings
+app/(legacy)/        המסכים הישנים על Supabase — לא נוגעים עד אישור מחיקה (כלל 10)
+components/sync/     base.css · tokens.css · ui.tsx · tables.ts מהסקיל + Shell · ImportDialog · format · api
 app/api/             auth/* · ebay/oauth/{authorize,callback} · ebay/notifications · woo/webhook
 lib/db/              schema.ts · client.ts · migrations/
 lib/ebay/            auth.ts · trading.ts · fulfillment.ts

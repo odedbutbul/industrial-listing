@@ -17,7 +17,7 @@
 | 4 | OAuth eBay → `ebay_tokens` (מוצפן), הגדרות מ-env, `lib/ebay/auth.ts` עם refresh | ✅ | 29/09/2026 | `lib/crypto.ts` (AES-256-GCM), `lib/ebay/{config,auth}.ts`, state נגד CSRF, `/api/ebay/oauth/status` חדש. listing/sync/diagnose לוקחים טוקן מ-`getValidAccessToken()`. אומת: 10/10 בדיקות מול DB מקומי עם eBay מדומה (כולל 5 קריאות מקבילות → חידוש אחד), build ✓, lint ✓, בדיקת routes על שרת מקומי ✓, דף הגדרות נטען ✓. **לא נבדק:** התחברות OAuth אמיתית — ה-RuName מפנה ל-Render; ייבדק אחרי RuName חדש (החלטה ד׳) |
 | 5 | משיכת מוצרים מ-eBay → Postgres (תיקון SKU + כמות), קריאה בלבד מול eBay | ✅ | 29/09/2026 | `lib/ebay/{guard,trading}.ts`, `lib/sync/{import-ebay,lock,log}.ts`, `POST /api/ebay/import`, `npm run job:import-ebay [-- --dry-run]`. אומת מול eBay מדומה: 9/9 (dry-run לא כותב, SKU "00123" נשמר כמחרוזת, כמות = Quantity−Sold, וריאציות ו-SKU כפול מדולגים ומדווחים, ריצה שנייה לא משכפלת, פער כמות מדווח בלי לגעת ב-ledger, נעילה נגד ריצה כפולה, **0 קריאות כתיבה ל-eBay**). build ✓ lint ✓. על שרת מקומי: listing add/revise/end → 403 חסום. **לא נבדק מול eBay אמיתי** — אין חיבור (החלטה ד׳) |
 | 6 | ~~הסרת Supabase~~ → **הרצה במקביל**: Supabase והמסכים הישנים נשארים ללא שינוי; המערכת החדשה על Postgres נבנית לצדם | 🔨 | 29/09/2026 | הוראת עודד: לא מוחקים שום דבר של Supabase עד שהשיטה החדשה מאומתת |
-| 7 | UI חדש לפי `shape-design`: login, dashboard, מוצר, לוג, הגדרות | ⏳ | | מסך-מסך, כהה+בהיר, 375px |
+| 7 | UI חדש לפי `shape-design` — מסכי `/sync`: סקירה, מוצרים, מוצר, לוג, הגדרות + דיאלוג ייבוא (תצוגה מקדימה → אישור) | ✅ | 29/09/2026 | root layout נפרד `app/(sync)`; המסכים הישנים הועברו ל-`app/(legacy)` בלי שינוי תוכן (אותן כתובות). קוראים רק מ-Postgres (`/api/sync/*`). נבדק בדפדפן עם נתוני דמו מקומיים (נמחקו): כהה + בהיר, 1024px ו-375px (tab bar, טבלאות ככרטיסים, דיאלוג כ-bottom sheet), מצבי טעינה/ריק/שגיאה. tsc ✓ lint ✓ build ✓. עדיין על ה-login הישן (`/login`) |
 | 8 | יצירת מוצרים ב-WooCommerce (טיוטות, הפעלה ידנית) | ⏸️ | | החלטה ב׳ |
 | 9 | קליטת הזמנות ל-ledger (webhook Woo + polling eBay) — מצב צפייה בלבד | ⏳ | | |
 | 10 | דחיפת כמויות בין הערוצים (`SYNC_PUSH_ENABLED`) | ⏸️ | | החלטה ג׳ |
@@ -41,7 +41,7 @@ npm run db:studio    # דפדפן טבלאות
 
 ## ❓ החלטות פתוחות (לא מכריעים בלי עודד)
 
-**א. איפה Postgres** — ✅ הוכרע 29/09/2026: על shape-projects. נבדק ב-SSH (קריאה בלבד): **PostgreSQL 16 כבר מותקן ורץ** (`postgresql@16-main`, מאזין רק ל-127.0.0.1:5432) — אין צורך בהתקנה. xCloud לא מציע Postgres כשירות בשרת הזה (רק MySQL/MariaDB). נשאר: ליצור role + DB ייעודיים (דורש sudo — ראה פעולות שממתינות לעודד). גיבוי: לא נבדק אם גיבויי xCloud כוללים את ה-DB — לתכנן `pg_dump` ב-Cron.
+**א. איפה Postgres** — ✅ הוכרע 29/09/2026: על shape-projects. נבדק ב-SSH (קריאה בלבד): **PostgreSQL 16 כבר מותקן ורץ** (`postgresql@16-main`, מאזין רק ל-127.0.0.1:5432) — אין צורך בהתקנה. xCloud לא מציע Postgres כשירות בשרת הזה (רק MySQL/MariaDB). role + DB `stock_sync` נוצרו ע"י עודד (29/09/2026, סיסמה אקראית שנוצרה בשרת; `DATABASE_URL` אצל עודד, ייכנס לסביבת האתר ב-xCloud). **החיבור עוד לא אומת** — ייבדק בדיפלוי הראשון. גיבוי: לא נבדק אם גיבויי xCloud כוללים את ה-DB — לתכנן `pg_dump` ב-Cron.
 - פיתוח רץ על Postgres 16 — בייצור צריך 16 ומעלה.
 - התקנה ידנית על shape-projects: localhost, בלי עלות; התקנה/עדכונים/גיבוי `pg_dump` באחריותנו, חולק משאבים. לא נבדק אם גיבויי xCloud כוללים אותו.
 - שרת Docker נפרד ב-xCloud (one-click דורש docker_nginx): מבודד + גיבויים מנוהלים; עלות נוספת, חיבור ברשת (firewall + SSL), רכיב נוסף שיכול ליפול.
@@ -75,13 +75,14 @@ npm run db:studio    # דפדפן טבלאות
 
 ## 🙋 פעולות שממתינות לעודד
 
-- ליצור ב-shape-projects DB ו-role בשם `stock_sync` (דורש sudo; למשתמש `claude` בשרת אין sudo בלי סיסמה). הפקודה בשיחה מ-29/09/2026. את ה-`DATABASE_URL` שהיא מדפיסה — לשמור לסביבת האתר ב-xCloud, לא בריפו.
 
 - להוסיף ל-`.env.local` את `EBAY_CERT_ID` ו-`EBAY_RUNAME` (היום נמצאים רק בטבלת settings ב-Supabase). בלעדיהם הגדרות eBay מציגות "חסרים משתני סביבה".
 - `EBAY_USER_TOKEN` ב-`.env.local` כבר לא בשימוש — אפשר למחוק.
 
 ## 📝 החלטות שהתקבלו
 
+- 29/09/2026 — שני root layouts: `app/(legacy)` (Tailwind, המסכים הישנים) ו-`app/(sync)` (shape-design). ה-CSS שלהם לא מתערבב; מעבר בין האזורים = טעינת דף מלאה.
+- 29/09/2026 — פער כמות (`qty_mismatch`) הוא אזהרה, לא תקלה: לא נספר ב"תקלות ב-24 שעות" ומוצג בצהוב.
 - 29/09/2026 — **Supabase לא נמחק עד אימות** (הוראת עודד): כל קוד, טבלה, תלות ומשתנה של Supabase נשארים. המערכת החדשה (Postgres) רצה לצדם במסכים ובנתיבים נפרדים. מחיקה — רק בשלב 13 ובאישור.
 - 29/09/2026 — **חשבון eBay חי: קריאה בלבד** (הוראת עודד). guard ברמת הקוד חוסם כל קריאת כתיבה ל-Trading API אלא אם `EBAY_WRITES_ENABLED=true`. חל גם על כפתורי הפרסום הקיימים.
 - 29/09/2026 — **הכל רץ על שרת xCloud** (shape-projects), כולל Postgres ו-Cron.

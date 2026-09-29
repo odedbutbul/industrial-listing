@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { OAUTH_STATE_COOKIE, exchangeCodeAndSave } from '@/lib/ebay/auth'
+import { OAUTH_RETURN_COOKIE, OAUTH_RETURN_PATHS, OAUTH_STATE_COOKIE, exchangeCodeAndSave } from '@/lib/ebay/auth'
 
 export const dynamic = 'force-dynamic'
 
@@ -11,9 +11,13 @@ export async function GET(request: NextRequest): Promise<Response> {
   const expectedState = request.cookies.get(OAUTH_STATE_COOKIE)?.value
   const baseUrl = process.env.APP_BASE_URL || request.nextUrl.origin
 
+  const ret = request.cookies.get(OAUTH_RETURN_COOKIE)?.value
+  const returnPath = (OAUTH_RETURN_PATHS as readonly string[]).includes(ret ?? '') ? ret! : '/settings'
+
   const done = (query: string) => {
-    const res = NextResponse.redirect(new URL(`/settings?${query}`, baseUrl))
+    const res = NextResponse.redirect(new URL(`${returnPath}?${query}`, baseUrl))
     res.cookies.delete({ name: OAUTH_STATE_COOKIE, path: '/api/ebay/oauth' })
+    res.cookies.delete({ name: OAUTH_RETURN_COOKIE, path: '/api/ebay/oauth' })
     return res
   }
   const fail = (reason: string) => done('ebay_oauth=error&reason=' + encodeURIComponent(reason))
