@@ -158,7 +158,49 @@ export const stockLedger = pgTable(
   ],
 )
 
-/** כותרת הזמנה מכל ערוץ — לתצוגה. בלי פרטי קונה (שם, כתובת, טלפון) — לא נשמרים. */
+/**
+ * לקוחות — אדם אחד לכל שורה, מקושר להזמנות שלו (orders.customer_id).
+ * החלטת עודד 29/09/2026: שם, מייל, טלפון ומיקום (מדינה / מחוז / עיר) — בלי כתובת רחוב.
+ * מייל וטלפון מוצפנים (AES-256-GCM, lib/crypto.ts); email_hash (HMAC) משמש לזיהוי ולחיפוש לפי מייל.
+ * דיוור: רק מי שנתן הסכמה (marketing_consent) ולא הסיר את עצמו. קוני eBay נכנסים חסומים לדיוור (מדיניות eBay).
+ */
+export const customers = pgTable(
+  'customers',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    name: text('name'),
+    emailEnc: text('email_enc'),
+    emailHash: text('email_hash'),
+    phoneEnc: text('phone_enc'),
+    /** ISO 3166-1 alpha-2 */
+    countryCode: text('country_code'),
+    region: text('region'),
+    city: text('city'),
+    ebayUsername: text('ebay_username'),
+    /** מאיפה הגיע לראשונה */
+    firstChannel: channelEnum('first_channel').notNull(),
+    /** מועד ההזמנה האחרונה שממנה עודכנו הפרטים — פרטים מהזמנה ישנה לא דורסים חדשים */
+    detailsFromAt: timestamp('details_from_at', { withTimezone: true }),
+    marketingConsent: boolean('marketing_consent').notNull().default(false),
+    /** woo_checkout | manual */
+    consentSource: text('consent_source'),
+    consentAt: timestamp('consent_at', { withTimezone: true }),
+    consentNote: text('consent_note'),
+    /** למה לא לדוור גם בלי הסכמה מפורשת: ebay_buyer */
+    marketingBlocked: text('marketing_blocked'),
+    unsubscribedAt: timestamp('unsubscribed_at', { withTimezone: true }),
+    /** אחרי בקשת מחיקה: הפרטים האישיים נמחקו, ההזמנות נשארו */
+    anonymizedAt: timestamp('anonymized_at', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('customers_email_hash_uq').on(t.emailHash).where(sql`${t.emailHash} is not null`),
+    uniqueIndex('customers_ebay_username_uq').on(t.ebayUsername).where(sql`${t.ebayUsername} is not null`),
+    index('customers_country_idx').on(t.countryCode),
+  ],
+)
+
+/** כותרת הזמנה מכל ערוץ — לתצוגה. פרטי הקונה נשמרים ב-customers (מקושר ב-customer_id), לא כאן. */
 export const orders = pgTable(
   'orders',
   {
@@ -174,11 +216,15 @@ export const orders = pgTable(
     total: numeric('total', { precision: 12, scale: 2 }),
     currency: text('currency'),
     lineCount: integer('line_count').notNull().default(0),
+    customerId: uuid('customer_id').references(() => customers.id, { onDelete: 'set null' }),
+    /** מדינת המשלוח של ההזמנה (ISO alpha-2) */
+    shipCountry: text('ship_country'),
     ...timestamps,
   },
   (t) => [
     uniqueIndex('orders_channel_external_uq').on(t.channel, t.externalOrderId),
     index('orders_placed_idx').on(t.placedAt),
+    index('orders_customer_idx').on(t.customerId),
   ],
 )
 

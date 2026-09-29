@@ -230,6 +230,9 @@ export async function listOrderLines(opts: { channel?: OrderChannelFilter; state
       productTitle: products.title,
       orderState: o.state,
       fulfillmentStatus: o.fulfillmentStatus,
+      customerId: o.customerId,
+      customerName: sql<string | null>`(select case when c.anonymized_at is null then coalesce(c.name, c.ebay_username) end from customers c where c.id = ${o.customerId})`,
+      shipCountry: o.shipCountry,
     })
     .from(po)
     .leftJoin(o, and(eq(o.channel, po.channel), eq(o.externalOrderId, po.externalOrderId)))

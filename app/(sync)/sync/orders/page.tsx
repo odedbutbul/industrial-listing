@@ -35,6 +35,8 @@ interface OrderLine {
   productTitle: string | null
   orderState: 'paid' | 'pending' | 'cancel_requested' | 'cancelled' | 'refunded' | null
   fulfillmentStatus: string | null
+  customerId: string | null
+  customerName: string | null
 }
 
 interface OrdersPage {
@@ -344,6 +346,19 @@ function ProductCell({ l }: { l: OrderLine }) {
 }
 
 function OrderLink({ l }: { l: OrderLine }) {
+  return (
+    <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      <OrderNumber l={l} />
+      {l.customerId && (
+        <Link href={`/sync/customers/${l.customerId}`} style={{ fontSize: 12.5 }}>
+          {l.customerName ?? 'לקוח'}
+        </Link>
+      )}
+    </span>
+  )
+}
+
+function OrderNumber({ l }: { l: OrderLine }) {
   const href = orderUrl(l)
   return href ? (
     <a href={href} target="_blank" rel="noopener noreferrer" className="ax-num ax-ltr" aria-label={`פתיחת הזמנה ${l.orderId} ב-eBay בלשונית חדשה`}>

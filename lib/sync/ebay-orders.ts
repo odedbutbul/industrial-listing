@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { and, eq, inArray, or, sql } from 'drizzle-orm'
 import { db, schema } from '@/lib/db/client'
 import { getOrdersModifiedBetween, type EbayOrder, type EbayOrderLine } from '@/lib/ebay/fulfillment'
+import { upsertCustomer } from '@/lib/customers/upsert'
 import type { ImportProgress } from './import-ebay'
 import { withJobLock } from './lock'
 import { writeSyncLog } from './log'
@@ -36,6 +37,8 @@ export interface PollResult {
   cancelled: number
   ignoredBeforeImport: number
   unmapped: number
+  /** הזמנות שקושרו ללקוח */
+  customers: number
   oversold: { sku: string; available: number }[]
   errors: { orderId: string; error: string }[]
   durationMs: number
@@ -79,6 +82,7 @@ async function runPoll(opts: { from?: Date; to?: Date; onProgress?: (p: ImportPr
     cancelled: 0,
     ignoredBeforeImport: 0,
     unmapped: 0,
+    customers: 0,
     oversold: [],
     errors: [],
     durationMs: 0,
@@ -147,6 +151,7 @@ async function runPoll(opts: { from?: Date; to?: Date; onProgress?: (p: ImportPr
       cancelled: result.cancelled,
       ignoredBeforeImport: result.ignoredBeforeImport,
       unmapped: result.unmapped,
+      customers: result.customers,
       oversold: result.oversold.length,
       errors: result.errors.length,
     },
@@ -164,6 +169,13 @@ async function applyOrder(
   const cancelled = isCancelled(o)
 
   await db.transaction(async (tx) => {
+    // הלקוח (פרטים מוצפנים ב-customers) — גם הזמנות ישנות מתקשרות ללקוח בריצה חוזרת
+    const b = o.buyer
+    const customerId = b
+      ? await upsertCustomer(tx, { channel: 'ebay', placedAt: o.createdAt, name: b.name, email: b.email, phone: b.phone, countryCode: b.countryCode, region: b.region, city: b.city, ebayUsername: b.username })
+      : null
+    if (customerId) result.customers++
+
     // כותרת ההזמנה — תמיד מעודכנת למצב האחרון
     const header = {
       channel: 'ebay' as const,
@@ -176,6 +188,8 @@ async function applyOrder(
       total: o.total,
       currency: o.currency,
       lineCount: o.lines.length,
+      ...(customerId ? { customerId } : {}),
+      shipCountry: b?.shipCountry ?? b?.countryCode ?? null,
     }
     await tx.insert(schema.orders).values(header).onConflictDoUpdate({
       target: [schema.orders.channel, schema.orders.externalOrderId],

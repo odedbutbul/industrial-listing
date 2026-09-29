@@ -34,6 +34,11 @@
 - **eBay:** polling ל-Fulfillment API (`getOrders` לפי lastmodifieddate) כל כמה דקות — מנגנון הבסיס. webhooks של eBay — שכבה נוספת בהמשך.
 - **WooCommerce:** webhook על הזמנה (אימות חתימת HMAC). הכמות ב-eBay יורדת מיד; חוזרת אם ההזמנה בוטלה.
 
+### לקוחות ודיוור (החלטת עודד 29/09/2026)
+- כל הזמנה יוצרת/מעדכנת לקוח. נשמרים: שם, מייל, טלפון, מדינה/מחוז/עיר, שם משתמש eBay. **בלי כתובת רחוב.** מייל וטלפון מוצפנים; פרטים אישיים לא נכתבים ל-sync_log.
+- **דיוור רק למי שהסכים** (`marketing_consent`) ולא הסיר את עצמו. קוני eBay נכנסים חסומים לדיוור (מדיניות eBay). הסכמה מגיעה מתיבת סימון בקופה (לא מסומנת מראש) או מתיעוד ידני מנומק.
+- מי שהסיר את עצמו לא חוזר לרשימה אוטומטית. מחיקת פרטים משאירה רק סימון חד-כיווני (hash) וההזמנות.
+
 ### כללי בטיחות בסנכרון
 - כל הזמנה נרשמת בטרנזקציה אחת: `processed_orders` (אינדקס ייחודי = אידמפוטנטיות) → נעילת שורת המוצר (`FOR UPDATE`) → רשומת ledger → `pending_pushes` לערוץ השני.
 - דחיפה שנכשלה נשלחת שוב ע"י cron. לעולם לא "לבלוע" כשל — הוא נרשם ב-`sync_log`.
@@ -62,7 +67,7 @@ Render ו-Supabase יכובו רק אחרי שהמערכת החדשה רצה ב�
 ## מבנה תיקיות (יעד)
 
 ```
-app/(sync)/sync/     המערכת החדשה (shape-design): סקירה · orders · products · products/[id] · insights · insights/glossary · log · settings
+app/(sync)/sync/     המערכת החדשה (shape-design): סקירה · orders · customers · customers/[id] · products · products/[id] · insights · insights/glossary · log · settings
 app/(legacy)/        המסכים הישנים על Supabase — לא נוגעים עד אישור מחיקה (כלל 10)
 components/sync/     app-ui.css · fonts.css + fonts/ · ui.tsx · ThemeProvider · ThemePicker מהסקיל + Shell · ImportDialog · format · api
 lib/                 ui-theme.ts · ui-theme-server.ts · a11y/contrast.ts (מנוע הערכות והניגודיות מהסקיל)
@@ -71,6 +76,7 @@ lib/db/              schema.ts · client.ts · migrations/
 lib/ebay/            auth.ts · trading.ts · fulfillment.ts
 lib/woo/             client.ts · products.ts · orders.ts · verify-webhook.ts
 lib/sync/            ledger.ts · apply-order.ts · push.ts · import.ts · reconcile.ts · log.ts
+lib/customers/       upsert.ts (לקוח מהזמנה) · queries.ts · actions.ts (הסכמה / הסרה / מחיקת פרטים)
 lib/google/          config.ts · auth.ts (JWT של service account, בלי תלות) · gsc.ts · ga4.ts — קריאה בלבד
 lib/analytics/       fetch.ts (משיכה ל-Postgres) · report.ts (מדדים) · insights.ts (כללי התובנות, בלי AI) · connection.ts · paths.ts
 jobs/                poll-ebay-orders.ts · fetch-analytics.ts · push-pending.ts · reconcile.ts · refresh-token.ts
@@ -89,6 +95,7 @@ drizzle.config.ts
 | `pending_pushes` | עדכוני כמות שממתינים/נכשלו + ניסיונות חוזרים |
 | `sync_cursors` | מיקום ה-polling (למשל lastModified של הזמנות eBay) |
 | `sync_log` | לוג לכל פעולה: job, כיוון, פעולה, תוצאה, שגיאה, משך |
+| `customers` | לקוח לכל אדם (זיהוי: hash של מייל, אחרת שם משתמש eBay). שם, מייל+טלפון **מוצפנים**, מדינה/מחוז/עיר — בלי כתובת רחוב. הסכמה לדיוור (מקור + תאריך), הסרה, מחיקת פרטים. `orders.customer_id` + `orders.ship_country` |
 | `gsc_pages_daily` · `gsc_queries_daily` | Search Console לפי יום (דף / ביטוי+דף); מיקום נשמר כ-`position_sum` לממוצע משוקלל |
 | `ga_site_daily` · `ga_breakdown_daily` · `ga_pages_daily` · `ga_items_daily` | GA4 לפי יום: אתר, ערוץ/מכשיר/מדינה, דף, מוצר |
 | `woo_catalog` | תמונת מצב של מוצרי החנות (GET) — מחבר כתובת דף / item_id למוצר ולמלאי |

@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto'
+import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes } from 'node:crypto'
 
 // הצפנת סודות לשמירה ב-DB (AES-256-GCM).
 // TOKEN_ENCRYPTION_KEY = 32 בתים ב-base64. יצירה: `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`
@@ -28,4 +28,13 @@ export function decryptSecret(payload: string): string {
   const decipher = createDecipheriv('aes-256-gcm', getKey(), Buffer.from(iv, 'base64url'))
   decipher.setAuthTag(Buffer.from(tag, 'base64url'))
   return Buffer.concat([decipher.update(Buffer.from(data, 'base64url')), decipher.final()]).toString('utf8')
+}
+
+/**
+ * מזהה קבוע ולא הפיך לערך אישי (מייל) — לזיהוי לקוח וחיפוש בלי לשמור את הערך גלוי.
+ * HMAC-SHA256 עם מפתח שנגזר מ-TOKEN_ENCRYPTION_KEY (לא אותו מפתח שמצפין).
+ */
+export function hashIdentifier(value: string): string {
+  const key = createHash('sha256').update('stock-sync:identifier:v1').update(getKey()).digest()
+  return createHmac('sha256', key).update(value).digest('base64url')
 }

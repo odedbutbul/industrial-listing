@@ -1,7 +1,8 @@
 import { ebayGet } from './rest'
 
 // Sell Fulfillment API — getOrders. קריאה בלבד.
-// לא נשמרים פרטי קונה (שם, כתובת, טלפון, אימייל) — רק מה שצריך למלאי ולתצוגה.
+// פרטי קונה (החלטת עודד 29/09/2026): שם, מייל, טלפון, מדינה / מחוז / עיר ושם המשתמש ב-eBay — בלי כתובת רחוב ומיקוד.
+// הם נשמרים ב-customers (מייל וטלפון מוצפנים), לא ב-orders ולא ב-sync_log.
 
 type Amount = { value?: string; currency?: string }
 
@@ -16,6 +17,19 @@ interface RawLineItem {
   lineItemFulfillmentStatus?: string
 }
 
+interface RawAddress {
+  city?: string
+  stateOrProvince?: string
+  countryCode?: string
+}
+
+interface RawContact {
+  fullName?: string
+  email?: string
+  primaryPhone?: { phoneNumber?: string }
+  contactAddress?: RawAddress
+}
+
 interface RawOrder {
   orderId: string
   creationDate: string
@@ -25,6 +39,21 @@ interface RawOrder {
   cancelStatus?: { cancelState?: string }
   pricingSummary?: { total?: Amount }
   lineItems?: RawLineItem[]
+  buyer?: { username?: string; taxAddress?: RawAddress; buyerRegistrationAddress?: RawContact }
+  fulfillmentStartInstructions?: { shippingStep?: { shipTo?: RawContact } }[]
+}
+
+/** פרטי הקונה כפי שהם מגיעים מ-eBay — רק השדות שהוחלט לשמור */
+export interface EbayBuyer {
+  username: string | null
+  name: string | null
+  email: string | null
+  phone: string | null
+  countryCode: string | null
+  region: string | null
+  city: string | null
+  /** מדינת המשלוח של ההזמנה הזו */
+  shipCountry: string | null
 }
 
 export interface EbayOrderLine {
@@ -48,10 +77,31 @@ export interface EbayOrder {
   total: string | null
   currency: string | null
   lines: EbayOrderLine[]
+  buyer: EbayBuyer | null
+}
+
+const clean = (v: string | undefined | null) => (v && v.trim() ? v.trim() : null)
+
+function toBuyer(o: RawOrder): EbayBuyer | null {
+  const reg = o.buyer?.buyerRegistrationAddress
+  const ship = o.fulfillmentStartInstructions?.[0]?.shippingStep?.shipTo
+  const addr = ship?.contactAddress ?? reg?.contactAddress ?? o.buyer?.taxAddress
+  const b: EbayBuyer = {
+    username: clean(o.buyer?.username),
+    name: clean(reg?.fullName) ?? clean(ship?.fullName),
+    email: clean(reg?.email) ?? clean(ship?.email),
+    phone: clean(reg?.primaryPhone?.phoneNumber) ?? clean(ship?.primaryPhone?.phoneNumber),
+    countryCode: clean(addr?.countryCode)?.toUpperCase() ?? null,
+    region: clean(addr?.stateOrProvince),
+    city: clean(addr?.city),
+    shipCountry: clean(ship?.contactAddress?.countryCode)?.toUpperCase() ?? null,
+  }
+  return b.username || b.email ? b : null
 }
 
 function toOrder(o: RawOrder): EbayOrder {
   return {
+    buyer: toBuyer(o),
     orderId: o.orderId,
     createdAt: new Date(o.creationDate),
     lastModifiedAt: o.lastModifiedDate ? new Date(o.lastModifiedDate) : null,
