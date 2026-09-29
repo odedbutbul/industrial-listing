@@ -45,3 +45,4 @@ next-env.d.ts
 
 # .env של השרת — נכתב ע"י xCloud (Site → Node.js → Environment). חייב להיות ignored כדי ש-git clean בדיפלוי לא ימחק אותו.
 /.env
+/ecosystem.config.cjs
