@@ -22,7 +22,7 @@
 | 9 | קליטת הזמנות ל-ledger (webhook Woo + polling eBay) — מצב צפייה בלבד | ⏳ | | |
 | 10 | דחיפת כמויות בין הערוצים (`SYNC_PUSH_ENABLED`) | ⏸️ | | החלטה ג׳ |
 | 11 | job התאמה תקופתי | ⏳ | | |
-| 12 | דיפלוי xCloud + Cron + RuName חדש + OAuth מחדש + ריצה במקביל | 🔨 | 29/09/2026 | אתר נוצר: `https://stock-sync.1wp.site` (site uuid `9c8b71e4-314e-46eb-b501-568c937bf68a`, משתמש `stock_sync`, Node 24, ssr, פורט 3141, branch `sync`, push-to-deploy כבוי — דיפלוי ידני). Deploy Script: `bash scripts/xcloud-deploy.sh` (npm ci + migrations). חזרה מקומית על כל התהליך ב-clone נקי ✓. דיפלוי ראשון נכשל בכוונה ב-deploy script ("DATABASE_URL חסר") — אומת ב-diagnosis. אחרי שהסודות נכנסים: retry לדיפלוי (sites.provision-retry, בלי תיקונים) |
+| 12 | דיפלוי xCloud + Cron + RuName חדש + OAuth מחדש + ריצה במקביל | 🔨 | 29/09/2026 | ✅ דיפלוי עובד (06:18 UTC, deployed, בלי failed_steps), עודד נכנס למערכת. נשאר: RuName חדש, התחברות eBay, Cron, גיבוי pg_dump. | אתר נוצר: `https://stock-sync.1wp.site` (site uuid `9c8b71e4-314e-46eb-b501-568c937bf68a`, משתמש `stock_sync`, Node 24, ssr, פורט 3141, branch `sync`, push-to-deploy כבוי — דיפלוי ידני). Deploy Script: `bash scripts/xcloud-deploy.sh` (npm ci + migrations). חזרה מקומית על כל התהליך ב-clone נקי ✓. דיפלוי ראשון נכשל בכוונה ב-deploy script ("DATABASE_URL חסר") — אומת ב-diagnosis. אחרי שהסודות נכנסים: retry לדיפלוי (sites.provision-retry, בלי תיקונים) |
 | 13 | אימות המערכת החדשה מול eBay אמיתי → רשימת מחיקה של Supabase והמסכים הישנים → **אישור עודד** → export גיבוי → מחיקה, כיבוי Render + Supabase | ⏳ | | לא מתחילים בלי אישור מפורש |
 
 ---
