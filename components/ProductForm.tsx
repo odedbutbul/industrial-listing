@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import type { Product } from '@/lib/supabase'
 import ImageUploader from './ImageUploader'
-import PostPreview from './PostPreview'
 import RichTextEditor from './RichTextEditor'
 
 const CATEGORIES = [
@@ -173,8 +172,8 @@ export default function ProductForm({ product }: { product?: Product }) {
   )
 
   return (
-    <form onSubmit={handleSubmit} className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-      <div className="xl:col-span-2 space-y-5">
+    <form onSubmit={handleSubmit} className="max-w-3xl">
+      <div className="space-y-5">
 
         {/* eBay Item Number (read-only) */}
         {product?.ebay_item_number && (
@@ -437,7 +436,7 @@ export default function ProductForm({ product }: { product?: Product }) {
         </div>
 
         {/* טלפון */}
-        {sectionTitle('פרסום פייסבוק')}
+        {sectionTitle('פרטי קשר')}
         <div>
           <label className="label-base">טלפון</label>
           <input className="input-base" value={form.phone}
@@ -470,23 +469,6 @@ export default function ProductForm({ product }: { product?: Product }) {
         </div>
       </div>
 
-      {/* תצוגה מקדימה */}
-      <div className="xl:col-span-1">
-        <label className="label-base">תצוגה מקדימה — פייסבוק</label>
-        <div className="mt-1 sticky top-6">
-          <PostPreview
-            manufacturer={form.manufacturer || form.brand || form.title.split(' ')[0]}
-            model={form.model || form.title.split(' ').slice(1).join(' ')}
-            category={form.category}
-            condition={form.condition}
-            year={form.year}
-            location={form.location}
-            price={form.price}
-            description={form.description}
-            phone={form.phone}
-          />
-        </div>
-      </div>
     </form>
   )
 }

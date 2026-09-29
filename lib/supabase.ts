@@ -42,13 +42,3 @@ export type Product = {
   sold_at: string | null
   notes: string | null
 }
-
-export type WebhookLog = {
-  id: string
-  created_at: string
-  product_id: string
-  webhook_url: string
-  payload: Record<string, unknown>
-  response_status: number
-  success: boolean
-}

@@ -6,7 +6,6 @@ import { toast } from 'sonner'
 import ThemeToggle from '@/components/ThemeToggle'
 
 type Settings = {
-  WEBHOOK_URL: string
   EBAY_APP_ID: string
   EBAY_CERT_ID: string
   EBAY_DEV_ID: string
@@ -28,7 +27,6 @@ type Settings = {
 }
 
 const EMPTY: Settings = {
-  WEBHOOK_URL: '',
   EBAY_APP_ID: '',
   EBAY_CERT_ID: '',
   EBAY_DEV_ID: '',
@@ -192,24 +190,6 @@ export default function SettingsPage() {
     }
   }
 
-  async function testWebhook() {
-    if (!settings.WEBHOOK_URL) { toast.error('הכנס URL תחילה'); return }
-    setTesting('webhook')
-    try {
-      const res = await fetch(settings.WEBHOOK_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ test: true, source: 'י.פ. פתרונות טכניים', timestamp: new Date().toISOString() }),
-      })
-      if (res.ok) toast.success('Webhook עובד! ✓')
-      else toast.error(`תגובה: ${res.status}`)
-    } catch {
-      toast.error('לא ניתן להגיע ל-URL')
-    } finally {
-      setTesting(null)
-    }
-  }
-
   async function fetchPolicies() {
     setFetchingPolicies(true)
     setPolicyError(null)
@@ -291,31 +271,6 @@ export default function SettingsPage() {
       </header>
 
       <main className="max-w-2xl mx-auto px-4 sm:px-6 py-6 space-y-4 animate-fade-in">
-
-        {/* Webhook */}
-        <SectionCard icon="⚡" title="Webhook — Make.com / n8n" subtitle="כתובת לשליחת פרטי מוצרים אוטומטית">
-          <Field
-            label="Webhook URL"
-            value={settings.WEBHOOK_URL}
-            onChange={(v) => update('WEBHOOK_URL', v)}
-            placeholder="https://hook.make.com/..."
-          />
-          <div className="flex gap-2 mt-4">
-            <SaveButton loading={saving === 'webhook'} onClick={() => save(['WEBHOOK_URL'], 'webhook')} />
-            <button onClick={testWebhook} disabled={testing === 'webhook' || !settings.WEBHOOK_URL}
-              className="btn-ghost h-[44px] px-4 text-sm flex items-center gap-2 disabled:opacity-40">
-              {testing === 'webhook' ? (
-                <>
-                  <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                  </svg>
-                  בודק...
-                </>
-              ) : 'בדוק חיבור'}
-            </button>
-          </div>
-        </SectionCard>
 
         {/* eBay API */}
         <SectionCard icon="🛒" title="eBay API" subtitle="פרטי חיבור ל-eBay Developer Account">
@@ -578,24 +533,6 @@ export default function SettingsPage() {
             <SaveButton loading={saving === 'cloudinary'}
               onClick={() => save(['CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET'], 'cloudinary')} />
           </div>
-        </SectionCard>
-
-        {/* פרטי חברה */}
-        <SectionCard icon="🏢" title="פרטי חברה" subtitle="מופיעים בכל פוסט פייסבוק">
-          <div className="divide-y divide-gray-50 dark:divide-white/[0.04]">
-            {[
-              ['שם חברה', 'י.פ. פתרונות טכניים'],
-              ['טלפון', '054-2333651'],
-              ['אימייל', 'info@yp-ts.com'],
-              ['קבוצת פייסבוק', 'sells.Surplus.Industrial.Automation'],
-            ].map(([label, value]) => (
-              <div key={label} className="flex justify-between items-center py-2.5">
-                <span className="text-sm text-gray-500 dark:text-white/40">{label}</span>
-                <span className="text-sm font-medium text-gray-800 dark:text-white/70 text-left">{value}</span>
-              </div>
-            ))}
-          </div>
-          <p className="text-xs text-gray-400 dark:text-white/25 mt-3">לשינוי — ערוך את קובץ .env.local</p>
         </SectionCard>
 
         {/* יציאה */}

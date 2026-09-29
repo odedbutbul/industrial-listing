@@ -12,7 +12,7 @@
 |---|-----|-------|-------|---------------|
 | 0 | סריקה + דוח + תוכנית | ✅ | 29/09/2026 | אושר ע"י עודד |
 | 1 | tag + branch `sync` + CLAUDE.md + PROGRESS.md | ✅ | 29/09/2026 | `pre-sync-baseline` → f3b677f |
-| 2 | מחיקת קוד הפרסום (פייסבוק, webhook, listing, טופס מוצר, CSV, ZIP, PWA artifacts, railway.json) | ⏳ | | build חייב לעבור |
+| 2 | מחיקת מה שלא קשור ל-eBay: פייסבוק, webhook ל-Make, CSV, ZIP תמונות, מחיקת-הכל, PWA artifacts, railway.json | ✅ | 29/09/2026 | `next build` ✓, `tsc --noEmit` ✓, diff של `app/api/ebay` מול baseline = 0 שורות. לא נבדק בדפדפן |
 | 3 | Drizzle + סכמה + migrations + Postgres מקומי לפיתוח | ⏳ | | |
 | 4 | OAuth eBay → `ebay_tokens` (מוצפן), הגדרות מ-env, `lib/ebay/auth.ts` עם refresh | ⏳ | | |
 | 5 | משיכת מוצרים מ-eBay → Postgres (תיקון SKU + כמות), קריאה בלבד מול eBay | ⏳ | | |
@@ -51,13 +51,12 @@
 ## ⚠️ בעיות ידועות (מהסריקה, 29/09/2026 — יטופלו בשלבים)
 
 - `app/api/ebay/oauth/refresh/route.ts` הוא עותק של listing (AddItem/Revise/End), לא endpoint חידוש. כפתור "חדש Token" בהגדרות מקבל 400.
-- `components/ProductForm.tsx:132-150` מריץ ReviseItem ב-eBay אוטומטית בכל שמירה — מנוגד לכלל "רק דרך כפתור". יימחק בשלב 2.
+- `components/ProductForm.tsx` מריץ ReviseItem ב-eBay אוטומטית בכל שמירה של מוצר שפורסם — מנוגד לכלל "רק דרך כפתור". **נשמר** (הוראת עודד: לא למחוק חיבורי eBay) — לשאול את עודד לפני שלב 10 אם להפוך אותו לכפתור.
 - `/api/ebay/notifications` חסום ע"י `middleware.ts:4` (לא ב-PUBLIC_PATHS), וה-challenge לא מחושב כנדרש.
 - `app/api/ebay/sync/route.ts` לא מחדש טוקן, לא שומר SKU, וכמות עלולה לכלול יחידות שנמכרו.
 - `next.config.mjs` ריק — הטענה ביומן הישן ש-standalone מוכן לא נכונה.
-- `GET /api/settings` מחזיר טוקנים וסודות לדפדפן; `DELETE /api/products` מוחק הכל.
+- `GET /api/settings` מחזיר טוקנים וסודות לדפדפן. (`DELETE /api/products` — מחיקת הכל — הוסר בשלב 2.)
 - CLAUDE.md הישן (בהיסטוריית git) הכיל כתובת Supabase ו-anon key. הוסרו מהגרסה הנוכחית; נשארים בהיסטוריה עד שיכובה Supabase.
-- `public/sw.js` שונה בעץ העבודה (תוצר build) — לא נכלל ב-commits, יימחק בשלב 2.
 
 ## 📝 החלטות שהתקבלו
 
@@ -65,3 +64,5 @@
 - 29/09/2026 — polling ל-Fulfillment API כבסיס; webhooks של eBay בהמשך.
 - 29/09/2026 — לא מעבירים נתונים מ-Supabase: מושכים מחדש מ-eBay, והטוקנים מתקבלים בהתחברות מחדש.
 - 29/09/2026 — UI לפי הסקיל `shape-design` (ייחוס: `~/Projects/flowbot-license`).
+- 29/09/2026 — **לא מוחקים שום חיבור קיים ל-eBay** (הוראת עודד): כל `app/api/ebay/*` (OAuth, sync, listing, notifications, diagnose, refresh), דף המוצר עם כפתורי eBay, `ProductForm`, `/products/new`, `SyncModal`, והגדרות eBay (כולל Business Policies ו-Cloudinary) נשארים. התאמה מותרת; מחיקה — רק באישור מפורש.
+- 29/09/2026 — קבצי next-pwa שנוצרים ב-build (`sw.js`, `workbox-*`, `swe-worker-*`) הוצאו מ-git ונוספו ל-`.gitignore`.

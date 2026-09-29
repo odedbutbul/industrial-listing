@@ -6,29 +6,10 @@ import Link from 'next/link'
 import { toast } from 'sonner'
 import type { Product } from '@/lib/supabase'
 import ProductForm from '@/components/ProductForm'
-import { EbayBadge, FacebookBadge, GeneralBadge } from '@/components/StatusBadge'
+import { EbayBadge, GeneralBadge } from '@/components/StatusBadge'
 import ThemeToggle from '@/components/ThemeToggle'
 
-function buildPostText(p: Product): string {
-  return `🔧 ${p.manufacturer} ${p.model}${p.category ? ` | ${p.category}` : ''}
-
-📌 מצב: ${p.condition}
-📅 שנת ייצור: ${p.year || 'לא צוין'}
-📍 מיקום: ${p.location || 'לא צוין'}
-💰 מחיר: $${p.price || 'לא צוין'}
-
-📋 פרטים נוספים:
-${p.description || ''}
-
-─────────────────
-י.פ. פתרונות טכניים
-📞 ${p.phone || '054-2333651'}
-✉️ info@yp-ts.com`
-}
-
 const ACTION_BUTTONS = [
-  { key: 'facebook-copy', icon: '📋', label: 'העתק + פייסבוק', activeLabel: 'מעתיק...', color: 'bg-blue-500/10 dark:bg-blue-500/10 border-blue-200 dark:border-blue-500/20 text-blue-600 dark:text-blue-400 hover:bg-blue-500/20' },
-  { key: 'webhook',       icon: '⚡', label: 'שלח Webhook',     activeLabel: 'שולח...',   color: 'bg-green-500/10 border-green-200 dark:border-green-500/20 text-green-600 dark:text-green-400 hover:bg-green-500/20' },
   { key: 'sold',          icon: '🏷️', label: 'סמן כנמכר',      activeLabel: null,         color: 'bg-purple-500/10 border-purple-200 dark:border-purple-500/20 text-purple-600 dark:text-purple-400 hover:bg-purple-500/20' },
 ]
 
@@ -49,30 +30,7 @@ export default function ProductPage() {
     setActionLoading(key)
 
     try {
-      if (key === 'facebook-copy') {
-        await navigator.clipboard.writeText(buildPostText(product))
-        await fetch(`/api/products/${id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status_facebook: 'copied', facebook_published_at: new Date().toISOString() }),
-        })
-        toast.success('טקסט הועתק! פותח קבוצת פייסבוק...')
-        setProduct((p) => p ? { ...p, status_facebook: 'copied' } : p)
-        setTimeout(() => window.open('https://www.facebook.com/groups/sells.Surplus.Industrial.Automation', '_blank'), 500)
-      } else if (key === 'webhook') {
-        const res = await fetch('/api/webhook', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ product_id: id }),
-        })
-        const data = await res.json()
-        if (data.success) {
-          toast.success('Webhook נשלח בהצלחה')
-          setProduct((p) => p ? { ...p, status_facebook: 'published' } : p)
-        } else {
-          toast.error(data.error || 'שגיאה בשליחת webhook')
-        }
-      } else if (key === 'sold') {
+      if (key === 'sold') {
         await fetch(`/api/products/${id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
@@ -152,7 +110,6 @@ export default function ProductPage() {
             </h1>
             <div className="flex gap-1.5 mt-0.5 flex-wrap">
               <EbayBadge status={product.status_ebay} />
-              <FacebookBadge status={product.status_facebook} />
               <GeneralBadge status={product.status} />
             </div>
           </div>
