@@ -1,31 +1,35 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
+import { EbayConfigError, getEbayConfig } from '@/lib/ebay/config'
 
-export async function POST(request: NextRequest) {
-  const { app_id, cert_id, sandbox } = await request.json()
+// POST /api/settings/ebay-test — בודק שה-App ID וה-Cert ID (ממשתני הסביבה) תקינים,
+// ע"י בקשת application token (client_credentials). לא נוגע בחשבון המשתמש.
 
-  if (!app_id || !cert_id) {
-    return NextResponse.json({ error: 'נדרש EBAY_APP_ID ו-EBAY_CERT_ID' }, { status: 400 })
+export const dynamic = 'force-dynamic'
+
+export async function POST() {
+  let config: ReturnType<typeof getEbayConfig>
+  try {
+    config = getEbayConfig()
+  } catch (err) {
+    if (err instanceof EbayConfigError) return NextResponse.json({ success: false, error: err.message }, { status: 200 })
+    throw err
   }
 
-  const isSandbox = sandbox === 'true' || sandbox === true
-  const baseUrl = isSandbox
-    ? 'https://api.sandbox.ebay.com'
-    : 'https://api.ebay.com'
-
-  const credentials = Buffer.from(`${app_id}:${cert_id}`).toString('base64')
+  const credentials = Buffer.from(`${config.appId}:${config.certId}`).toString('base64')
 
   try {
-    const res = await fetch(`${baseUrl}/identity/v1/oauth2/token`, {
+    const res = await fetch(config.tokenUrl, {
       method: 'POST',
       headers: {
-        'Authorization': `Basic ${credentials}`,
+        Authorization: `Basic ${credentials}`,
         'Content-Type': 'application/x-www-form-urlencoded',
       },
       body: 'grant_type=client_credentials&scope=https%3A%2F%2Fapi.ebay.com%2Foauth%2Fapi_scope',
+      signal: AbortSignal.timeout(15000),
     })
 
     if (res.ok) {
-      return NextResponse.json({ success: true, mode: isSandbox ? 'sandbox' : 'production' })
+      return NextResponse.json({ success: true, mode: config.environment })
     }
 
     const data = await res.json().catch(() => ({}))

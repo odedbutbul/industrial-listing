@@ -1,6 +1,8 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 import { XMLParser } from 'fast-xml-parser'
+import { getValidAccessToken } from '@/lib/ebay/auth'
+import { getEbayConfig } from '@/lib/ebay/config'
 import { v2 as cloudinary } from 'cloudinary'
 
 function getClient() {
@@ -170,10 +172,15 @@ export async function POST(request: NextRequest) {
 
   const supabase = getClient()
   const settings = await loadSettings(supabase)
-  const { EBAY_USER_TOKEN, EBAY_SANDBOX } = settings
 
-  if (!EBAY_USER_TOKEN) {
-    return NextResponse.json({ error: 'eBay User Token חסר — הגדר אותו בהגדרות' }, { status: 400 })
+  // טוקן מ-ebay_tokens (Postgres), עם חידוש אוטומטי
+  let EBAY_USER_TOKEN: string
+  let config: ReturnType<typeof getEbayConfig>
+  try {
+    config = getEbayConfig()
+    EBAY_USER_TOKEN = await getValidAccessToken()
+  } catch (err) {
+    return NextResponse.json({ error: err instanceof Error ? err.message : String(err) }, { status: 401 })
   }
 
   const cloudName = process.env.CLOUDINARY_CLOUD_NAME || settings.CLOUDINARY_CLOUD_NAME
@@ -182,8 +189,7 @@ export async function POST(request: NextRequest) {
   const useCloudinary = !!(cloudName && cloudKey && cloudSecret)
   if (useCloudinary) cloudinary.config({ cloud_name: cloudName, api_key: cloudKey, api_secret: cloudSecret })
 
-  const isSandbox = EBAY_SANDBOX !== 'false'
-  const endpoint = isSandbox ? 'https://api.sandbox.ebay.com/ws/api.dll' : 'https://api.ebay.com/ws/api.dll'
+  const endpoint = config.tradingEndpoint
 
   // שלב 1 — GetMyeBaySelling דף אחד
   const sellingXml = buildGetMyeBaySellingXml(page)

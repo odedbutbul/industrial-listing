@@ -1,18 +1,7 @@
-import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
 import { XMLParser } from 'fast-xml-parser'
-
-function getClient() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  )
-}
-
-async function loadSettings(supabase: ReturnType<typeof getClient>): Promise<Record<string, string>> {
-  const { data } = await supabase.from('settings').select('key, value')
-  return Object.fromEntries((data ?? []).map((r) => [r.key, r.value ?? '']))
-}
+import { getValidAccessToken } from '@/lib/ebay/auth'
+import { getEbayConfig } from '@/lib/ebay/config'
 
 const parser = new XMLParser({ ignoreAttributes: false, parseTagValue: true })
 
@@ -28,18 +17,18 @@ function buildHeaders(token: string, callName: string) {
 
 // GET /api/ebay/diagnose — run GetUser + GeteBayDetails to detect Business Policies opt-in
 export async function GET(): Promise<Response> {
-  const supabase = getClient()
-  const settings = await loadSettings(supabase)
-  const { EBAY_USER_TOKEN, EBAY_SANDBOX } = settings
-
-  if (!EBAY_USER_TOKEN) {
-    return NextResponse.json({ error: 'eBay User Token חסר' }, { status: 400 })
+  // טוקן מ-ebay_tokens (Postgres), עם חידוש אוטומטי
+  let EBAY_USER_TOKEN: string
+  let config: ReturnType<typeof getEbayConfig>
+  try {
+    config = getEbayConfig()
+    EBAY_USER_TOKEN = await getValidAccessToken()
+  } catch (err) {
+    return NextResponse.json({ error: err instanceof Error ? err.message : String(err) }, { status: 401 })
   }
 
-  const isSandbox = EBAY_SANDBOX !== 'false'
-  const endpoint = isSandbox
-    ? 'https://api.sandbox.ebay.com/ws/api.dll'
-    : 'https://api.ebay.com/ws/api.dll'
+  const isSandbox = config.sandbox
+  const endpoint = config.tradingEndpoint
 
   async function callEbay(callName: string, xmlBody: string) {
     const res = await fetch(endpoint, {

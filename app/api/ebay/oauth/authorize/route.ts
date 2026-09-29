@@ -1,50 +1,30 @@
-import { createClient } from '@supabase/supabase-js'
+import { randomBytes } from 'node:crypto'
 import { NextResponse } from 'next/server'
+import { OAUTH_STATE_COOKIE, buildAuthorizeUrl } from '@/lib/ebay/auth'
+import { EbayConfigError } from '@/lib/ebay/config'
 
-function getClient() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  )
-}
-
-const SCOPES = [
-  'https://api.ebay.com/oauth/api_scope',
-  'https://api.ebay.com/oauth/api_scope/sell.account',
-  'https://api.ebay.com/oauth/api_scope/sell.account.readonly',
-  'https://api.ebay.com/oauth/api_scope/sell.inventory',
-  'https://api.ebay.com/oauth/api_scope/sell.inventory.readonly',
-  'https://api.ebay.com/oauth/api_scope/sell.fulfillment',
-  'https://api.ebay.com/oauth/api_scope/sell.fulfillment.readonly',
-  'https://api.ebay.com/oauth/api_scope/sell.marketing',
-  'https://api.ebay.com/oauth/api_scope/sell.marketing.readonly',
-].join(' ')
+export const dynamic = 'force-dynamic'
 
 export async function GET(): Promise<Response> {
-  const supabase = getClient()
-  const { data } = await supabase.from('settings').select('key, value')
-  const settings = Object.fromEntries((data ?? []).map((r) => [r.key, r.value ?? '']))
-
-  const appId = settings.EBAY_APP_ID
-  const ruName = settings.EBAY_RUNAME
-  const isSandbox = settings.EBAY_SANDBOX !== 'false'
-
-  if (!appId || !ruName) {
-    return NextResponse.json(
-      { error: 'חסר EBAY_APP_ID או EBAY_RUNAME בהגדרות. הגדר אותם בדף Settings.' },
-      { status: 400 }
-    )
+  const state = randomBytes(24).toString('base64url')
+  let authUrl: string
+  try {
+    authUrl = buildAuthorizeUrl(state)
+  } catch (err) {
+    if (err instanceof EbayConfigError) {
+      return NextResponse.json({ error: err.message }, { status: 400 })
+    }
+    throw err
   }
 
-  const baseAuth = isSandbox
-    ? 'https://auth.sandbox.ebay.com'
-    : 'https://auth.ebay.com'
-
-  const authUrl = `${baseAuth}/oauth2/authorize?` +
-    `client_id=${encodeURIComponent(appId)}` +
-    `&response_type=code` +
-    `&redirect_uri=${encodeURIComponent(ruName)}` +
-    `&scope=${encodeURIComponent(SCOPES)}`
-
-  return NextResponse.redirect(authUrl)
+  const res = NextResponse.redirect(authUrl)
+  // מגן מפני CSRF: ה-callback מאמת שה-state חזר כמו שנשלח
+  res.cookies.set(OAUTH_STATE_COOKIE, state, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: 10 * 60,
+    path: '/api/ebay/oauth',
+  })
+  return res
 }

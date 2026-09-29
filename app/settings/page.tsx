@@ -130,6 +130,15 @@ function SaveButton({ loading, onClick }: { loading: boolean; onClick: () => voi
   )
 }
 
+type EbayConnection = {
+  configured: boolean
+  missingEnv: string[]
+  connected: boolean
+  environment?: 'sandbox' | 'production'
+  accessExpiresAt?: string | null
+  refreshExpiresAt?: string | null
+}
+
 export default function SettingsPage() {
   const [settings, setSettings] = useState<Settings>(EMPTY)
   const [loading, setLoading] = useState(true)
@@ -143,6 +152,17 @@ export default function SettingsPage() {
   const [policyError, setPolicyError] = useState<string | null>(null)
   const [oauthStatus, setOauthStatus] = useState<'idle' | 'success' | 'error'>('idle')
   const [oauthError, setOauthError] = useState<string | null>(null)
+  const [ebayConn, setEbayConn] = useState<EbayConnection | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
+
+  async function loadEbayConn() {
+    try {
+      const res = await fetch('/api/ebay/oauth/status')
+      setEbayConn(await res.json())
+    } catch {
+      setEbayConn(null)
+    }
+  }
 
   useEffect(() => {
     // Check for OAuth callback result in URL params
@@ -159,6 +179,7 @@ export default function SettingsPage() {
       window.history.replaceState({}, '', '/settings')
     }
 
+    loadEbayConn()
     fetch('/api/settings')
       .then((r) => r.json())
       .then((data) => {
@@ -212,22 +233,10 @@ export default function SettingsPage() {
   }
 
   async function testEbay() {
-    if (!settings.EBAY_APP_ID || !settings.EBAY_CERT_ID) {
-      toast.error('נדרש App ID ו-Cert ID לבדיקה')
-      return
-    }
     setTesting('ebay')
     setEbayStatus('idle')
     try {
-      const res = await fetch('/api/settings/ebay-test', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          app_id: settings.EBAY_APP_ID,
-          cert_id: settings.EBAY_CERT_ID,
-          sandbox: settings.EBAY_SANDBOX,
-        }),
-      })
+      const res = await fetch('/api/settings/ebay-test', { method: 'POST' })
       const data = await res.json()
       if (data.success) {
         setEbayStatus('ok')
@@ -273,139 +282,88 @@ export default function SettingsPage() {
       <main className="max-w-2xl mx-auto px-4 sm:px-6 py-6 space-y-4 animate-fade-in">
 
         {/* eBay API */}
-        <SectionCard icon="🛒" title="eBay API" subtitle="פרטי חיבור ל-eBay Developer Account">
+        <SectionCard icon="🛒" title="eBay" subtitle="חיבור לחשבון eBay של החנות">
 
-          {/* Sandbox toggle */}
-          <div className="flex items-center justify-between p-3 rounded-xl bg-gray-50 dark:bg-white/5 border border-gray-100 dark:border-white/10 mb-4">
-            <div>
-              <p className="text-sm font-medium text-gray-900 dark:text-white">מצב חיבור</p>
-              <p className="text-xs text-gray-500 dark:text-white/40">
-                {settings.EBAY_SANDBOX === 'true' ? 'Sandbox — לפיתוח ובדיקות' : 'Production — חשבון אמיתי'}
-              </p>
+          {/* מצב חיבור — פרטי האפליקציה מגיעים ממשתני סביבה, הטוקן נשמר מוצפן ב-Postgres */}
+          {!ebayConn ? (
+            <p className="text-sm text-gray-500 dark:text-white/40">טוען מצב חיבור...</p>
+          ) : !ebayConn.configured ? (
+            <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 text-sm text-amber-800 dark:text-amber-300">
+              חסרים משתני סביבה בשרת: <span dir="ltr" className="font-mono">{ebayConn.missingEnv.join(', ')}</span>
             </div>
-            <button
-              onClick={() => update('EBAY_SANDBOX', settings.EBAY_SANDBOX === 'true' ? 'false' : 'true')}
-              className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors duration-200 focus:outline-none
-                ${settings.EBAY_SANDBOX === 'true' ? 'bg-amber-400' : 'bg-green-500'}`}>
-              <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition-transform duration-200
-                ${settings.EBAY_SANDBOX === 'true' ? 'translate-x-1' : 'translate-x-6'}`} />
-            </button>
-          </div>
-
-          <div className="space-y-3">
-            <Field label="App ID (Client ID)" value={settings.EBAY_APP_ID}
-              onChange={(v) => update('EBAY_APP_ID', v)} placeholder="YourApp-123456-..." />
-            <Field label="Cert ID (Client Secret)" value={settings.EBAY_CERT_ID}
-              onChange={(v) => update('EBAY_CERT_ID', v)} type="password" placeholder="SBX-abc123..." />
-            <Field label="Dev ID" value={settings.EBAY_DEV_ID}
-              onChange={(v) => update('EBAY_DEV_ID', v)} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
-            <Field label="RuName (Redirect URL Name)" value={settings.EBAY_RUNAME}
-              onChange={(v) => update('EBAY_RUNAME', v)} placeholder="Your_App-YourApp-123-xxxxx" />
-            <Field label="User Token" value={settings.EBAY_USER_TOKEN}
-              onChange={(v) => update('EBAY_USER_TOKEN', v)} type="password" placeholder="AgAAAA**AQAAAA**..." />
-          </div>
-
-          {/* OAuth Connect Button */}
-          <div className="mt-4 p-4 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/20">
-            <div className="flex items-start gap-3">
-              <span className="text-xl">🔗</span>
-              <div className="flex-1">
-                <p className="text-sm font-medium text-blue-900 dark:text-blue-300">התחברות OAuth ל-eBay</p>
-                <p className="text-xs text-blue-700 dark:text-blue-400/70 mt-1">
-                  חיבור עם כל ההרשאות הנדרשות (Business Policies, מלאי, הזמנות).
-                  שמור קודם את App ID, Cert ID ו-RuName, ואז לחץ התחבר.
-                </p>
-                {oauthStatus === 'success' && (
-                  <p className="text-xs text-green-600 dark:text-green-400 mt-2 flex items-center gap-1">
-                    <span>✅</span> מחובר בהצלחה! Token נשמר אוטומטית.
-                  </p>
-                )}
-                {oauthStatus === 'error' && oauthError && (
-                  <p className="text-xs text-red-600 dark:text-red-400 mt-2 flex items-center gap-1">
-                    <span>❌</span> {oauthError}
-                  </p>
-                )}
-                {settings.EBAY_OAUTH_TOKEN_EXPIRES_AT && (
-                  <p className="text-xs text-blue-600 dark:text-blue-400/60 mt-2">
-                    Token תקף עד: {new Date(settings.EBAY_OAUTH_TOKEN_EXPIRES_AT).toLocaleString('he-IL')}
-                  </p>
-                )}
+          ) : (
+            <div className="divide-y divide-gray-50 dark:divide-white/[0.04]">
+              <div className="flex justify-between items-center py-2.5">
+                <span className="text-sm text-gray-500 dark:text-white/40">סביבה</span>
+                <span className="text-sm font-medium text-gray-800 dark:text-white/70">
+                  {ebayConn.environment === 'sandbox' ? 'Sandbox — לבדיקות' : 'Production — חשבון אמיתי'}
+                </span>
               </div>
-            </div>
-            <div className="flex gap-2 mt-3">
-              <button
-                onClick={() => {
-                  if (!settings.EBAY_APP_ID || !settings.EBAY_RUNAME) {
-                    toast.error('מלא App ID ו-RuName לפני ההתחברות')
-                    return
-                  }
-                  save(['EBAY_APP_ID', 'EBAY_CERT_ID', 'EBAY_DEV_ID', 'EBAY_RUNAME', 'EBAY_SANDBOX'], 'ebay').then(() => {
-                    window.location.href = '/api/ebay/oauth/authorize'
-                  })
-                }}
-                disabled={!settings.EBAY_APP_ID || !settings.EBAY_RUNAME}
-                className="h-[40px] px-5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium transition-colors disabled:opacity-40 flex items-center gap-2">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-4 h-4">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-                </svg>
-                התחבר ל-eBay (OAuth)
-              </button>
-              {settings.EBAY_OAUTH_REFRESH_TOKEN && (
-                <button
-                  onClick={async () => {
-                    try {
-                      const res = await fetch('/api/ebay/oauth/refresh', { method: 'POST' })
-                      const data = await res.json()
-                      if (data.success) {
-                        toast.success('Token חודש בהצלחה')
-                        const sr = await fetch('/api/settings')
-                        const sd = await sr.json()
-                        setSettings((prev) => ({ ...prev, ...sd }))
-                      } else {
-                        toast.error(data.error || 'שגיאה בחידוש Token')
-                      }
-                    } catch {
-                      toast.error('שגיאה בחידוש Token')
-                    }
-                  }}
-                  className="btn-ghost h-[40px] px-4 text-sm flex items-center gap-2">
-                  🔄 חדש Token
-                </button>
+              <div className="flex justify-between items-center py-2.5">
+                <span className="text-sm text-gray-500 dark:text-white/40">חיבור</span>
+                <span className={`text-sm font-medium ${ebayConn.connected ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                  {ebayConn.connected ? 'מחובר' : 'לא מחובר'}
+                </span>
+              </div>
+              {ebayConn.accessExpiresAt && (
+                <div className="flex justify-between items-center py-2.5">
+                  <span className="text-sm text-gray-500 dark:text-white/40">Token תקף עד</span>
+                  <span className="text-sm font-mono text-gray-800 dark:text-white/70">{new Date(ebayConn.accessExpiresAt).toLocaleString('he-IL')}</span>
+                </div>
               )}
-            </div>
-          </div>
-
-          {/* סטטוס בדיקה */}
-          {ebayStatus !== 'idle' && (
-            <div className={`mt-4 flex items-center gap-2 p-3 rounded-xl border text-sm
-              ${ebayStatus === 'ok'
-                ? 'bg-green-50 dark:bg-green-500/10 border-green-200 dark:border-green-500/20 text-green-700 dark:text-green-400'
-                : 'bg-red-50 dark:bg-red-500/10 border-red-200 dark:border-red-500/20 text-red-700 dark:text-red-400'
-              }`}>
-              <span className="text-base">{ebayStatus === 'ok' ? '✅' : '❌'}</span>
-              {ebayStatus === 'ok'
-                ? `מחובר בהצלחה ל-eBay (${settings.EBAY_SANDBOX === 'true' ? 'Sandbox' : 'Production'})`
-                : 'החיבור נכשל — בדוק את ה-App ID וה-Cert ID'}
+              {ebayConn.refreshExpiresAt && (
+                <div className="flex justify-between items-center py-2.5">
+                  <span className="text-sm text-gray-500 dark:text-white/40">חיבור בתוקף עד</span>
+                  <span className="text-sm font-mono text-gray-800 dark:text-white/70">{new Date(ebayConn.refreshExpiresAt).toLocaleDateString('he-IL')}</span>
+                </div>
+              )}
             </div>
           )}
 
-          <div className="flex gap-2 mt-4">
-            <SaveButton loading={saving === 'ebay'}
-              onClick={() => save(['EBAY_APP_ID', 'EBAY_CERT_ID', 'EBAY_DEV_ID', 'EBAY_RUNAME', 'EBAY_USER_TOKEN', 'EBAY_SANDBOX'], 'ebay')} />
+          {oauthStatus === 'error' && oauthError && (
+            <p className="text-xs text-red-600 dark:text-red-400 mt-3">❌ {oauthError}</p>
+          )}
+
+          <div className="flex flex-wrap gap-2 mt-4">
+            <button
+              onClick={() => { window.location.href = '/api/ebay/oauth/authorize' }}
+              disabled={!ebayConn?.configured}
+              className="h-[44px] px-5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium transition-colors disabled:opacity-40">
+              {ebayConn?.connected ? 'התחבר מחדש ל-eBay' : 'התחבר ל-eBay (OAuth)'}
+            </button>
+            {ebayConn?.connected && (
+              <button
+                disabled={refreshing}
+                onClick={async () => {
+                  setRefreshing(true)
+                  try {
+                    const res = await fetch('/api/ebay/oauth/refresh', { method: 'POST' })
+                    const data = await res.json()
+                    if (data.success) toast.success('Token חודש בהצלחה')
+                    else toast.error(data.error || 'שגיאה בחידוש Token')
+                    await loadEbayConn()
+                  } catch {
+                    toast.error('שגיאה בחידוש Token')
+                  } finally {
+                    setRefreshing(false)
+                  }
+                }}
+                className="btn-ghost h-[44px] px-4 text-sm disabled:opacity-40">
+                {refreshing ? 'מחדש...' : 'חדש Token'}
+              </button>
+            )}
             <button onClick={testEbay}
-              disabled={testing === 'ebay' || !settings.EBAY_APP_ID || !settings.EBAY_CERT_ID}
-              className="btn-ghost h-[44px] px-4 text-sm flex items-center gap-2 disabled:opacity-40">
-              {testing === 'ebay' ? (
-                <>
-                  <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                  </svg>
-                  בודק...
-                </>
-              ) : 'בדוק חיבור'}
+              disabled={testing === 'ebay' || !ebayConn?.configured}
+              className="btn-ghost h-[44px] px-4 text-sm disabled:opacity-40">
+              {testing === 'ebay' ? 'בודק...' : 'בדוק פרטי אפליקציה'}
             </button>
           </div>
+
+          {ebayStatus !== 'idle' && (
+            <p className={`mt-3 text-sm ${ebayStatus === 'ok' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+              {ebayStatus === 'ok' ? '✅ App ID ו-Cert ID תקינים' : '❌ App ID או Cert ID לא תקינים'}
+            </p>
+          )}
         </SectionCard>
 
         {/* eBay Business Policies */}
