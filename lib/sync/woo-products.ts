@@ -6,6 +6,7 @@ import {
   brandKey,
   buildWooProduct,
   ensureBrands,
+  ensureCategories,
   ensureConditionAttribute,
   findWooProductsBySku,
   loadBrands,
@@ -169,7 +170,8 @@ export async function pushWooProducts(ids: string[], onProgress?: (p: ImportProg
     if (toCreate.length) {
       const conditionAttributeId = await ensureConditionAttribute()
       brandsCreated = await ensureBrands(p.newBrandNames, p.brands)
-      const ctx = { conditionAttributeId, brandIds: p.brands }
+      const categoryIds = await ensureCategories()
+      const ctx = { conditionAttributeId, brandIds: p.brands, categoryIds }
       const byId = new Map(p.sources.map((s) => [s.id, s]))
 
       for (let i = 0; i < toCreate.length; i += BATCH) {

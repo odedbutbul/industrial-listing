@@ -1,4 +1,6 @@
 import { wooGet, wooRequest } from './client'
+import { cleanDescription, ebayLargeImage } from './clean-description'
+import { CATEGORY_TREE, categorize } from './categorize'
 
 // בניית מוצר WooCommerce מתוך מוצר במערכת, לפי docs/product-field-map.md.
 // תמונות: הראשית נשלחת ל-Woo (יורדת לספריית המדיה), השאר נשמרות ככתובות eBay ב-meta `_sync_gallery`.
@@ -52,17 +54,20 @@ export interface BuildContext {
   conditionAttributeId: number
   /** brandKey → id בחנות */
   brandIds: Map<string, number>
+  /** slug של קטגוריה → id בחנות (ensureCategories) */
+  categoryIds: Map<string, number>
 }
 
 type Meta = { key: string; value: string }
 
 export function buildWooProduct(p: SourceProduct, ctx: BuildContext) {
+  const images = p.images.map(ebayLargeImage)
   const meta: Meta[] = [
     { key: '_sync_product_id', value: p.id },
     { key: '_sync_ebay_item_id', value: p.ebayItemId ?? '' },
     { key: '_sync_ebay_category', value: [p.ebayCategoryId, p.ebayCategoryName].filter(Boolean).join(' | ') },
     { key: '_sync_listed_at', value: p.ebayListingStartedAt?.toISOString() ?? '' },
-    { key: '_sync_gallery', value: JSON.stringify(p.images.slice(1)) },
+    { key: '_sync_gallery', value: JSON.stringify(images.slice(1)) },
   ]
   if (p.mpn) meta.push({ key: '_mpn', value: p.mpn }, { key: '_mpn_norm', value: mpnNorm(p.mpn) })
   if (p.conditionDescription) meta.push({ key: '_condition_notes', value: p.conditionDescription })
@@ -78,6 +83,10 @@ export function buildWooProduct(p: SourceProduct, ctx: BuildContext) {
 
   const brandId = p.brand ? ctx.brandIds.get(brandKey(p.brand)) : undefined
   const qty = Math.max(p.available, 0)
+  const description = cleanDescription(p.description, p.title).html
+  const cats = categorize({ title: p.title, brand: p.brand, ebayCategoryName: p.ebayCategoryName, description })
+    .slugs.map((slug) => ctx.categoryIds.get(slug))
+    .filter((id): id is number => typeof id === 'number')
 
   return {
     name: p.title,
@@ -85,12 +94,14 @@ export function buildWooProduct(p: SourceProduct, ctx: BuildContext) {
     status: 'draft',
     sku: p.sku,
     regular_price: p.price ?? '',
-    description: p.description ?? '',
+    description,
     manage_stock: true,
     stock_quantity: qty,
-    images: p.images[0] ? [{ src: p.images[0], alt: p.title }] : [],
+    images: images[0] ? [{ src: images[0], alt: p.title }] : [],
     attributes,
     brands: brandId ? [{ id: brandId }] : [],
+    // לא שויך → בלי שדה, ו-WooCommerce שם את ברירת המחדל (Uncategorized)
+    ...(cats.length ? { categories: cats.map((id) => ({ id })) } : {}),
     meta_data: meta,
   }
 }
@@ -117,6 +128,27 @@ export async function ensureConditionAttribute(): Promise<number> {
     if (!have.has(name)) await wooRequest('POST', `products/attributes/${id}/terms`, { body: { name, menu_order: order } })
   }
   return id
+}
+
+/**
+ * מבטיח שכל עץ הקטגוריות (categorize.ts) קיים בחנות — לפי slug, אב לפני ילד.
+ * קיים = לא נוגעים בו (שם, תיאור ואייקון שנערכו בחנות נשארים). מחזיר slug → id.
+ */
+export async function ensureCategories(): Promise<Map<string, number>> {
+  const ids = new Map<string, number>()
+  for (let page = 1; ; page++) {
+    const r = await wooGet<{ id: number; slug: string }[]>('products/categories', { per_page: 100, page, _fields: 'id,slug' })
+    for (const c of r.data) ids.set(c.slug, c.id)
+    if (!r.totalPages || page >= r.totalPages) break
+  }
+  for (const node of CATEGORY_TREE.filter((c) => !c.parent).concat(CATEGORY_TREE.filter((c) => c.parent))) {
+    if (ids.has(node.slug)) continue
+    const parent = node.parent ? ids.get(node.parent) : 0
+    if (node.parent && !parent) continue
+    const r = await wooRequest<{ id: number }>('POST', 'products/categories', { body: { name: node.name, slug: node.slug, parent: parent ?? 0 } })
+    ids.set(node.slug, r.data.id)
+  }
+  return ids
 }
 
 /** כל המותגים בחנות: brandKey → id */
