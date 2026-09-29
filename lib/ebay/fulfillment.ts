@@ -34,6 +34,7 @@ export interface EbayOrderLine {
   title: string | null
   quantity: number
   lineTotal: string | null
+  itemAmount: string | null
   currency: string | null
 }
 
@@ -66,6 +67,7 @@ function toOrder(o: RawOrder): EbayOrder {
       title: l.title ?? null,
       quantity: Number(l.quantity) || 0,
       lineTotal: l.total?.value ?? l.lineItemCost?.value ?? null,
+      itemAmount: l.lineItemCost?.value ?? null,
       currency: l.total?.currency ?? l.lineItemCost?.currency ?? null,
     })),
   }

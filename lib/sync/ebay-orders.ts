@@ -51,6 +51,9 @@ function orderState(o: EbayOrder): OrderState {
   return 'paid'
 }
 
+/** "450.00" מה-DB מול "450.0" מ-eBay — אותו סכום */
+const sameAmount = (a: string | null, b: string | null) => (a === null || b === null ? a === b : Number(a) === Number(b))
+
 /** eBay מוריד כמות כשנוצרת הזמנה; רק ביטול מלא מחזיר. החזר כספי לא מחזיר פריט למלאי אוטומטית. */
 const isCancelled = (o: EbayOrder) => o.cancelState === 'CANCELED'
 
@@ -205,6 +208,7 @@ async function applyOrder(
           title: l.title,
           externalItemId: l.itemId,
           lineTotal: l.lineTotal,
+          itemAmount: l.itemAmount,
           currency: l.currency,
         }
         if (!m && beforeImport) {
@@ -271,7 +275,14 @@ async function applyOrder(
         continue
       }
 
-      // שורה קיימת: רק מעבר ל"בוטלה" משנה משהו
+      // שורה קיימת: הסכומים מתעדכנים (החזר חלקי, שורות שנקלטו לפני שנשמר מחיר הפריטים) — בלי לגעת במלאי
+      if (!sameAmount(existing.lineTotal, l.lineTotal) || !sameAmount(existing.itemAmount, l.itemAmount) || existing.currency !== l.currency) {
+        await tx
+          .update(schema.processedOrders)
+          .set({ lineTotal: l.lineTotal, itemAmount: l.itemAmount, currency: l.currency, updatedAt: new Date() })
+          .where(eq(schema.processedOrders.id, existing.id))
+      }
+      // רק מעבר ל"בוטלה" משנה מלאי
       if (cancelled && existing.status === 'applied' && existing.productId) {
         await tx.execute(sql`select id from ${schema.products} where id = ${existing.productId} for update`)
         const [back] = await tx

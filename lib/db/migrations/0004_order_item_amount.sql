@@ -1,0 +1,1 @@
+ALTER TABLE "processed_orders" ADD COLUMN "item_amount" numeric(12, 2);

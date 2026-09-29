@@ -200,7 +200,10 @@ export const processedOrders = pgTable(
     title: text('title'),
     /** מזהה המודעה/המוצר בערוץ (eBay legacyItemId, Woo product_id) */
     externalItemId: text('external_item_id'),
+    /** eBay lineItem.total — מה שהקונה שילם על השורה (לפי תיעוד eBay: פריט + משלוח + מסים, פחות הנחות) */
     lineTotal: numeric('line_total', { precision: 12, scale: 2 }),
+    /** מחיר הפריטים בלבד (eBay lineItemCost = מחיר יחידה × כמות), בלי משלוח ומסים */
+    itemAmount: numeric('item_amount', { precision: 12, scale: 2 }),
     currency: text('currency'),
     /** למה השורה לא נרשמה ב-ledger / מה קרה בה */
     note: text('note'),

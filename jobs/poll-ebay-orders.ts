@@ -2,6 +2,8 @@
 //
 //   npm run job:poll-ebay-orders                  # מהסמן האחרון (ריצה ראשונה: 30 ימים אחורה)
 //   npm run job:poll-ebay-orders -- --days=7      # טווח ידני (לא מזיז את הסמן אחורה — רק קוראים שוב)
+//   npm run job:poll-ebay-orders -- --days=365    # השלמת היסטוריה לסיכום הכספי + מילוי מחיר פריטים בשורות קיימות.
+//                                                 # כמה אחורה eBay מחזיר — לא נבדק בחשבון
 //
 // Cron בשרת (כל 5 דקות): cd /var/www/stock-sync.1wp.site && node --env-file=.env node_modules/tsx/dist/cli.mjs jobs/poll-ebay-orders.ts
 // יוצא עם 0 בהצלחה, 1 בשגיאה, 2 אם ריצה אחרת פעילה.

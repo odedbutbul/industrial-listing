@@ -7,6 +7,7 @@ import { ExternalLink, RefreshCw, Search } from 'lucide-react'
 import { api, ApiError } from '@/components/sync/api'
 import { ago, dateTime, money, num } from '@/components/sync/format'
 import { useDataChanged } from '@/components/sync/hooks'
+import { MonthFilterChip, monthLabel, OrdersSummary } from '@/components/sync/OrdersSummary'
 import type { BackgroundRun } from '@/components/sync/types'
 import { Kpi, LoadError, Pill, Seg, Spin, useLoad, useToast, type Tone } from '@/components/sync/ui'
 
@@ -81,6 +82,7 @@ function Orders() {
   const channel = (['all', 'ebay', 'woo'].includes(params.get('channel') ?? '') ? params.get('channel') : 'all') as Channel
   const state = (['all', 'active', 'cancelled', 'attention'].includes(params.get('state') ?? '') ? params.get('state') : 'all') as State
   const q = params.get('q') ?? ''
+  const month = /^\d{4}-\d{2}$/.test(params.get('month') ?? '') ? params.get('month')! : ''
   const [query, setQuery] = useState(q)
   const [more, setMore] = useState<OrderLine[]>([])
   const [nextBefore, setNextBefore] = useState<string | null>(null)
@@ -88,15 +90,18 @@ function Orders() {
   const [polling, setPolling] = useState(false)
   const timer = useRef<number>(0)
 
-  const setParam = useCallback(
-    (key: string, value: string) => {
+  const setParams = useCallback(
+    (values: Record<string, string>) => {
       const sp = new URLSearchParams(params.toString())
-      if (value && value !== 'all') sp.set(key, value)
-      else sp.delete(key)
-      router.replace(`${pathname}${sp.toString() ? '?' + sp.toString() : ''}`)
+      for (const [key, value] of Object.entries(values)) {
+        if (value && value !== 'all') sp.set(key, value)
+        else sp.delete(key)
+      }
+      router.replace(`${pathname}${sp.toString() ? '?' + sp.toString() : ''}`, { scroll: false })
     },
     [params, pathname, router],
   )
+  const setParam = useCallback((key: string, value: string) => setParams({ [key]: value }), [setParams])
 
   useEffect(() => setQuery(q), [q])
   useEffect(() => {
@@ -106,13 +111,13 @@ function Orders() {
   }, [query, q, setParam])
   useEffect(() => () => window.clearTimeout(timer.current), [])
 
-  const url = (before?: string) => `/api/sync/orders?channel=${channel}&state=${state}&q=${encodeURIComponent(q)}${before ? `&before=${encodeURIComponent(before)}` : ''}`
+  const url = (before?: string) => `/api/sync/orders?channel=${channel}&state=${state}&q=${encodeURIComponent(q)}${month ? `&month=${month}` : ''}${before ? `&before=${encodeURIComponent(before)}` : ''}`
   const { data, error, reload } = useLoad(async () => {
     const r = await api.get<OrdersPage>(url())
     setMore([])
     setNextBefore(r.nextBefore)
     return r
-  }, [channel, state, q])
+  }, [channel, state, q, month])
   useDataChanged(reload)
 
   const loadMore = async () => {
@@ -167,7 +172,7 @@ function Orders() {
 
   const rows = data ? [...data.rows, ...more] : null
   const c = data?.counts
-  const filtered = channel !== 'all' || state !== 'all' || !!q
+  const filtered = channel !== 'all' || state !== 'all' || !!q || !!month
   const sub = !data
     ? ' '
     : [
@@ -200,7 +205,9 @@ function Orders() {
         </div>
       )}
 
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
+      <OrdersSummary channel={channel} from={params.get('from') ?? ''} to={params.get('to') ?? ''} month={month} setParams={setParams} />
+
+      <div id="order-lines" style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', scrollMarginTop: 88 }}>
         <Seg
           label="סינון לפי פלטפורמה"
           options={[
@@ -226,6 +233,7 @@ function Orders() {
           <Search size={18} aria-hidden="true" />
           <input type="search" className="ax-input" aria-label="חיפוש הזמנה" placeholder="מוצר, SKU, מספר הזמנה או מודעה" value={query} onChange={(e) => setQuery(e.target.value)} />
         </div>
+        {month && <MonthFilterChip month={month} clear={() => setParam('month', '')} />}
       </div>
 
       {error ? (
@@ -235,7 +243,7 @@ function Orders() {
       ) : rows.length === 0 ? (
         <div className="ax-card">
           <p className="ax-note">
-            {filtered ? 'אין הזמנות שמתאימות לסינון.' : 'עוד לא נקלטו הזמנות. "בדיקת הזמנות חדשות" מושכת את ההזמנות של 30 הימים האחרונים מ-eBay.'}
+            {filtered ? (month ? `אין הזמנות ב${monthLabel(month)} שמתאימות לסינון.` : 'אין הזמנות שמתאימות לסינון.') : 'עוד לא נקלטו הזמנות. "בדיקת הזמנות חדשות" מושכת את ההזמנות של 30 הימים האחרונים מ-eBay.'}
           </p>
         </div>
       ) : (

@@ -177,10 +177,15 @@ export async function listLog(opts: { status?: LogStatus; job?: string; before?:
 // ── הזמנות משני הערוצים ─────────────────────────────────────────────────────
 
 export type OrderChannelFilter = 'all' | 'ebay' | 'woo'
+
+/** חודש קלנדרי בשעון ישראל, "2026-09" */
+export const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/
+const MONTH_TZ = 'Asia/Jerusalem'
+const monthOf = (col: SQL | typeof schema.processedOrders.orderCreatedAt) => sql`to_char(${col} at time zone ${sql.raw(`'${MONTH_TZ}'`)}, 'YYYY-MM')`
 export type OrderStateFilter = 'all' | 'active' | 'cancelled' | 'attention'
 
 /** שורות הזמנה (שורה = מוצר בהזמנה), מהחדשה לישנה. מסמן בכל שורה באיזו פלטפורמה נמכר. */
-export async function listOrderLines(opts: { channel?: OrderChannelFilter; state?: OrderStateFilter; q?: string; before?: string; limit?: number }) {
+export async function listOrderLines(opts: { channel?: OrderChannelFilter; state?: OrderStateFilter; q?: string; month?: string; before?: string; limit?: number }) {
   const po = schema.processedOrders
   const o = schema.orders
   const limit = Math.min(Math.max(opts.limit ?? 50, 1), 200)
@@ -189,6 +194,7 @@ export async function listOrderLines(opts: { channel?: OrderChannelFilter; state
   if (opts.state === 'cancelled') conds.push(sql`${o.state} in ('cancelled', 'refunded')`)
   if (opts.state === 'active') conds.push(sql`${o.state} not in ('cancelled', 'refunded')`)
   if (opts.state === 'attention') conds.push(sql`(${po.status} = 'unmapped' or ${o.state} = 'cancel_requested')`)
+  if (opts.month && MONTH_RE.test(opts.month)) conds.push(sql`${monthOf(po.orderCreatedAt)} = ${opts.month}`)
   const q = opts.q?.trim()
   if (q) {
     const like = `%${q}%`
@@ -247,5 +253,77 @@ export async function listOrderLines(opts: { channel?: OrderChannelFilter; state
     counts,
     lastPoll: lastPoll ? { at: lastPoll.createdAt, success: lastPoll.success, error: lastPoll.error, details: lastPoll.details } : null,
     wooConnected: !!process.env.WC_BASE_URL,
+  }
+}
+
+export interface MonthSummary {
+  month: string
+  channel: 'ebay' | 'woo'
+  /** הזמנות שלא בוטלו */
+  orders: number
+  units: number
+  /** מה שהקונים שילמו (eBay lineItem.total) */
+  sales: number
+  /** מחיר הפריטים בלבד (eBay lineItemCost) */
+  items: number
+  /** שורות פעילות שעוד אין להן מחיר פריטים (נקלטו לפני שנשמר) */
+  itemsMissing: number
+  cancelledOrders: number
+  cancelledSales: number
+}
+
+/**
+ * סיכום כספי לפי חודש (שעון ישראל) ופלטפורמה. רק USD נסכם; שורות במטבע אחר נספרות בנפרד.
+ * "פעילה" = ההזמנה לא בוטלה ולא הוחזר עליה כסף, והשורה לא בוטלה.
+ */
+export async function ordersMonthlySummary(opts: { channel?: OrderChannelFilter; from?: string; to?: string }) {
+  const po = schema.processedOrders
+  const o = schema.orders
+  const month = monthOf(po.orderCreatedAt)
+  const conds: (SQL | undefined)[] = [sql`${po.orderCreatedAt} is not null`]
+  if (opts.channel === 'ebay' || opts.channel === 'woo') conds.push(eq(po.channel, opts.channel))
+  const base = and(...conds)
+  const ranged = and(
+    base,
+    opts.from && MONTH_RE.test(opts.from) ? sql`${month} >= ${opts.from}` : undefined,
+    opts.to && MONTH_RE.test(opts.to) ? sql`${month} <= ${opts.to}` : undefined,
+  )
+  const active = sql`(coalesce(${o.state}::text, 'paid') not in ('cancelled', 'refunded') and ${po.status} <> 'cancelled')`
+  const usd = sql`coalesce(${po.currency}, 'USD') = 'USD'`
+
+  const rows = await db
+    .select({
+      month: sql<string>`${month}`,
+      channel: po.channel,
+      orders: sql<number>`count(distinct ${po.externalOrderId}) filter (where ${active})::int`,
+      units: sql<number>`coalesce(sum(${po.quantity}) filter (where ${active}), 0)::int`,
+      sales: sql<string>`coalesce(sum(${po.lineTotal}) filter (where ${active} and ${usd}), 0)`,
+      items: sql<string>`coalesce(sum(${po.itemAmount}) filter (where ${active} and ${usd}), 0)`,
+      itemsMissing: sql<number>`count(*) filter (where ${active} and ${po.itemAmount} is null)::int`,
+      cancelledOrders: sql<number>`count(distinct ${po.externalOrderId}) filter (where not ${active})::int`,
+      cancelledSales: sql<string>`coalesce(sum(${po.lineTotal}) filter (where not ${active} and ${usd}), 0)`,
+    })
+    .from(po)
+    .leftJoin(o, and(eq(o.channel, po.channel), eq(o.externalOrderId, po.externalOrderId)))
+    .where(ranged)
+    .groupBy(sql`1`, po.channel)
+    .orderBy(desc(sql`1`), po.channel)
+
+  const [span] = await db
+    .select({
+      first: sql<string | null>`min(${month})`,
+      last: sql<string | null>`max(${month})`,
+      otherCurrency: sql<number>`count(*) filter (where not ${usd})::int`,
+    })
+    .from(po)
+    .where(base)
+
+  return {
+    months: rows.map((r): MonthSummary => ({ ...r, sales: Number(r.sales), items: Number(r.items), cancelledSales: Number(r.cancelledSales) })),
+    /** החודש הראשון והאחרון שיש בהם הזמנות — לבוררי הטווח */
+    first: span?.first ?? null,
+    last: span?.last ?? null,
+    otherCurrency: span?.otherCurrency ?? 0,
+    timezone: MONTH_TZ,
   }
 }
