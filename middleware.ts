@@ -19,8 +19,10 @@ export function middleware(request: NextRequest) {
   const secret = getSessionSecret(request)
 
   if (!token || token !== secret) {
-    const loginUrl = new URL('/login', request.url)
-    loginUrl.searchParams.set('from', pathname)
+    // מאחורי nginx/Cloudflare ה-request.url הוא הכתובת הפנימית (localhost:PORT) — לכן הבסיס הוא
+    // APP_BASE_URL (הכתובת הציבורית). Next.js לא מקבל Location יחסי ב-middleware.
+    const loginUrl = new URL('/login', process.env.APP_BASE_URL || request.url)
+    loginUrl.searchParams.set('from', pathname + request.nextUrl.search)
     return NextResponse.redirect(loginUrl)
   }
 
