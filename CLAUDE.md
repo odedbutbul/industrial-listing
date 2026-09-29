@@ -1,447 +1,115 @@
-# מערכת פרסום וניהול ציוד תעשייתי — CLAUDE.md
+# סנכרון מלאי eBay ↔ WooCommerce — CLAUDE.md
+
+> הפרויקט שינה ייעוד ב-29/09/2026. בעבר: Industrial Listing Tool (פרסום ציוד ל-eBay ופייסבוק).
+> עכשיו: מערכת סנכרון מלאי דו-צדדית בין חשבון eBay של הלקוחה (vizvik16) לחנות WooCommerce.
+> נקודת החזרה לגרסה הישנה: tag `pre-sync-baseline` (= main לפני השינוי).
 
 ---
 
-## 🤖 הוראות לקלוד קוד — חובה לקרוא
+## 🤖 הוראות לקלוד קוד — חובה
 
-1. **לפני כל משימה** — קרא את `## 📋 לוג בנייה` כדי להבין מה כבר נעשה
-2. **אחרי כל חלק שסיימת לבנות** — עדכן את הלוג עם מה שנעשה, בפורמט הקיים
-3. **אל תקרא את כל הקבצים** — הלוג מספיק כדי להבין את המצב הנוכחי
-4. **אם משהו לא עובד** — רשום אותו תחת `⚠️ בעיות ידועות`
-5. **המשך תמיד מהנקודה האחרונה בלוג** — אל תבנה מחדש דברים שכבר סומנו ✅
-
----
-
-## 📋 לוג בנייה
-
-### סטטוס כללי: 🟡 בתהליך
-
-| חלק | סטטוס | תאריך | הערות |
-|-----|--------|--------|-------|
-| Supabase — טבלאות | ✅ הושלם | 12/05/2026 | נוצרו products, webhook_logs, trigger, storage bucket |
-| Next.js — setup בסיסי | ✅ הושלם | 12/05/2026 | Next.js 14, Tailwind, shadcn/ui, Supabase client, layout RTL+Heebo |
-| `/products/new` — טופס | ✅ הושלם | 12/05/2026 | טופס מלא עם כל השדות ותצוגה מקדימה |
-| העלאת תמונות — Supabase Storage | ✅ הושלם | 12/05/2026 | ImageUploader עם drag&drop, עד 20 תמונות, 10MB |
-| `/dashboard` — רשימה + פילטרים | ✅ הושלם | 12/05/2026 | טבלה + סטטיסטיקות + פילטרים + חיפוש |
-| כפתור העתק + פתח פייסבוק | ✅ הושלם | 12/05/2026 | מעתיק לקליפבורד + פותח קבוצת פייסבוק |
-| כפתור Webhook | ✅ הושלם | 12/05/2026 | POST ל-webhook + לוג ב-webhook_logs |
-| `/products/[id]` — עריכה | ✅ הושלם | 12/05/2026 | דף מוצר עם 4 כפתורי פרסום + טופס עריכה |
-| `/settings` — הגדרות | ✅ הושלם | 12/05/2026 | דף הגדרות עם בדיקת webhook |
-| סמן כנמכר | ✅ הושלם | 12/05/2026 | מ-dashboard וגם מדף המוצר |
-| eBay — placeholder | ✅ הושלם | 12/05/2026 | Placeholder מוכן — מציג הודעה |
-| Deploy ל-Railway | 🔨 בתהליך | 12/05/2026 | railway.json + standalone output מוכנים |
-
-### ⚠️ בעיות ידועות
-_אין כרגע_
-
-### 📝 החלטות טכניות שהתקבלו
-- shadcn/ui v2 (החדש) אינו תואם במלואו ל-Next.js 14 — השתמשנו ב-globals.css פשוטה ב-CSS variables ידניות
-- כפתור `.bin/next` שבור ב-Node 25 — מריצים via `node dist/bin/next` ישירות
-- שמירת תמונות לפני שמירת המוצר — product ID נוצר client-side עם `crypto.randomUUID()`
+1. **לפני כל משימה** קרא את `PROGRESS.md` — שם הסטטוס, השלב הנוכחי וההחלטות הפתוחות.
+2. **אחרי כל שלב** עדכן את `PROGRESS.md` (סטטוס, תאריך DD/MM/YYYY, מה נעשה, איך אומת).
+3. **עבודה רק על branch `sync`.** main נשאר נקודת חזרה ולא נוגעים בו עד שהמערכת עובדת.
+4. **כל טענה ש"עובד" חייבת מדידה** (build, בדיקה, קריאה בפועל). מה שלא נבדק מסומן "לא נבדק".
+5. **סודות:** לעולם לא להעתיק ערכים מ-`.env*` לקוד, לתיעוד, ללוגים או לריפו. רק שמות משתנים.
+6. **החלטות פתוחות** (רשימה ב-PROGRESS.md) — לא מכריעים בהן לבד. שואלים את עודד.
+7. **UI:** כל מסך נבנה לפי הסקיל `shape-design` (ראה סעיף עיצוב). אין להמציא שפה חזותית.
 
 ---
 
-## סקירה כללית
-בנה מערכת ניהול מלאה לפרסום ציוד תעשייתי ל-eBay ופייסבוק, עם מעקב סטטוס לכל מוצר.
-הלקוח הוא חברת "י.פ. פתרונות טכניים" שמוכרת ציוד תעשייתי (מכונות CNC, PLC, רובוטיקה וכו׳).
+## מה המערכת עושה
+
+- מושכת את המוצרים מחשבון eBay ויוצרת אותם ב-WooCommerce דרך ה-REST API של ווקומרס.
+- מכירה באתר → הכמות ב-eBay יורדת מיד. ביטול הזמנה באתר → הכמות חוזרת.
+- מכירה ב-eBay → המלאי באתר יורד.
+- **מקור האמת למלאי:** טבלת `stock_ledger` — כל שינוי נרשם (ערוץ, כמות, זמן, הזמנה). מלאי זמין = `SUM(delta)`.
+- **הדרישה הקריטית:** רוב הפריטים הם יחידה אחת — מניעת מכירה כפולה קודמת לכל דבר.
+- job התאמה תקופתי מול שני הצדדים, ולוג (`sync_log`) לכל פעולת סנכרון.
+
+### מנגנוני קליטת מכירות
+- **eBay:** polling ל-Fulfillment API (`getOrders` לפי lastmodifieddate) כל כמה דקות — מנגנון הבסיס. webhooks של eBay — שכבה נוספת בהמשך.
+- **WooCommerce:** webhook על הזמנה (אימות חתימת HMAC). הכמות ב-eBay יורדת מיד; חוזרת אם ההזמנה בוטלה.
+
+### כללי בטיחות בסנכרון
+- כל הזמנה נרשמת בטרנזקציה אחת: `processed_orders` (אינדקס ייחודי = אידמפוטנטיות) → נעילת שורת המוצר (`FOR UPDATE`) → רשומת ledger → `pending_pushes` לערוץ השני.
+- דחיפה שנכשלה נשלחת שוב ע"י cron. לעולם לא "לבלוע" כשל — הוא נרשם ב-`sync_log`.
+- מתג כיבוי כללי `SYNC_PUSH_ENABLED` + `sync_enabled` לכל מוצר.
+- jobs רצים עם `pg_try_advisory_lock` — אף פעם לא שתי ריצות במקביל.
+- **שום פעולה ב-eBay לא קורית אוטומטית אלא אם הוחלט במפורש** (ראה החלטות פתוחות ב-PROGRESS.md).
 
 ---
 
-## סטאק טכני
+## סטאק
 
-- **Frontend + Backend:** Next.js 14 (App Router)
-- **Database:** Supabase (PostgreSQL)
-- **Storage:** Supabase Storage (לתמונות)
-- **Styling:** Tailwind CSS + shadcn/ui
-- **Language:** TypeScript
-- **Deploy:** Railway
-- **Automation:** Webhook ל-Make.com / n8n
+| שכבה | בחירה |
+|---|---|
+| אפליקציה | Next.js 14 (App Router), TypeScript |
+| DB | Postgres + Drizzle ORM (במקום Supabase) |
+| eBay | OAuth (authorization code + refresh), Trading API (GetMyeBaySelling, GetItem, ReviseInventoryStatus), Fulfillment API (getOrders) |
+| WooCommerce | REST API v3 (consumer key/secret) + webhooks |
+| אירוח | xCloud, שרת shape-projects (Node 24, nginx רגיל), דיפלוי מ-Git |
+| תזמון | Cron של השרת (לא WP-Cron) שמריץ סקריפטים ב-`jobs/` |
+| הזדהות | כניסת מנהל יחיד (cookie) — `middleware.ts` + `app/api/auth/*` |
 
----
-
-## מבנה הפרויקט
-
-```
-/app
-  /dashboard          ← דף ראשי עם רשימת מוצרים
-  /products/new       ← טופס הוספת מוצר חדש
-  /products/[id]      ← דף מוצר בודד + עריכה
-  /api
-    /products         ← CRUD endpoints
-    /webhook          ← שליחת webhook
-    /ebay             ← eBay API (placeholder מוכן)
-/components
-  /ProductForm        ← טופס מוצר
-  /ProductCard        ← כרטיס מוצר ברשימה
-  /StatusBadge        ← תג סטטוס
-  /PostPreview        ← תצוגה מקדימה של פוסט פייסבוק
-  /ImageUploader      ← העלאת תמונות ל-Supabase Storage
-```
+Render ו-Supabase יכובו רק אחרי שהמערכת החדשה רצה בייצור (ואחרי export גיבוי של Supabase).
 
 ---
 
-## Supabase — טבלאות
+## מבנה תיקיות (יעד)
 
-### טבלה: `products`
-
-```sql
-create table products (
-  id uuid primary key default gen_random_uuid(),
-  created_at timestamp with time zone default now(),
-  updated_at timestamp with time zone default now(),
-
-  -- פרטי מוצר
-  manufacturer text not null,
-  model text not null,
-  category text,
-  year integer,
-  condition text default 'משומש - טוב',
-  price numeric,
-  description text,
-  location text,
-  phone text,
-
-  -- תמונות (מערך של URLs מ-Supabase Storage)
-  images text[] default '{}',
-
-  -- סטטוס פרסום
-  status_ebay text default 'pending',
-  -- ערכים: 'pending' | 'published' | 'failed' | 'sold'
-  ebay_listing_id text,
-  ebay_url text,
-  ebay_published_at timestamp with time zone,
-
-  status_facebook text default 'pending',
-  -- ערכים: 'pending' | 'published' | 'copied'
-  facebook_published_at timestamp with time zone,
-
-  -- סטטוס כללי
-  status text default 'active',
-  -- ערכים: 'active' | 'sold' | 'archived'
-  sold_at timestamp with time zone,
-  notes text
-);
+```
+app/                 dashboard · products/[id] · logs · settings · login
+app/api/             auth/* · ebay/oauth/{authorize,callback} · ebay/notifications · woo/webhook
+lib/db/              schema.ts · client.ts · migrations/
+lib/ebay/            auth.ts · trading.ts · fulfillment.ts
+lib/woo/             client.ts · products.ts · orders.ts · verify-webhook.ts
+lib/sync/            ledger.ts · apply-order.ts · push.ts · import.ts · reconcile.ts · log.ts
+jobs/                poll-ebay-orders.ts · push-pending.ts · reconcile.ts · refresh-token.ts
+drizzle.config.ts
 ```
 
-### טבלה: `webhook_logs`
+## סכמת DB (יעד)
 
-```sql
-create table webhook_logs (
-  id uuid primary key default gen_random_uuid(),
-  created_at timestamp with time zone default now(),
-  product_id uuid references products(id),
-  webhook_url text,
-  payload jsonb,
-  response_status integer,
-  success boolean
-);
-```
+| טבלה | תפקיד |
+|---|---|
+| `ebay_tokens` | access/refresh token מוצפנים + תוקף + scopes |
+| `products` | נתוני המוצר (כותרת, תיאור, מצב, מחיר, תמונות, קטגוריית eBay) |
+| `channel_mappings` | SKU ↔ ebay_item_id ↔ woo_product_id (כולם ייחודיים), sync_enabled, כמויות אחרונות ידועות |
+| `stock_ledger` | delta, channel, reason, external_order_id/line_id, idempotency_key ייחודי |
+| `processed_orders` | הזמנות שעובדו, ייחודי על (channel, order, line) |
+| `pending_pushes` | עדכוני כמות שממתינים/נכשלו + ניסיונות חוזרים |
+| `sync_cursors` | מיקום ה-polling (למשל lastModified של הזמנות eBay) |
+| `sync_log` | לוג לכל פעולה: job, כיוון, פעולה, תוצאה, שגיאה, משך |
 
 ---
 
-## דפים ופונקציונליות
+## 🎨 עיצוב — לפי הסקיל `shape-design`
 
-### 1. `/dashboard` — לוח בקרה
-
-**כרטיסי סטטיסטיקה בראש:**
-- סה״כ מוצרים
-- ממתינים לפרסום (pending)
-- פורסמו ב-eBay
-- פורסמו בפייסבוק
-- נמכרו
-
-**טבלת מוצרים עם עמודות:**
-- תמונה ראשית (thumbnail)
-- יצרן + דגם
-- קטגוריה
-- מחיר
-- סטטוס eBay (badge צבעוני)
-- סטטוס פייסבוק (badge צבעוני)
-- סטטוס כללי (פעיל/נמכר/ארכיון)
-- תאריך יצירה
-- פעולות: עריכה, פרסום, מחיקה
-
-**פילטרים:**
-- לפי סטטוס eBay
-- לפי סטטוס פייסבוק
-- לפי קטגוריה
-- חיפוש חופשי (יצרן/דגם)
+- **חובה לטעון את הסקיל `shape-design` לפני כל עבודת UI.** אפליקציית הייחוס: `~/Projects/flowbot-license`.
+- מעתיקים את `base.css`, `tokens.css`/`theme.ts`, `ui.tsx`, `tables.ts` מהסקיל — לא ממציאים.
+- הכלל: *שומרים את הצבעים, לוקחים את כל השאר*. פלטה: ברירת המחדל של הסקיל (teal כהה / sunrise בהיר) — אלא אם עודד יגדיר אחרת.
+- Heebo / Rubik / JetBrains Mono (מספרים, SKU, מזהי הזמנות), אייקונים Phosphor, RTL, כהה כברירת מחדל + בהיר.
+- מובייל ≤860px: tab bar תחתון (עד 4), דיאלוגים כ-bottom sheet, טבלאות הופכות לכרטיסים.
+- נגישות IS 5568 / WCAG AA. מצבי טעינה, ריק ושגיאה לכל מסך.
+- ה-UI הקיים (Tailwind + shadcn, כתום #f97316) הוא מהפרויקט הקודם — יוחלף מסך-מסך.
 
 ---
 
-### 2. `/products/new` ו-`/products/[id]` — טופס מוצר
+## משתני סביבה (שמות בלבד)
 
-**שדות הטופס:**
+- **אפליקציה:** `APP_BASE_URL`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `SESSION_SECRET`
+- **DB:** `DATABASE_URL`
+- **eBay:** `EBAY_APP_ID`, `EBAY_CERT_ID`, `EBAY_RUNAME`, `EBAY_SANDBOX`, `TOKEN_ENCRYPTION_KEY`; בהמשך `EBAY_NOTIFICATION_VERIFICATION_TOKEN`
+- **WooCommerce:** `WC_BASE_URL`, `WC_CONSUMER_KEY`, `WC_CONSUMER_SECRET`, `WC_WEBHOOK_SECRET`
+- **סנכרון:** `CRON_SECRET`, `SYNC_PUSH_ENABLED`
+- **מתבטלים:** `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `WEBHOOK_URL`, `EBAY_USER_TOKEN`, `EBAY_DEV_ID`, `CLOUDINARY_*`, `NEXT_PUBLIC_BASE_URL` (→ `APP_BASE_URL`)
 
-```typescript
-interface Product {
-  manufacturer: string      // יצרן — חובה
-  model: string             // דגם — חובה
-  category: string          // קטגוריה (dropdown)
-  year?: number             // שנת ייצור
-  condition: string         // מצב (buttons: חדש / משומש-מצוין / משומש-טוב / משומש-בינוני / לחלקים)
-  price?: number            // מחיר בשקלים
-  description?: string      // תיאור ומפרט טכני
-  location?: string         // מיקום
-  phone?: string            // טלפון
-  images: string[]          // URLs מ-Supabase Storage
-}
-```
-
-**קטגוריות (dropdown):**
-מכונת CNC, בקר PLC, מנוע סרוו, דרייבר, רובוטיקה, ציוד פנאומטי, ספק כוח, אינוורטר, ציוד מדידה, חלקי חילוף, אחר
-
-**העלאת תמונות:**
-- גרירה או לחיצה
-- מקסימום 20 תמונות
-- עולות ל-Supabase Storage תחת `/products/{product_id}/`
-- תמונה ראשונה = תמונה ראשית
-- אפשרות לסדר מחדש בגרירה (drag & drop)
-- מקסימום 10MB לתמונה
-
-**תצוגה מקדימה של פוסט:**
-בצד ימין של הטופס — תצוגה חיה של הפוסט לפייסבוק בזמן מילוי הטופס.
+`.env.local` נמצא ב-`.gitignore` ואסור שיעלה לריפו.
 
 ---
 
-### 3. כפתורי פרסום בדף המוצר
-
-#### כפתור א׳ — העתק + פתח פייסבוק
-```
-1. בנה טקסט פוסט מפרטי המוצר
-2. העתק לקליפבורד
-3. פתח קבוצת הפייסבוק: https://www.facebook.com/groups/sells.Surplus.Industrial.Automation
-4. עדכן status_facebook = 'copied' + תאריך
-```
-
-**פורמט טקסט הפוסט:**
-```
-🔧 {manufacturer} {model} | {category}
-
-📌 מצב: {condition}
-📅 שנת ייצור: {year}
-📍 מיקום: {location}
-💰 מחיר: ₪{price}
-
-📋 פרטים נוספים:
-{description}
-
-─────────────────
-י.פ. פתרונות טכניים
-📞 {phone}
-✉️ info@yp-ts.com
-```
-
-#### כפתור ב׳ — שלח Webhook (Make / n8n)
-```typescript
-// POST לכתובת ה-webhook שמוגדרת בסטינגס
-{
-  product_id: string,
-  manufacturer: string,
-  model: string,
-  category: string,
-  year: number,
-  condition: string,
-  price: number,
-  description: string,
-  location: string,
-  phone: string,
-  post_text: string,          // הטקסט המוכן לפייסבוק
-  images: string[],           // מערך URLs ציבוריים מ-Supabase
-  timestamp: string
-}
-```
-אחרי שליחה מוצלחת: עדכן `status_facebook = 'published'` + תאריך
-
-#### כפתור ג׳ — העלה ל-eBay
-```typescript
-// Placeholder מוכן — יחובר בשלב הבא
-// מציג הודעה: "ממתין לפרטי eBay API"
-// כשיחובר: עדכן status_ebay = 'published' + ebay_listing_id + ebay_url
-```
-
-#### כפתור ד׳ — סמן כנמכר
-```
-עדכן status = 'sold' + sold_at = now()
-```
-
----
-
-### 4. הגדרות מערכת (`/settings`)
-
-שמור ב-environment variables או בטבלת `settings` בסופאבייס:
-
-```
-WEBHOOK_URL=                  # Make.com / n8n webhook URL
-EBAY_APP_ID=                  # eBay App ID (Client ID)
-EBAY_CERT_ID=                 # eBay Cert ID
-EBAY_DEV_ID=                  # eBay Dev ID
-EBAY_USER_TOKEN=              # eBay User Token
-EBAY_SANDBOX=true             # true = sandbox, false = production
-CONTACT_PHONE=054-2333651
-CONTACT_EMAIL=info@yp-ts.com
-COMPANY_NAME=י.פ. פתרונות טכניים
-FACEBOOK_GROUP_URL=https://www.facebook.com/groups/sells.Surplus.Industrial.Automation
-```
-
----
-
-## עיצוב ו-UI
-
-- **שפה:** עברית מלאה, RTL
-- **צבעים:** רקע כהה (#0f1117), accent כתום (#f97316)
-- **פונט:** Heebo (Google Fonts)
-- **Badges סטטוס:**
-  - pending = אפור ⏳
-  - published = ירוק ✅
-  - copied = כחול 📋
-  - failed = אדום ❌
-  - sold = סגול 🏷️
-
----
-
-## סדר בנייה מומלץ
-
-1. **התחל עם Supabase** — צור את הטבלאות
-2. **בנה `/products/new`** — טופס + העלאת תמונות
-3. **בנה `/dashboard`** — רשימה + פילטרים
-4. **הוסף כפתורי פרסום** — העתק/פייסבוק + Webhook
-5. **הוסף `/settings`** — הגדרת Webhook URL
-6. **Deploy ל-Railway**
-7. **Placeholder eBay** — מוכן לחיבור עתידי
-
----
-
-## environment variables נדרשים
-
-צור קובץ `.env.local` בשורש הפרויקט:
-
-```env
-NEXT_PUBLIC_SUPABASE_URL=https://eiddrogjnayyzwlwfioc.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVpZGRyb2dqbmF5eXp3bHdmaW9jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg1NzU3NDgsImV4cCI6MjA5NDE1MTc0OH0.JaKc_YT9iOgvfyQLbv5FtZRxWlb7TWwuobOyD6uATq0
-SUPABASE_SERVICE_ROLE_KEY=      # Settings > API > service_role > Reveal
-WEBHOOK_URL=                    # יתווסף אחרי הגדרת Make/n8n
-EBAY_APP_ID=                    # יתווסף אחרי eBay Developer Account
-EBAY_USER_TOKEN=                # יתווסף אחרי eBay Developer Account
-EBAY_SANDBOX=true
-```
-
-⚠️ ודא ש-.env.local נמצא ב-.gitignore — לעולם אל תעלה אותו ל-GitHub!
-
----
-
-## 🗄️ SQL — הרץ ב-Supabase לפני הכל
-
-כנס ל: https://eiddrogjnayyzwlwfioc.supabase.co → SQL Editor → New Query → הרץ:
-
-```sql
--- טבלת מוצרים
-create table products (
-  id uuid primary key default gen_random_uuid(),
-  created_at timestamp with time zone default now(),
-  updated_at timestamp with time zone default now(),
-  manufacturer text not null,
-  model text not null,
-  category text,
-  year integer,
-  condition text default 'משומש - טוב',
-  price numeric,
-  description text,
-  location text,
-  phone text,
-  images text[] default '{}',
-  status_ebay text default 'pending',
-  ebay_listing_id text,
-  ebay_url text,
-  ebay_published_at timestamp with time zone,
-  status_facebook text default 'pending',
-  facebook_published_at timestamp with time zone,
-  status text default 'active',
-  sold_at timestamp with time zone,
-  notes text
-);
-
--- טבלת לוג webhooks
-create table webhook_logs (
-  id uuid primary key default gen_random_uuid(),
-  created_at timestamp with time zone default now(),
-  product_id uuid references products(id) on delete cascade,
-  webhook_url text,
-  payload jsonb,
-  response_status integer,
-  success boolean
-);
-
--- עדכון אוטומטי של updated_at
-create or replace function update_updated_at()
-returns trigger as $$
-begin
-  new.updated_at = now();
-  return new;
-end;
-$$ language plpgsql;
-
-create trigger products_updated_at
-  before update on products
-  for each row execute function update_updated_at();
-
--- Storage bucket לתמונות (ציבורי)
-insert into storage.buckets (id, name, public)
-values ('product-images', 'product-images', true);
-
-create policy "Public read images"
-  on storage.objects for select
-  using (bucket_id = 'product-images');
-
-create policy "Public upload images"
-  on storage.objects for insert
-  with check (bucket_id = 'product-images');
-
-create policy "Public delete images"
-  on storage.objects for delete
-  using (bucket_id = 'product-images');
-```
-
-אחרי שהרצת — עדכן בלוג: שורת "Supabase — טבלאות" → ✅ הושלם
-
----
-
-## הערות חשובות
-
-- כל הטקסטים בממשק בעברית
-- direction: rtl בכל המסך
-- תמונות עולות לפני שמירת המוצר (Supabase Storage)
-- ה-URLs של התמונות הם ציבוריים (public bucket) כדי שה-Webhook יוכל לשלוח אותם ל-Make
-- אין מערכת משתמשים בשלב זה — אפליקציה פנימית ללקוח אחד
-- הוסף loading states לכל הפעולות האסינכרוניות
-- הוסף toast notifications להצלחה/שגיאה
-
----
-
-## 🔄 הוראת עדכון לוג — חובה אחרי כל חלק
-
-אחרי שסיימת לבנות כל חלק, עדכן את טבלת הלוג בראש הקובץ כך:
-
-**סטטוסים אפשריים:**
-- `⏳ ממתין` — טרם התחיל
-- `🔨 בתהליך` — נמצא בבנייה כרגע
-- `✅ הושלם` — עובד ומוכן
-- `❌ נכשל` — יש בעיה, פורט תחת "בעיות ידועות"
-
-**פורמט עדכון שורה בטבלה:**
-```
-| שם החלק | ✅ הושלם | DD/MM/YYYY | תיאור קצר של מה נבנה |
-```
-
-**דוגמה:**
-```
-| Supabase — טבלאות | ✅ הושלם | 12/05/2025 | נוצרו טבלאות products ו-webhook_logs עם כל העמודות |
-```
-
-**כמו כן:**
-- אם התקבלה החלטה טכנית חשובה — הוסף אותה תחת "החלטות טכניות"
-- אם נתקלת בבעיה — הוסף תחת "בעיות ידועות" עם סטטוס הפתרון
-- עדכן את "סטטוס כללי" בראש הלוג בכל שלב:
-  - 🔴 טרם התחיל
-  - 🟡 בתהליך
-  - 🟢 הושלם
+## הערות טכניות מהפרויקט הקודם שעדיין רלוונטיות
+- `.bin/next` שבור ב-Node 25 מקומית — מריצים `node node_modules/next/dist/bin/next`.
+- listings קיימים ב-eBay נוצרו דרך Trading API — עדכון כמות צריך `ReviseInventoryStatus`, לא Inventory API (לפי תיעוד eBay, לא נבדק בחשבון).
+- כמות זמינה מ-GetItem = `Quantity − SellingStatus.QuantitySold` (לפי תיעוד eBay, לא נבדק).
