@@ -173,3 +173,79 @@ export async function listLog(opts: { status?: LogStatus; job?: string; before?:
   const jobs = await db.selectDistinct({ job: syncLog.job }).from(syncLog).orderBy(syncLog.job)
   return { rows: rows.slice(0, limit), nextBefore: rows.length > limit ? rows[limit - 1].id : null, jobs: jobs.map((j) => j.job) }
 }
+
+// ── הזמנות משני הערוצים ─────────────────────────────────────────────────────
+
+export type OrderChannelFilter = 'all' | 'ebay' | 'woo'
+export type OrderStateFilter = 'all' | 'active' | 'cancelled' | 'attention'
+
+/** שורות הזמנה (שורה = מוצר בהזמנה), מהחדשה לישנה. מסמן בכל שורה באיזו פלטפורמה נמכר. */
+export async function listOrderLines(opts: { channel?: OrderChannelFilter; state?: OrderStateFilter; q?: string; before?: string; limit?: number }) {
+  const po = schema.processedOrders
+  const o = schema.orders
+  const limit = Math.min(Math.max(opts.limit ?? 50, 1), 200)
+  const conds: (SQL | undefined)[] = []
+  if (opts.channel === 'ebay' || opts.channel === 'woo') conds.push(eq(po.channel, opts.channel))
+  if (opts.state === 'cancelled') conds.push(sql`${o.state} in ('cancelled', 'refunded')`)
+  if (opts.state === 'active') conds.push(sql`${o.state} not in ('cancelled', 'refunded')`)
+  if (opts.state === 'attention') conds.push(sql`(${po.status} = 'unmapped' or ${o.state} = 'cancel_requested')`)
+  const q = opts.q?.trim()
+  if (q) {
+    const like = `%${q}%`
+    conds.push(or(ilike(po.title, like), ilike(po.sku, like), ilike(po.externalOrderId, like), ilike(po.externalItemId, like)))
+  }
+  // דפדוף לפי (זמן הזמנה, id) — יציב גם כשנכנסות הזמנות חדשות
+  if (opts.before) {
+    const [at, id] = opts.before.split('|')
+    if (at && id) conds.push(sql`(${po.orderCreatedAt}, ${po.id}) < (${new Date(at)}, ${Number(id)})`)
+  }
+  const rows = await db
+    .select({
+      id: po.id,
+      channel: po.channel,
+      orderId: po.externalOrderId,
+      lineId: po.externalLineId,
+      placedAt: po.orderCreatedAt,
+      title: po.title,
+      sku: po.sku,
+      itemId: po.externalItemId,
+      quantity: po.quantity,
+      lineTotal: po.lineTotal,
+      currency: po.currency,
+      lineStatus: po.status,
+      note: po.note,
+      productId: po.productId,
+      productTitle: products.title,
+      orderState: o.state,
+      fulfillmentStatus: o.fulfillmentStatus,
+    })
+    .from(po)
+    .leftJoin(o, and(eq(o.channel, po.channel), eq(o.externalOrderId, po.externalOrderId)))
+    .leftJoin(products, eq(products.id, po.productId))
+    .where(conds.length ? and(...conds) : undefined)
+    .orderBy(desc(po.orderCreatedAt), desc(po.id))
+    .limit(limit + 1)
+
+  const page = rows.slice(0, limit)
+  const last = page[page.length - 1]
+  const [counts] = await db
+    .select({
+      all: sql<number>`count(*)::int`,
+      ebay: sql<number>`count(*) filter (where ${po.channel} = 'ebay')::int`,
+      woo: sql<number>`count(*) filter (where ${po.channel} = 'woo')::int`,
+      attention: sql<number>`count(*) filter (where ${po.status} = 'unmapped')::int`,
+      last30: sql<number>`count(*) filter (where ${po.orderCreatedAt} > now() - interval '30 days')::int`,
+    })
+    .from(po)
+  const lastPoll = await db.query.syncLog.findFirst({
+    where: and(eq(syncLog.job, 'poll-ebay-orders'), eq(syncLog.action, 'run')),
+    orderBy: desc(syncLog.createdAt),
+  })
+  return {
+    rows: page,
+    nextBefore: rows.length > limit && last?.placedAt ? `${new Date(last.placedAt).toISOString()}|${last.id}` : null,
+    counts,
+    lastPoll: lastPoll ? { at: lastPoll.createdAt, success: lastPoll.success, error: lastPoll.error, details: lastPoll.details } : null,
+    wooConnected: !!process.env.WC_BASE_URL,
+  }
+}

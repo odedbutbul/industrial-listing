@@ -29,3 +29,10 @@ export function assertEbayCallAllowed(callName: string): void {
   if (ebayWritesEnabled()) return
   throw new EbayWriteBlockedError(callName)
 }
+
+/** REST (Sell APIs): רק GET מותר. POST/PUT/DELETE נחסמים אלא אם EBAY_WRITES_ENABLED=true. */
+export function assertEbayRestAllowed(method: string, path: string): void {
+  if (method.toUpperCase() === 'GET') return
+  if (ebayWritesEnabled()) return
+  throw new EbayWriteBlockedError(`${method.toUpperCase()} ${path}`)
+}

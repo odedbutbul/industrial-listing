@@ -38,8 +38,11 @@ export const orderStatusEnum = pgEnum('order_status', [
   'applied', // המכירה נרשמה ב-ledger
   'cancelled', // ההזמנה בוטלה והכמות הוחזרה
   'unmapped', // SKU לא מוכר — לא נרשם ב-ledger, דורש טיפול
-  'ignored', // לא רלוונטי (למשל הזמנה בסטטוס שלא מוריד מלאי)
+  'ignored', // לא רלוונטי (למשל הזמנה מלפני הייבוא — כבר כלולה במלאי הפתיחה)
 ])
+
+/** מצב הזמנה כפי שמוצג במסך ההזמנות (מנורמל בין הערוצים) */
+export const orderStateEnum = pgEnum('order_state', ['paid', 'pending', 'cancel_requested', 'cancelled', 'refunded'])
 
 export const pushStatusEnum = pgEnum('push_status', ['pending', 'done', 'failed', 'superseded'])
 
@@ -155,6 +158,30 @@ export const stockLedger = pgTable(
   ],
 )
 
+/** כותרת הזמנה מכל ערוץ — לתצוגה. בלי פרטי קונה (שם, כתובת, טלפון) — לא נשמרים. */
+export const orders = pgTable(
+  'orders',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    channel: channelEnum('channel').notNull(),
+    externalOrderId: text('external_order_id').notNull(),
+    state: orderStateEnum('state').notNull(),
+    /** סטטוס המקור כמו שהוא (לבדיקה): eBay orderPaymentStatus / cancelState / orderFulfillmentStatus */
+    sourceStatus: text('source_status'),
+    fulfillmentStatus: text('fulfillment_status'),
+    placedAt: timestamp('placed_at', { withTimezone: true }).notNull(),
+    sourceUpdatedAt: timestamp('source_updated_at', { withTimezone: true }),
+    total: numeric('total', { precision: 12, scale: 2 }),
+    currency: text('currency'),
+    lineCount: integer('line_count').notNull().default(0),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('orders_channel_external_uq').on(t.channel, t.externalOrderId),
+    index('orders_placed_idx').on(t.placedAt),
+  ],
+)
+
 /** כל שורת הזמנה מכל ערוץ נרשמת פעם אחת בדיוק. */
 export const processedOrders = pgTable(
   'processed_orders',
@@ -170,6 +197,13 @@ export const processedOrders = pgTable(
     saleLedgerId: bigint('sale_ledger_id', { mode: 'number' }).references(() => stockLedger.id),
     cancelLedgerId: bigint('cancel_ledger_id', { mode: 'number' }).references(() => stockLedger.id),
     orderCreatedAt: timestamp('order_created_at', { withTimezone: true }),
+    title: text('title'),
+    /** מזהה המודעה/המוצר בערוץ (eBay legacyItemId, Woo product_id) */
+    externalItemId: text('external_item_id'),
+    lineTotal: numeric('line_total', { precision: 12, scale: 2 }),
+    currency: text('currency'),
+    /** למה השורה לא נרשמה ב-ledger / מה קרה בה */
+    note: text('note'),
     raw: jsonb('raw'),
     ...timestamps,
   },
