@@ -13,7 +13,8 @@
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
     "typecheck": "tsc --noEmit",
-    "job:import-ebay": "tsx jobs/import-ebay.ts"
+    "job:import-ebay": "tsx jobs/import-ebay.ts",
+    "start:prod": "next start -H 127.0.0.1 -p ${PORT:-3141}"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.1",
@@ -54,5 +55,8 @@
     "tailwindcss": "^3.4.1",
     "tsx": "^4.23.15",
     "typescript": "^5"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }
