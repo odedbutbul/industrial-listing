@@ -133,3 +133,22 @@ export interface BackgroundRun {
   result: unknown
   error: string | null
 }
+
+export interface WooConnectionInfo {
+  storeUrl: string | null
+  wcVersion: string | null
+  wpVersion: string | null
+  currency: string | null
+  manageStock: boolean | null
+  products: number | null
+  webhooks: number | null
+}
+
+export type WooTestResult = { ok: true; info: WooConnectionInfo; checkedAt: string } | { ok: false; error: string; checkedAt: string }
+
+export interface WooStatus {
+  configured: boolean
+  missingEnv: string[]
+  baseUrl: string | null
+  lastTest: WooTestResult | null
+}

@@ -1,11 +1,13 @@
 'use client'
 
-import { useEffect, useState, type ReactNode } from 'react'
-import { AlertTriangle, Palette, Plug, RefreshCw, ShieldCheck, Store, type LucideIcon } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { AlertTriangle, Palette, Plug, RefreshCw, ShieldCheck } from 'lucide-react'
 import { api } from '@/components/sync/api'
 import { dateTime } from '@/components/sync/format'
 import type { Overview } from '@/components/sync/types'
 import { ThemePicker } from '@/components/sync/ThemePicker'
+import { CardHead } from '@/components/sync/CardHead'
+import { WooCard } from '@/components/sync/WooCard'
 import { LoadError, Pill, Spin, useLoad, useToast } from '@/components/sync/ui'
 
 export default function SettingsPage() {
@@ -145,10 +147,7 @@ export default function SettingsPage() {
             </p>
           </section>
 
-          <section className="ax-card" aria-labelledby="woo-h">
-            <CardHead id="woo-h" icon={Store} title="WooCommerce" text="החנות שאליה יסונכרן המלאי" pill={<Pill t="gray">לא הוגדר</Pill>} />
-            <p style={{ margin: 0, padding: 20, color: 'var(--ax-text2)' }}>החיבור לחנות ייבנה בשלב הבא, אחרי שנחליט אם זו החנות הקיימת או חנות חדשה.</p>
-          </section>
+          <WooCard />
 
           <section className="ax-card" aria-labelledby="theme-h">
             <CardHead id="theme-h" icon={Palette} title="צבעי הממשק" text="נשמר בדפדפן הזה בלבד" />
@@ -159,25 +158,5 @@ export default function SettingsPage() {
         </div>
       )}
     </>
-  )
-}
-
-/** ראש כרטיס הגדרות: אריח אייקון, כותרת והסבר, תג מצב בצד. */
-function CardHead({ id, icon: Icon, title, text, pill }: { id: string; icon: LucideIcon; title: string; text: string; pill?: ReactNode }) {
-  return (
-    <div className="ax-card-head" style={{ justifyContent: 'flex-start' }}>
-      <span className="ax-tile" aria-hidden="true">
-        <Icon size={20} />
-      </span>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <h2 id={id} className="ax-h2">
-          {title}
-        </h2>
-        <p className="ax-muted" style={{ margin: 0, fontSize: 13 }}>
-          {text}
-        </p>
-      </div>
-      {pill}
-    </div>
   )
 }

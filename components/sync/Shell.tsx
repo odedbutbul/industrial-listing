@@ -4,10 +4,10 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState, type ReactNode } from 'react'
 import { ArrowLeftRight, Download, History, LayoutDashboard, LogOut, Menu, Package, Palette, Receipt, ScrollText, Search, Settings, X } from 'lucide-react'
-import { api, OPEN_IMPORT } from './api'
+import { api, DATA_CHANGED, OPEN_IMPORT } from './api'
 import { ImportDialog } from './ImportDialog'
 import { ThemePicker } from './ThemePicker'
-import type { EbayStatus } from './types'
+import type { EbayStatus, WooStatus } from './types'
 import { useDismiss } from './ui'
 
 /**
@@ -27,6 +27,7 @@ export function Shell({ children }: { children: ReactNode }) {
   const pathname = usePathname()
   const [importOpen, setImportOpen] = useState(false)
   const [ebay, setEbay] = useState<EbayStatus | null>(null)
+  const [woo, setWoo] = useState<WooStatus | null>(null)
   const [drawer, setDrawer] = useState(false)
   const [userMenu, setUserMenu] = useState(false)
   const [themeMenu, setThemeMenu] = useState(false)
@@ -41,6 +42,11 @@ export function Shell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     api.get<EbayStatus>('/api/ebay/oauth/status').then(setEbay, () => setEbay(null))
+    const loadWoo = () => api.get<WooStatus>('/api/sync/woo/status').then(setWoo, () => setWoo(null))
+    loadWoo()
+    // בדיקת חיבור במסך ההגדרות מעדכנת את הסטטוס בסרגל בלי ניווט
+    window.addEventListener(DATA_CHANGED, loadWoo)
+    return () => window.removeEventListener(DATA_CHANGED, loadWoo)
   }, [pathname])
 
   // המגירה נסגרת גם ב-Escape
@@ -90,7 +96,7 @@ export function Shell({ children }: { children: ReactNode }) {
           ))}
         </nav>
 
-        <SideFoot ebay={ebay} onNavigate={() => setDrawer(false)} />
+        <SideFoot ebay={ebay} woo={woo} onNavigate={() => setDrawer(false)} />
       </aside>
 
       <div className="ax-body">
@@ -159,7 +165,7 @@ export function Shell({ children }: { children: ReactNode }) {
 }
 
 /** כל מסך מראה את מצב החיבורים — חיבור שנפל לא מחכה שמישהו יפתח הגדרות. */
-function SideFoot({ ebay, onNavigate }: { ebay: EbayStatus | null; onNavigate: () => void }) {
+function SideFoot({ ebay, woo, onNavigate }: { ebay: EbayStatus | null; woo: WooStatus | null; onNavigate: () => void }) {
   const ebayState: [string, string] = !ebay
     ? ['לא נבדק', 'gray']
     : !ebay.configured
@@ -167,9 +173,18 @@ function SideFoot({ ebay, onNavigate }: { ebay: EbayStatus | null; onNavigate: (
       : ebay.connected
         ? ['מחובר', 'ok']
         : ['לא מחובר', 'bad']
+  const wooState: [string, string] = !woo
+    ? ['לא נבדק', 'gray']
+    : !woo.configured
+      ? ['לא הוגדר', 'gray']
+      : !woo.lastTest
+        ? ['לא נבדק', 'warn']
+        : woo.lastTest.ok
+          ? ['מחובר', 'ok']
+          : ['שגיאה', 'bad']
   const rows: [string, [string, string]][] = [
     ['eBay', ebayState],
-    ['WooCommerce', ['לא הוגדר', 'gray']],
+    ['WooCommerce', wooState],
   ]
   return (
     <div className="ax-side-foot">
