@@ -84,14 +84,19 @@ export async function getOverview() {
   }
 }
 
-export async function listProducts(opts: { q?: string; filter?: ProductFilter }) {
+export const PRODUCTS_PAGE = 200
+
+export async function listProducts(opts: { q?: string; filter?: ProductFilter; offset?: number }) {
   const q = opts.q?.trim()
+  const offset = Math.max(opts.offset ?? 0, 0)
   const conds: (SQL | undefined)[] = [eq(products.archived, false), filterWhere(opts.filter ?? 'all')]
   if (q) {
     const like = `%${q}%`
     conds.push(or(ilike(products.title, like), ilike(channelMappings.sku, like), ilike(channelMappings.ebayItemId, like), ilike(products.mpn, like)))
   }
-  return db
+  const where = and(...conds)
+
+  const rows = await db
     .select({
       id: products.id,
       title: products.title,
@@ -109,9 +114,21 @@ export async function listProducts(opts: { q?: string; filter?: ProductFilter })
     .from(products)
     .innerJoin(channelMappings, eq(channelMappings.productId, products.id))
     .leftJoin(availableSq, eq(availableSq.productId, products.id))
-    .where(and(...conds))
-    .orderBy(desc(products.createdAt))
-    .limit(500)
+    .where(where)
+    // id שובר שוויון — הייבוא יוצר הרבה מוצרים באותו רגע, ובלעדיו דפים חופפים
+    .orderBy(desc(products.createdAt), desc(products.id))
+    .limit(PRODUCTS_PAGE)
+    .offset(offset)
+
+  const [totals] = await db
+    .select({ total: sql<number>`count(*)::int`, inStock: sql<number>`count(*) filter (where ${availableExpr} > 0)::int` })
+    .from(products)
+    .innerJoin(channelMappings, eq(channelMappings.productId, products.id))
+    .leftJoin(availableSq, eq(availableSq.productId, products.id))
+    .where(where)
+
+  const next = offset + rows.length
+  return { products: rows, total: totals.total, inStock: totals.inStock, nextOffset: next < totals.total ? next : null }
 }
 
 export async function getProductDetail(id: string) {

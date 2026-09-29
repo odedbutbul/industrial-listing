@@ -8,6 +8,7 @@ const FILTERS: ProductFilter[] = ['all', 'in_stock', 'sold_out', 'mismatch', 'no
 export async function GET(request: NextRequest) {
   const sp = request.nextUrl.searchParams
   const f = sp.get('filter') as ProductFilter | null
-  const rows = await listProducts({ q: sp.get('q') ?? undefined, filter: f && FILTERS.includes(f) ? f : 'all' })
-  return NextResponse.json({ products: rows })
+  const offset = Number(sp.get('offset')) || 0
+  const page = await listProducts({ q: sp.get('q') ?? undefined, filter: f && FILTERS.includes(f) ? f : 'all', offset })
+  return NextResponse.json(page)
 }

@@ -9,6 +9,7 @@ import { useDataChanged } from '@/components/sync/hooks'
 import type { ProductRow } from '@/components/sync/types'
 import { Badge, EmptyState, LoadError, Pills, useLoad } from '@/components/sync/ui'
 
+type Page = { products: ProductRow[]; total: number; inStock: number; nextOffset: number | null }
 type Filter = 'all' | 'in_stock' | 'sold_out' | 'mismatch' | 'no_woo'
 const FILTERS: [Filter, string][] = [
   ['all', 'הכל'],
@@ -56,21 +57,39 @@ function Products() {
     return () => window.clearTimeout(t)
   }, [query, q, setParams])
 
-  const { data, error, reload } = useLoad(
-    () => api.get<{ products: ProductRow[] }>(`/api/sync/products?filter=${filter}&q=${encodeURIComponent(q)}`),
-    [filter, q],
-  )
+  const [more, setMore] = useState<ProductRow[]>([])
+  const [nextOffset, setNextOffset] = useState<number | null>(null)
+  const [loadingMore, setLoadingMore] = useState(false)
+
+  const url = (offset = 0) => `/api/sync/products?filter=${filter}&q=${encodeURIComponent(q)}${offset ? `&offset=${offset}` : ''}`
+  const { data, error, reload } = useLoad(async () => {
+    const r = await api.get<Page>(url())
+    setMore([])
+    setNextOffset(r.nextOffset)
+    return r
+  }, [filter, q])
   useDataChanged(reload)
 
-  const rows = data?.products
+  const loadMore = async () => {
+    if (nextOffset === null) return
+    setLoadingMore(true)
+    try {
+      const r = await api.get<Page>(url(nextOffset))
+      setMore((m) => [...m, ...r.products])
+      setNextOffset(r.nextOffset)
+    } finally {
+      setLoadingMore(false)
+    }
+  }
+
+  const rows = data ? [...data.products, ...more] : undefined
   const filtered = filter !== 'all' || !!q
-  const inStock = rows?.filter((r) => r.available > 0).length ?? 0
 
   return (
     <section className="section">
       <div>
         <h1 className="h1">מוצרים</h1>
-        <p className="sub">{!rows ? ' ' : filtered ? `${num(rows.length)} תוצאות` : `${num(rows.length)} מוצרים · ${num(inStock)} במלאי`}</p>
+        <p className="sub">{!data ? ' ' : filtered ? `${num(data.total)} תוצאות` : `${num(data.total)} מוצרים · ${num(data.inStock)} במלאי`}</p>
       </div>
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
@@ -107,76 +126,91 @@ function Products() {
           </div>
         </div>
       ) : (
-        <div className="card scroll-x">
-          <table className="table" style={{ minWidth: 920 }}>
-            <thead>
-              <tr>
-                <th>מוצר</th>
-                <th>SKU</th>
-                <th style={{ whiteSpace: 'nowrap' }}>מודעת eBay</th>
-                <th>מלאי</th>
-                <th style={{ whiteSpace: 'nowrap' }}>ב-eBay</th>
-                <th>מחיר</th>
-                <th>האתר</th>
-                <th>סטטוס</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => {
-                const [stockLabel, stockTone] = stockStatus(r.available)
-                const mismatch = r.lastEbayQty !== null && r.lastEbayQty !== r.available
-                return (
-                  <tr key={r.id} className="hover" style={{ cursor: 'pointer' }} onClick={() => router.push(`/sync/products/${r.id}`)}>
-                    <td>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 240 }}>
-                        {r.image ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={r.image} alt="" width={40} height={40} loading="lazy" style={{ width: 40, height: 40, borderRadius: 10, objectFit: 'cover', flexShrink: 0, boxShadow: 'var(--ring)' }} />
-                        ) : (
-                          <span className="tile" aria-hidden="true">
-                            <i className="ph ph-image" />
-                          </span>
-                        )}
-                        <Link href={`/sync/products/${r.id}`} onClick={(e) => e.stopPropagation()} style={{ color: 'var(--text)', fontWeight: 600, textDecoration: 'none' }}>
-                          {r.title || '—'}
-                        </Link>
-                      </div>
-                    </td>
-                    <td style={{ whiteSpace: 'nowrap' }}>
-                      <span className="mono ltr">{r.sku}</span>
-                    </td>
-                    <td style={{ whiteSpace: 'nowrap' }}>
-                      <span className="mono ltr">{r.ebayItemId ?? '—'}</span>
-                    </td>
-                    <td>
-                      <span className="mono" style={{ fontWeight: 600 }}>
-                        {num(r.available)}
-                      </span>
-                    </td>
-                    <td>
-                      <span className="mono" style={{ color: mismatch ? 'var(--warn)' : undefined, fontWeight: mismatch ? 600 : undefined }}>
-                        {r.lastEbayQty === null ? '—' : num(r.lastEbayQty)}
-                      </span>
-                    </td>
-                    <td style={{ whiteSpace: 'nowrap' }}>
-                      <span className="mono">{money(r.price, r.currency)}</span>
-                    </td>
-                    <td>{r.wooProductId ? <span className="mono ltr">#{r.wooProductId}</span> : <Badge t={WOO_NOT_LINKED[1]}>{WOO_NOT_LINKED[0]}</Badge>}</td>
-                    <td>
-                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                        <Badge t={stockTone} dot>
-                          {stockLabel}
-                        </Badge>
-                        {mismatch && <Badge t={MISMATCH[1]}>{MISMATCH[0]}</Badge>}
-                        {!r.syncEnabled && <Badge t={SYNC_OFF[1]}>{SYNC_OFF[0]}</Badge>}
-                      </div>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
+        <>
+          <div className="card scroll-x">
+            <table className="table" style={{ minWidth: 920 }}>
+              <thead>
+                <tr>
+                  <th>מוצר</th>
+                  <th>SKU</th>
+                  <th style={{ whiteSpace: 'nowrap' }}>מודעת eBay</th>
+                  <th>מלאי</th>
+                  <th style={{ whiteSpace: 'nowrap' }}>ב-eBay</th>
+                  <th>מחיר</th>
+                  <th>האתר</th>
+                  <th>סטטוס</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => {
+                  const [stockLabel, stockTone] = stockStatus(r.available)
+                  const mismatch = r.lastEbayQty !== null && r.lastEbayQty !== r.available
+                  return (
+                    <tr key={r.id} className="hover" style={{ cursor: 'pointer' }} onClick={() => router.push(`/sync/products/${r.id}`)}>
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 240 }}>
+                          {r.image ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={r.image}
+                              alt=""
+                              width={40}
+                              height={40}
+                              loading="lazy"
+                              style={{ width: 40, height: 40, borderRadius: 10, objectFit: 'cover', flexShrink: 0, boxShadow: 'var(--ring)' }}
+                            />
+                          ) : (
+                            <span className="tile" aria-hidden="true">
+                              <i className="ph ph-image" />
+                            </span>
+                          )}
+                          <Link href={`/sync/products/${r.id}`} onClick={(e) => e.stopPropagation()} style={{ color: 'var(--text)', fontWeight: 600, textDecoration: 'none' }}>
+                            {r.title || '—'}
+                          </Link>
+                        </div>
+                      </td>
+                      <td style={{ whiteSpace: 'nowrap' }}>
+                        <span className="mono ltr">{r.sku}</span>
+                      </td>
+                      <td style={{ whiteSpace: 'nowrap' }}>
+                        <span className="mono ltr">{r.ebayItemId ?? '—'}</span>
+                      </td>
+                      <td>
+                        <span className="mono" style={{ fontWeight: 600 }}>
+                          {num(r.available)}
+                        </span>
+                      </td>
+                      <td>
+                        <span className="mono" style={{ color: mismatch ? 'var(--warn)' : undefined, fontWeight: mismatch ? 600 : undefined }}>
+                          {r.lastEbayQty === null ? '—' : num(r.lastEbayQty)}
+                        </span>
+                      </td>
+                      <td style={{ whiteSpace: 'nowrap' }}>
+                        <span className="mono">{money(r.price, r.currency)}</span>
+                      </td>
+                      <td>{r.wooProductId ? <span className="mono ltr">#{r.wooProductId}</span> : <Badge t={WOO_NOT_LINKED[1]}>{WOO_NOT_LINKED[0]}</Badge>}</td>
+                      <td>
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                          <Badge t={stockTone} dot>
+                            {stockLabel}
+                          </Badge>
+                          {mismatch && <Badge t={MISMATCH[1]}>{MISMATCH[0]}</Badge>}
+                          {!r.syncEnabled && <Badge t={SYNC_OFF[1]}>{SYNC_OFF[0]}</Badge>}
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+          {nextOffset !== null && data && (
+            <button type="button" className="btn" style={{ alignSelf: 'center' }} onClick={loadMore} disabled={loadingMore}>
+              {loadingMore && <i className="ph ph-circle-notch spin" />}
+              טעינת עוד מוצרים ({num(data.total - rows.length)} נותרו)
+            </button>
+          )}
+        </>
       )}
     </section>
   )
