@@ -82,6 +82,16 @@ npm run db:studio    # דפדפן טבלאות
 - להוסיף ל-`.env.local` את `EBAY_CERT_ID` ו-`EBAY_RUNAME` (היום נמצאים רק בטבלת settings ב-Supabase). בלעדיהם הגדרות eBay מציגות "חסרים משתני סביבה".
 - `EBAY_USER_TOKEN` ב-`.env.local` כבר לא בשימוש — אפשר למחוק.
 
+## 🚀 דיפלוי ל-xCloud — מה חשוב לדעת (נלמד 29/09/2026)
+
+- אתר: `https://stock-sync.1wp.site` · site uuid `9c8b71e4-314e-46eb-b501-568c937bf68a` · שרת shape-projects · פורט 3141 · branch `sync` · push-to-deploy כבוי.
+- **סודות:** רק ב-xCloud → האתר → Node.js → Environment (נכתב ל-`/var/www/stock-sync.1wp.site/.env`). Next.js ו-drizzle קוראים אותו לבד. לא בריפו, לא בשיחה.
+- **`.env` ו-`ecosystem.config.cjs` חייבים להיות ב-`.gitignore`** — כל דיפלוי מריץ `git reset --hard && git clean -df` *לפני* ה-pull, וקובץ לא-ignored נמחק (קרה פעמיים).
+- **שמירה ב-Environment נכתבת לדיסק רק כשהאתר במצב deployed.** אחרי דיפלוי שנכשל — להשתמש ב-"Fix and redeploy" → More settings → Environment file content (מחליף את כל הקובץ).
+- **סדר דיפלוי:** git pull → Deploy Script (`scripts/xcloud-deploy.sh`: `npm ci` + migrations) → install אוטומטי → `npm run build` → PM2 `npm run start:prod`. דיפלוי שנכשל לפני ה-build משאיר את ה-build הקודם רץ.
+- **middleware:** ההפניה ל-login נבנית מ-`APP_BASE_URL` — מאחורי nginx ה-`request.url` הוא `localhost:3141`.
+- ⚠️ `.env` בשרת בבעלות root עם הרשאות `644` (קריא לכל משתמש בשרת). לשקול `chmod 640` + קבוצת `stock_sync` — דורש sudo.
+
 ## 📝 החלטות שהתקבלו
 
 - 29/09/2026 — שני root layouts: `app/(legacy)` (Tailwind, המסכים הישנים) ו-`app/(sync)` (shape-design). ה-CSS שלהם לא מתערבב; מעבר בין האזורים = טעינת דף מלאה.
