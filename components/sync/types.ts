@@ -33,6 +33,7 @@ export interface ProductRow {
   lastEbayQty: number | null
   lastSyncedAt: string | null
   syncEnabled: boolean
+  hasDetails: boolean
 }
 
 export interface LedgerEntry {
@@ -125,7 +126,7 @@ export interface ImportResult {
 
 export interface BackgroundRun {
   id: string
-  kind: 'import-preview' | 'import' | 'enrich' | 'orders-poll'
+  kind: 'import-preview' | 'import' | 'enrich' | 'orders-poll' | 'woo-preview' | 'woo-create'
   status: 'running' | 'done' | 'failed'
   startedAt: string
   finishedAt: string | null
@@ -151,4 +152,29 @@ export interface WooStatus {
   missingEnv: string[]
   baseUrl: string | null
   lastTest: WooTestResult | null
+}
+
+export type WooPlanStatus = 'create' | 'link' | 'skip'
+
+export interface WooPlanItem {
+  productId: string
+  title: string
+  sku: string
+  status: WooPlanStatus
+  notes: string[]
+  wooProductId: number | null
+}
+
+export interface WooPlan {
+  items: WooPlanItem[]
+  counts: Record<WooPlanStatus, number>
+  newBrands: string[]
+}
+
+export interface WooPushResult extends WooPlan {
+  runId: string
+  created: number
+  linked: number
+  failed: { productId: string; sku: string; error: string }[]
+  brandsCreated: string[]
 }

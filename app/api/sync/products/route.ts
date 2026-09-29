@@ -3,7 +3,7 @@ import { listProducts, type ProductFilter } from '@/lib/sync/queries'
 
 export const dynamic = 'force-dynamic'
 
-const FILTERS: ProductFilter[] = ['all', 'in_stock', 'sold_out', 'mismatch', 'no_woo']
+const FILTERS: ProductFilter[] = ['all', 'in_stock', 'sold_out', 'mismatch', 'no_woo', 'ready']
 
 export async function GET(request: NextRequest) {
   const sp = request.nextUrl.searchParams

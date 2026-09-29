@@ -21,7 +21,7 @@ const availableSq = db
 
 const availableExpr = sql<number>`coalesce(${availableSq.available}, 0)::int`
 
-export type ProductFilter = 'all' | 'in_stock' | 'sold_out' | 'mismatch' | 'no_woo'
+export type ProductFilter = 'all' | 'in_stock' | 'sold_out' | 'mismatch' | 'no_woo' | 'ready'
 
 function filterWhere(filter: ProductFilter): SQL | undefined {
   switch (filter) {
@@ -33,6 +33,9 @@ function filterWhere(filter: ProductFilter): SQL | undefined {
       return sql`${channelMappings.lastEbayQty} is not null and ${channelMappings.lastEbayQty} <> ${availableExpr}`
     case 'no_woo':
       return sql`${channelMappings.wooProductId} is null`
+    case 'ready':
+      // מוכנים לחנות: יש פרטים מלאים, לא מקושרים, הסנכרון פעיל
+      return sql`${products.detailsFetchedAt} is not null and ${channelMappings.wooProductId} is null and ${channelMappings.syncEnabled}`
     default:
       return undefined
   }
@@ -110,6 +113,7 @@ export async function listProducts(opts: { q?: string; filter?: ProductFilter; o
       lastEbayQty: channelMappings.lastEbayQty,
       lastSyncedAt: channelMappings.lastSyncedAt,
       syncEnabled: channelMappings.syncEnabled,
+      hasDetails: sql<boolean>`${products.detailsFetchedAt} is not null`,
     })
     .from(products)
     .innerJoin(channelMappings, eq(channelMappings.productId, products.id))

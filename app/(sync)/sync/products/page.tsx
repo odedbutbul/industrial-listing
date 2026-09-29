@@ -3,22 +3,27 @@
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useCallback, useEffect, useState } from 'react'
-import { Download, ImageOff, Search } from 'lucide-react'
+import { Download, ImageOff, Search, Store } from 'lucide-react'
 import { api, openImport } from '@/components/sync/api'
 import { MISMATCH, money, num, stockStatus, SYNC_OFF, WOO_NOT_LINKED } from '@/components/sync/format'
 import { useDataChanged } from '@/components/sync/hooks'
 import type { ProductRow } from '@/components/sync/types'
+import { SendToStoreDialog } from '@/components/sync/SendToStoreDialog'
 import { EmptyState, LoadError, Pill, Seg, Spin, useLoad } from '@/components/sync/ui'
 
 type Page = { products: ProductRow[]; total: number; inStock: number; nextOffset: number | null }
-type Filter = 'all' | 'in_stock' | 'sold_out' | 'mismatch' | 'no_woo'
+type Filter = 'all' | 'in_stock' | 'sold_out' | 'mismatch' | 'no_woo' | 'ready'
 const FILTERS: [Filter, string][] = [
   ['all', 'הכל'],
   ['in_stock', 'במלאי'],
   ['sold_out', 'אזלו'],
   ['mismatch', 'פערים מול eBay'],
   ['no_woo', 'לא מקושרים לאתר'],
+  ['ready', 'מוכנים לחנות'],
 ]
+
+/** כמה מוצרים אפשר לשלוח לחנות בפעם אחת (כמו MAX_SELECTION בשרת) */
+const MAX_SEND = 200
 
 export default function ProductsPage() {
   return (
@@ -61,6 +66,17 @@ function Products() {
   const [more, setMore] = useState<ProductRow[]>([])
   const [nextOffset, setNextOffset] = useState<number | null>(null)
   const [loadingMore, setLoadingMore] = useState(false)
+  // בחירת מוצרים לשליחה לחנות — תמיד בבחירה ידנית
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [sending, setSending] = useState(false)
+  useEffect(() => setSelected(new Set()), [filter, q])
+  const toggle = (id: string) =>
+    setSelected((cur) => {
+      const next = new Set(cur)
+      if (next.has(id)) next.delete(id)
+      else if (next.size < MAX_SEND) next.add(id)
+      return next
+    })
 
   const url = (offset = 0) => `/api/sync/products?filter=${filter}&q=${encodeURIComponent(q)}${offset ? `&offset=${offset}` : ''}`
   const { data, error, reload } = useLoad(async () => {
@@ -85,6 +101,9 @@ function Products() {
 
   const rows = data ? [...data.products, ...more] : undefined
   const filtered = filter !== 'all' || !!q
+  const selectable = (rows ?? []).filter((r) => !r.wooProductId)
+  const allSelected = selectable.length > 0 && selectable.every((r) => selected.has(r.id))
+  const toggleAll = () => setSelected(allSelected ? new Set() : new Set(selectable.slice(0, MAX_SEND).map((r) => r.id)))
 
   return (
     <>
@@ -128,12 +147,40 @@ function Products() {
         </div>
       ) : (
         <>
+          <div className="ax-card" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: '10px 20px' }}>
+            <label className="ax-check" style={{ minHeight: 44 }}>
+              <input type="checkbox" checked={allSelected} onChange={toggleAll} disabled={!selectable.length} />
+              בחירת כל המוצגים שעוד לא בחנות
+            </label>
+            <span className="ax-hint" role="status" style={{ flex: "1 1 220px" }}>
+              {selected.size ? (
+                <>
+                  נבחרו <span className="ax-num">{num(selected.size)}</span>
+                  {selected.size >= MAX_SEND && ` (מקסימום ${MAX_SEND} בפעם אחת)`}
+                </>
+              ) : (
+                'בוחרים מוצרים ושולחים אותם לחנות כטיוטות'
+              )}
+            </span>
+            {selected.size > 0 && (
+              <button type="button" className="ax-btn is-link" onClick={() => setSelected(new Set())}>
+                ניקוי הבחירה
+              </button>
+            )}
+            <button type="button" className="ax-btn is-primary" disabled={!selected.size} onClick={() => setSending(true)}>
+              <Store size={18} aria-hidden="true" />
+              שליחה לחנות
+            </button>
+          </div>
           <section className="ax-card" aria-label="רשימת מוצרים">
             <div className="ax-only-desktop">
               <div className="ax-table-wrap">
                 <table className="ax-table" style={{ minWidth: 920 }}>
                   <thead>
                     <tr>
+                      <th style={{ width: 44 }}>
+                        <span className="ax-sr">בחירה</span>
+                      </th>
                       <th>מוצר</th>
                       <th>SKU</th>
                       <th>מודעת eBay</th>
@@ -149,6 +196,9 @@ function Products() {
                       const mismatch = r.lastEbayQty !== null && r.lastEbayQty !== r.available
                       return (
                         <tr key={r.id} style={{ cursor: 'pointer' }} onClick={() => router.push(`/sync/products/${r.id}`)}>
+                          <td onClick={(e) => e.stopPropagation()}>
+                            <SelectBox r={r} checked={selected.has(r.id)} onToggle={toggle} />
+                          </td>
                           <td>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 240 }}>
                               <Thumb src={r.image} />
@@ -194,6 +244,7 @@ function Products() {
                 return (
                   <div key={r.id} className="ax-mcard">
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <SelectBox r={r} checked={selected.has(r.id)} onToggle={toggle} />
                       <Thumb src={r.image} />
                       <Link href={`/sync/products/${r.id}`} className="ax-row-title" style={{ minWidth: 0 }}>
                         {r.title || '—'}
@@ -224,6 +275,7 @@ function Products() {
               })}
             </div>
           </section>
+          {sending && <SendToStoreDialog productIds={Array.from(selected)} onClose={() => setSending(false)} onDone={() => setSelected(new Set())} />}
           {nextOffset !== null && data && (
             <button type="button" className="ax-btn" style={{ alignSelf: 'center' }} onClick={loadMore} disabled={loadingMore}>
               {loadingMore && <Spin />}
@@ -233,6 +285,16 @@ function Products() {
         </>
       )}
     </>
+  )
+}
+
+/** תיבת בחירה לשליחה לחנות. מוצר שכבר בחנות לא נבחר. */
+function SelectBox({ r, checked, onToggle }: { r: ProductRow; checked: boolean; onToggle: (id: string) => void }) {
+  return (
+    <label className="ax-check" style={{ minWidth: 44, minHeight: 44, justifyContent: 'center' }}>
+      <input type="checkbox" checked={checked} disabled={!!r.wooProductId} onChange={() => onToggle(r.id)} />
+      <span className="ax-sr">{r.wooProductId ? `${r.title} — כבר בחנות` : `בחירת ${r.title}`}</span>
+    </label>
   )
 }
 
@@ -256,6 +318,7 @@ function Pills({ r, mismatch }: { r: ProductRow; mismatch: boolean }) {
       </Pill>
       {mismatch && <Pill t={MISMATCH[1]}>{MISMATCH[0]}</Pill>}
       {!r.syncEnabled && <Pill t={SYNC_OFF[1]}>{SYNC_OFF[0]}</Pill>}
+      {!r.hasDetails && !r.wooProductId && <Pill t="gray">בלי פרטים מלאים</Pill>}
     </div>
   )
 }
