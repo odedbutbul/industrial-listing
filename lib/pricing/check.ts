@@ -19,7 +19,13 @@ const DELAY_MS = 300
 export interface CheckOptions {
   /** מוצרים לפי SKU. אם לא נבחרו — מבחר של מוצרים ממותגים שונים (פיילוט) */
   skus?: string[]
+  /** כל הקטלוג: קודם מוצרים שלא נבדקו, אחר כך הבדיקה הכי ישנה. limit = תקציב הריצה */
+  all?: boolean
   limit?: number
+  /** לא לשמור את כל המודעות בתוצאה (ריצה גדולה) — רק את מה שנכנס להשוואה */
+  lean?: boolean
+  /** תקציב קריאות ל-eBay בריצה (מכסת Browse: 5,000 ביום). ברירת מחדל ב-all: 4,700 */
+  maxCalls?: number
   /** מדינות הקונה (ISO-2). ברירת מחדל: US */
   countries?: string[]
   dryRun?: boolean
@@ -65,6 +71,12 @@ export interface CheckRunResult {
   products: number
   countries: string[]
   apiCalls: number
+  /** כמה פעמים המשלוח שלנו נלקח מהמערכת במקום מ-eBay */
+  shippingReused: number
+  /** הריצה נעצרה כי eBay החזיר חריגה ממכסת הקריאות */
+  rateLimited: boolean
+  /** הריצה נעצרה בתקציב הקריאות (maxCalls) — השאר ייבדק בריצה הבאה */
+  budgetReached: boolean
   errors: number
   withCompetitors: number
   checks: ProductCheck[]
@@ -102,6 +114,17 @@ async function loadCandidates(opts: CheckOptions): Promise<Candidate[]> {
   if (opts.skus?.length) {
     return db.select(cols).from(p).innerJoin(m, eq(m.productId, p.id)).where(inArray(m.sku, opts.skus))
   }
+  if (opts.all) {
+    // כל המוצרים הפעילים: קודם מי שלא נבדק מעולם, אחר כך הבדיקה הכי ישנה; בתוך זה — היקרים קודם
+    const lastCheck = sql`(select max(pc.checked_at) from price_checks pc where pc.product_id = ${p.id})`
+    const rows = await db
+      .select(cols)
+      .from(p)
+      .innerJoin(m, eq(m.productId, p.id))
+      .where(and(eq(p.archived, false), isNotNull(p.mpn), isNotNull(p.price), isNotNull(m.ebayItemId)))
+      .orderBy(sql`${lastCheck} asc nulls first`, sql`${p.price} desc nulls last`)
+    return rows.filter((r) => usableMpn(r.mpn)).slice(0, opts.limit ?? 4500)
+  }
   // פיילוט: מוצר אחד לכל מותג (היקר ביותר), מודעה פעילה ב-eBay עם MPN ומחיר
   const rows = await db
     .selectDistinctOn([sql`lower(${p.brand})`], cols)
@@ -115,12 +138,35 @@ async function loadCandidates(opts: CheckOptions): Promise<Candidate[]> {
     .slice(0, opts.limit ?? 20)
 }
 
-/** גיבוי כשאין מודעה חיה לקרוא ממנה: המשלוח לארה"ב שנשמר מ-GetItem (products.shipping_costs) */
-function storedUsShipping(c: Candidate): number | null {
-  const us = c.shippingCosts?.us
-  if (!us) return null
-  if (us.free) return 0
-  return us.cost != null && Number.isFinite(Number(us.cost)) ? Number(us.cost) : null
+/**
+ * המשלוח הזול לארה"ב מתוך מה שכבר נשמר מ-eBay (GetItem → products.shipping_costs, job:fetch-shipping).
+ * null = לא נשמר / משלוח מחושב (Calculated) — אז שואלים את eBay.
+ */
+function storedUsShipping(c: Candidate): { cost: number; options: ShippingQuote[] } | null {
+  const sc = c.shippingCosts
+  if (!sc || (sc.currency && sc.currency !== 'USD')) return null
+  const opts = (sc.domestic?.length ? sc.domestic : sc.us ? [sc.us] : [])
+    .map((o) => ({ service: o.service, cost: o.free ? 0 : o.cost != null && Number.isFinite(Number(o.cost)) ? Number(o.cost) : null }))
+    .filter((o): o is { service: string | null; cost: number } => o.cost != null)
+    .sort((a, b) => a.cost - b.cost)
+  if (!opts.length) return null
+  return {
+    cost: opts[0].cost,
+    options: opts.map((o) => ({ service: o.service, cost: o.cost.toFixed(2), currency: 'USD', type: 'STORED', minDate: null, maxDate: null })),
+  }
+}
+
+/** המשלוח שלנו מהבדיקה האחרונה לאותה מדינה, אם היא מ-14 הימים האחרונים */
+type RecentShipping = Map<string, { cost: number; options: ShippingQuote[] }>
+async function loadRecentShipping(productIds: string[]): Promise<RecentShipping> {
+  if (!productIds.length) return new Map()
+  const pc = schema.priceChecks
+  const rows = await db
+    .selectDistinctOn([pc.productId, pc.country], { productId: pc.productId, country: pc.country, cost: pc.ourShipping, options: pc.ourShippingOptions })
+    .from(pc)
+    .where(and(inArray(pc.productId, productIds), isNotNull(pc.ourShipping), sql`${pc.checkedAt} > now() - interval '14 days'`))
+    .orderBy(pc.productId, pc.country, sql`${pc.checkedAt} desc`)
+  return new Map(rows.map((r) => [`${r.productId}|${r.country}`, { cost: Number(r.cost), options: (r.options as ShippingQuote[] | null) ?? [] }]))
 }
 
 function classify(item: BrowseItem, ours: { mpn: string; brand: string | null }, group: ConditionGroup, manual: boolean | null): OfferRow {
@@ -128,13 +174,22 @@ function classify(item: BrowseItem, ours: { mpn: string; brand: string | null },
 }
 
 /** המשלוח שלנו למדינה — מהמודעה החיה ב-eBay, כמו שהקונה רואה אותו */
-async function ourShipping(c: Candidate, country: string): Promise<{ cost: number | null; options: ShippingQuote[]; calls: number }> {
+async function ourShipping(
+  c: Candidate,
+  country: string,
+  recent: RecentShipping = new Map(),
+): Promise<{ cost: number | null; options: ShippingQuote[]; calls: number; reused?: boolean }> {
+  // חיסכון בקריאות: המשלוח שלנו כמעט לא משתנה — קודם מה שכבר שמור במערכת
+  const stored = country === 'US' ? storedUsShipping(c) : null
+  if (stored) return { ...stored, calls: 0, reused: true }
+  const prev = recent.get(`${c.productId}|${country}`)
+  if (prev) return { ...prev, calls: 0, reused: true }
   if (c.ebayItemId) {
     const s = await getItemShipping(c.ebayItemId, { country })
     const first = s.options.find((o) => o.cost != null && o.currency === 'USD')
     return { cost: first ? Number(first.cost) : null, options: s.options, calls: 1 }
   }
-  return { cost: country === 'US' ? storedUsShipping(c) : null, options: [], calls: 0 }
+  return { cost: null, options: [], calls: 0 }
 }
 
 /** החלטות ידניות (זה / לא אותו מוצר) — עוברות לבדיקות הבאות של אותה מודעה */
@@ -155,7 +210,13 @@ async function loadDecisions(productIds: string[]): Promise<Decisions> {
   return new Map(rows.map((r) => [decisionKey(r.productId, r.ebayItemId), r.manual!]))
 }
 
-async function checkOne(c: Candidate, country: string, excludeSellers: string[], decisions: Decisions = new Map()): Promise<ProductCheck & { calls: number }> {
+async function checkOne(
+  c: Candidate,
+  country: string,
+  excludeSellers: string[],
+  decisions: Decisions = new Map(),
+  recent: RecentShipping = new Map(),
+): Promise<ProductCheck & { calls: number; reused: boolean }> {
   const mpn = usableMpn(c.mpn)!
   const group = conditionGroup(c.conditionId)
   const ourPrice = c.price != null ? Number(c.price) : null
@@ -164,8 +225,8 @@ async function checkOne(c: Candidate, country: string, excludeSellers: string[],
   let ship: Awaited<ReturnType<typeof ourShipping>> = { cost: null, options: [], calls: 0 }
 
   try {
-    ship = await ourShipping(c, country).catch(() => ship) // משלוח שלנו לא זמין → ממשיכים עם מחיר פריט בלבד
-    calls += ship.calls || (c.ebayItemId ? 1 : 0)
+    ship = await ourShipping(c, country, recent).catch(() => ({ ...ship, calls: 1 })) // משלוח שלנו לא זמין → ממשיכים עם מחיר פריט בלבד
+    calls += ship.calls
     const res = await searchItems({ q: mpn, excludeSellers, limit: 50, location: { country } })
     calls++
     const offers = res.items
@@ -185,6 +246,7 @@ async function checkOne(c: Candidate, country: string, excludeSellers: string[],
       ...cmp,
       error: null,
       calls,
+      reused: !!ship.reused,
     }
   } catch (err) {
     const empty = priceStats(null, [])
@@ -200,6 +262,7 @@ async function checkOne(c: Candidate, country: string, excludeSellers: string[],
       total: empty,
       error: err instanceof Error ? err.message : String(err),
       calls,
+      reused: !!ship.reused,
     }
   }
 }
@@ -304,17 +367,35 @@ export async function runPriceCheck(opts: CheckOptions = {}): Promise<CheckRunRe
       return false
     })
 
-    const decisions = await loadDecisions(candidates.map((c) => c.productId))
+    const ids = candidates.map((c) => c.productId)
+    const [decisions, recent] = await Promise.all([loadDecisions(ids), loadRecentShipping(ids)])
     const checks: ProductCheck[] = []
     let apiCalls = 0
-    for (const c of candidates) {
+    let shippingReused = 0
+    let rateLimited = false
+    const maxCalls = opts.maxCalls ?? (opts.all ? 4700 : Infinity)
+    let budgetReached = false
+    outer: for (const c of candidates) {
       for (const country of countries) {
+        // עד 2 קריאות לבדיקה — לא מתחילים בדיקה שעלולה לחרוג מהתקציב
+        if (apiCalls + 2 > maxCalls) {
+          budgetReached = true
+          break outer
+        }
         if (apiCalls > 0) await new Promise((r) => setTimeout(r, DELAY_MS))
-        const { calls, ...r } = await checkOne(c, country, excludeSellers, decisions)
+        const { calls, reused, ...r } = await checkOne(c, country, excludeSellers, decisions, recent)
         apiCalls += calls
+        if (reused) shippingReused++
+        // חריגה ממכסת eBay (5,000 ביום ל-Browse) — עוצרים במקום להמשיך להיכשל על כל מוצר
+        if (r.error && /rate.?limit|too many requests|request limit|call limit|HTTP 429|exceeded/i.test(r.error)) {
+          rateLimited = true
+          break outer
+        }
         checks.push(r)
         if (!dryRun) {
           await saveCheck(runId, r)
+          // ריצה גדולה: אחרי השמירה משאירים בזיכרון רק את מה שנכנס להשוואה
+          if (opts.lean) r.offers = r.offers.filter((o) => o.compared)
           await writeSyncLog({
             runId,
             job: JOB,
@@ -332,9 +413,12 @@ export async function runPriceCheck(opts: CheckOptions = {}): Promise<CheckRunRe
     const result: CheckRunResult = {
       runId,
       dryRun,
-      products: candidates.length,
+      products: new Set(checks.map((c) => c.productId)).size,
       countries,
       apiCalls,
+      shippingReused,
+      rateLimited,
+      budgetReached,
       errors: checks.filter((c) => c.error).length,
       withCompetitors: checks.filter((c) => c.stats.count > 0).length,
       checks,
@@ -347,12 +431,15 @@ export async function runPriceCheck(opts: CheckOptions = {}): Promise<CheckRunRe
         job: JOB,
         channel: 'ebay',
         action: 'price_check_run',
-        success: result.errors === 0,
+        success: result.errors === 0 && !rateLimited,
         durationMs: Date.now() - started,
         details: {
           products: result.products,
           countries,
           apiCalls: result.apiCalls,
+          shippingReused,
+          rateLimited,
+          budgetReached,
           errors: result.errors,
           withCompetitors: result.withCompetitors,
           skipped: skipped.length,

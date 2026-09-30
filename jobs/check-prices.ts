@@ -2,11 +2,13 @@
 //
 //   npm run job:check-prices -- --dry-run              # פיילוט: 20 מוצרים ממותגים שונים, בלי לכתוב ל-DB
 //   npm run job:check-prices -- --limit=5
+//   npm run job:check-prices -- --all --limit=4500     # כל הקטלוג, קודם מה שלא נבדק / הכי ישן (מכסת eBay: 5,000 ביום)
 //   npm run job:check-prices -- --skus=ABC123,XYZ9     # מוצרים מסוימים
 //   npm run job:check-prices -- --countries=US,AU,GB   # מדינות הקונה (ברירת מחדל US) — מחיר כולל משלוח עד אליו
 //   npm run job:check-prices -- --json                 # פלט מלא (כולל כל המודעות)
 //
-// עד 2 קריאות ל-eBay לכל מוצר × מדינה (חיפוש + המשלוח של המודעה שלנו). יוצא עם קוד 0 בהצלחה, 1 בשגיאה, 2 אם ריצה אחרת כבר פעילה.
+// קריאה אחת ל-eBay לכל מוצר × מדינה (חיפוש); המשלוח שלנו נלקח מהמערכת, ורק אם אין — קריאה שנייה.
+// ריצה של יותר מ-30 בדיקות מדפיסה סיכום בלבד (הפירוט במסך /sync/pricing). יוצא עם קוד 0 בהצלחה, 1 בשגיאה, 2 אם ריצה אחרת כבר פעילה.
 
 import { loadEnvConfig } from '@next/env'
 
@@ -23,7 +25,10 @@ async function main() {
   const { pool } = await import('@/lib/db/client')
 
   try {
+    const all = args.includes('--all')
     const r = await runPriceCheck({
+      all,
+      lean: all,
       dryRun: args.includes('--dry-run'),
       limit: arg('limit') ? Number(arg('limit')) : undefined,
       countries: arg('countries')?.split(','),
@@ -32,6 +37,17 @@ async function main() {
 
     if (args.includes('--json')) {
       console.log(JSON.stringify(r, null, 2))
+    } else if (r.checks.length > 30) {
+      const by: Record<string, number> = {}
+      for (const c of r.checks) by[c.error ? 'error' : c.stats.position] = (by[c.error ? 'error' : c.stats.position] ?? 0) + 1
+      console.log(`run ${r.runId}${r.dryRun ? ' (dry-run, לא נשמר)' : ''} · ${r.products} מוצרים × ${r.countries.join('/')} · ${r.apiCalls} קריאות eBay · משלוח שלנו מהמערכת ${r.shippingReused} · ${r.errors} שגיאות${r.rateLimited ? ' · נעצר: מכסת eBay' : ''}${r.budgetReached ? ' · נעצר בתקציב הקריאות, השאר בריצה הבאה' : ''}`)
+      console.log(`עם מתחרים להשוואה: ${r.withCompetitors}`)
+      for (const [k, v] of Object.entries(by).sort((a, b) => b[1] - a[1])) console.log(`  ${k === 'error' ? 'שגיאה' : POSITION_LABEL[k as keyof typeof POSITION_LABEL] ?? k}: ${v}`)
+      const errs = r.checks.filter((c) => c.error).slice(0, 5)
+      for (const c of errs) console.log(`  ! ${c.sku}: ${c.error}`)
+      console.log('\nמוכרים שחוזרים הכי הרבה:')
+      for (const s of r.topSellers.slice(0, 15)) console.log(`  ${s.seller}: ${s.products} מוצרים · ${sellerItemsUrl(s.seller)}`)
+      if (r.skipped.length) console.log(`\nדולגו ${r.skipped.length}`)
     } else {
       const pct = (v: number | null) => (v == null ? '—' : `${v > 0 ? '+' : ''}${v}%`)
       const money = (v: number | null) => (v == null ? '—' : `$${v}`)
@@ -64,7 +80,7 @@ async function main() {
       for (const s of r.topSellers.slice(0, 15)) console.log(`  ${s.seller}: ${s.products} מוצרים, ${s.offers} מודעות · ${sellerItemsUrl(s.seller)}`)
       if (r.skipped.length) console.log(`\nדולגו ${r.skipped.length}: ${r.skipped.map((s) => `${s.sku} (${s.reason})`).join(', ')}`)
     }
-    process.exitCode = r.errors ? 1 : 0
+    process.exitCode = r.errors || r.rateLimited ? 1 : 0
   } catch (err) {
     if (err instanceof JobLockedError) {
       console.error(err.message)
