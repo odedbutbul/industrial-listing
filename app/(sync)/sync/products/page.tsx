@@ -3,12 +3,13 @@
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useCallback, useEffect, useState } from 'react'
-import { Download, FileDown, ImageOff, Search, Store } from 'lucide-react'
+import { Download, FileDown, ImageOff, Search, Store, Truck } from 'lucide-react'
 import { api, openImport } from '@/components/sync/api'
 import { MISMATCH, money, num, shipPrice, shipIsMoney, stockStatus, SYNC_OFF, WOO_NOT_LINKED } from '@/components/sync/format'
 import { useDataChanged } from '@/components/sync/hooks'
 import type { ProductRow } from '@/components/sync/types'
 import { SendToStoreDialog } from '@/components/sync/SendToStoreDialog'
+import { ShippingToStoreDialog } from '@/components/sync/ShippingToStoreDialog'
 import { WooLink } from '@/components/sync/WooLink'
 import { EmptyState, LoadError, Pill, Seg, Spin, useLoad } from '@/components/sync/ui'
 
@@ -71,6 +72,7 @@ function Products() {
   // בחירת מוצרים לשליחה לחנות — תמיד בבחירה ידנית
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [sending, setSending] = useState(false)
+  const [shippingOpen, setShippingOpen] = useState(false)
   useEffect(() => setSelected(new Set()), [filter, q])
   const toggle = (id: string) =>
     setSelected((cur) => {
@@ -153,6 +155,17 @@ function Products() {
         </div>
       ) : (
         <>
+          {filter === 'in_woo' && (
+            <div className="ax-card" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: '10px 20px' }}>
+              <span className="ax-hint" style={{ flex: '1 1 220px' }}>
+                מעדכן בכל המוצרים שבחנות את מחירי המשלוח מ-eBay (ארה״ב ושאר העולם). קודם תצוגה מקדימה.
+              </span>
+              <button type="button" className="ax-btn is-primary" onClick={() => setShippingOpen(true)}>
+                <Truck size={18} aria-hidden="true" />
+                עדכון מחירי משלוח בחנות
+              </button>
+            </div>
+          )}
           {filter !== 'in_woo' && (
             <div className="ax-card" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: '10px 20px' }}>
             <label className="ax-check" style={{ minHeight: 44 }}>
@@ -306,6 +319,7 @@ function Products() {
               })}
             </div>
           </section>
+          {shippingOpen && <ShippingToStoreDialog onClose={() => setShippingOpen(false)} />}
           {sending && <SendToStoreDialog productIds={Array.from(selected)} onClose={() => setSending(false)} onDone={() => setSelected(new Set())} />}
           {nextOffset !== null && data && (
             <button type="button" className="ax-btn" style={{ alignSelf: 'center' }} onClick={loadMore} disabled={loadingMore}>

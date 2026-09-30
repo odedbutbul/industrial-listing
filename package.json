@@ -19,6 +19,7 @@
     "job:fetch-analytics": "tsx jobs/fetch-analytics.ts",
     "job:pull-leads": "tsx jobs/pull-leads.ts",
     "job:fetch-shipping": "tsx jobs/fetch-shipping.ts",
+    "job:woo-shipping": "tsx jobs/woo-shipping.ts",
     "job:check-prices": "tsx jobs/check-prices.ts"
   },
   "dependencies": {

@@ -150,7 +150,7 @@ export interface ImportResult {
 
 export interface BackgroundRun {
   id: string
-  kind: 'import-preview' | 'import' | 'enrich' | 'orders-poll' | 'woo-preview' | 'woo-create'
+  kind: 'import-preview' | 'import' | 'enrich' | 'orders-poll' | 'woo-preview' | 'woo-create' | 'woo-shipping-preview' | 'woo-shipping'
   status: 'running' | 'done' | 'failed'
   startedAt: string
   finishedAt: string | null
@@ -245,4 +245,25 @@ export interface LeadDetail extends Omit<LeadRow, 'filesCount'> {
   note: string | null
   statusChangedAt: string | null
   createdAt: string
+}
+
+export interface ShippingSyncItem {
+  productId: string
+  title: string
+  sku: string
+  wooProductId: number
+  status: 'update' | 'same' | 'no_data' | 'missing'
+  current: { us: string; intl: string } | null
+  next: { us: string; intl: string } | null
+}
+
+export interface ShippingSyncPlan {
+  items: ShippingSyncItem[]
+  counts: Record<ShippingSyncItem['status'], number>
+}
+
+export interface ShippingSyncResult extends ShippingSyncPlan {
+  runId: string
+  updated: number
+  failed: { productId: string; sku: string; error: string }[]
 }
