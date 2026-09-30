@@ -1,6 +1,7 @@
-import { sql } from 'drizzle-orm'
+import { eq, isNull, sql } from 'drizzle-orm'
 import { db, schema } from '@/lib/db/client'
-import { getFeedbackPage, type FeedbackSummary } from '@/lib/ebay/feedback'
+import { getConnectedUserId, getFeedbackPage, type FeedbackSummary } from '@/lib/ebay/feedback'
+import { getEbayConfig } from '@/lib/ebay/config'
 import { withJobLock } from '@/lib/sync/lock'
 import { writeSyncLog } from '@/lib/sync/log'
 
@@ -81,6 +82,18 @@ export async function fetchEbayFeedback(opts: { maxPages?: number; full?: boolea
         }
         if (page >= p.totalPages) break
         if (!opts.full && createdHere === 0) break
+      }
+      // שם המשתמש של המוכרת חסר בטוקן (חיבור ישן) → קריאת GetUser אחת, לקישור לעמוד הפידבק
+      const env = getEbayConfig().environment
+      const [tok] = await db.select({ u: schema.ebayTokens.ebayUserId }).from(schema.ebayTokens).where(eq(schema.ebayTokens.environment, env))
+      if (tok && !tok.u) {
+        r.calls++
+        const userId = await getConnectedUserId()
+        if (userId)
+          await db
+            .update(schema.ebayTokens)
+            .set({ ebayUserId: userId })
+            .where(sql`${schema.ebayTokens.environment} = ${env} and ${isNull(schema.ebayTokens.ebayUserId)}`)
       }
       if (summary) {
         const value = JSON.stringify({ ...summary, fetchedAt: new Date().toISOString(), totalOnEbay: r.totalOnEbay })

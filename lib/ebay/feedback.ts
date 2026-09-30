@@ -122,3 +122,9 @@ export async function getFeedbackPage(page: number, perPage = 200): Promise<Feed
     summary: parseSummary(r),
   }
 }
+
+/** שם המשתמש של החשבון המחובר (GetUser — קריאה בלבד). לקישור לעמוד הפידבק ב-eBay. */
+export async function getConnectedUserId(): Promise<string | null> {
+  const r = await tradingCall('GetUser', '')
+  return str(((r.User ?? {}) as XmlNode).UserID)
+}
