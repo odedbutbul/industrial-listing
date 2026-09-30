@@ -504,3 +504,91 @@ export const leads = pgTable(
     check('leads_qty_pos', sql`${t.qty} is null or ${t.qty} > 0`),
   ],
 )
+
+// ── השוואת מחירים מול מתחרים ב-eBay (Browse API, קריאה בלבד) ──────────────────
+
+/**
+ * בדיקת מחיר אחת למוצר, למדינת יעד אחת, בריצה אחת. הקונה משווה מחיר כולל משלוח עד אליו —
+ * אנחנו שולחים מישראל, מתחרה מארה"ב שולח בזול בתוך ארה"ב. לכן כל מדינה נבדקת בנפרד.
+ */
+export const priceChecks = pgTable(
+  'price_checks',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    runId: uuid('run_id').notNull(),
+    productId: uuid('product_id')
+      .notNull()
+      .references(() => products.id, { onDelete: 'cascade' }),
+    checkedAt: timestamp('checked_at', { withTimezone: true }).notNull().defaultNow(),
+    /** מדינת הקונה (ISO-2) שלפיה eBay חישב משלוח */
+    country: text('country').notNull(),
+    query: text('query').notNull(),
+    /** כמה מודעות eBay מצא לחיפוש (לפני סינון) */
+    totalResults: integer('total_results').notNull().default(0),
+    ourPrice: numeric('our_price', { precision: 12, scale: 2 }),
+    /** המשלוח הזול ביותר שלנו למדינה (לפי eBay). null = לא נשלח / לא ידוע */
+    ourShipping: numeric('our_shipping', { precision: 12, scale: 2 }),
+    /** כל אפשרויות המשלוח שלנו למדינה: [{ service, cost, minDate, maxDate }] */
+    ourShippingOptions: jsonb('our_shipping_options'),
+    conditionGroup: text('condition_group').notNull(),
+    /** מודעות מתחרים בהשוואה (אותה קבוצת מצב, התאמה exact/likely). min/median/max לפי basis */
+    compareCount: integer('compare_count').notNull().default(0),
+    minPrice: numeric('min_price', { precision: 12, scale: 2 }),
+    medianPrice: numeric('median_price', { precision: 12, scale: 2 }),
+    maxPrice: numeric('max_price', { precision: 12, scale: 2 }),
+    vsMedianPct: numeric('vs_median_pct', { precision: 8, scale: 2 }),
+    vsMinPct: numeric('vs_min_pct', { precision: 8, scale: 2 }),
+    position: text('position').notNull(),
+    /** על מה מבוסס position: total = כולל משלוח למדינה · item = מחיר פריט בלבד (כשאין משלוח ידוע) */
+    basis: text('basis').notNull(),
+    /** מחיר פריט בלבד — אותו חישוב */
+    itemStats: jsonb('item_stats'),
+    error: text('error'),
+  },
+  (t) => [
+    index('price_checks_product_idx').on(t.productId, t.checkedAt),
+    index('price_checks_run_idx').on(t.runId),
+    uniqueIndex('price_checks_run_product_country_uq').on(t.runId, t.productId, t.country),
+  ],
+)
+
+/** מודעת מתחרה כפי שנראתה בבדיקה — תמונת מצב, כדי שתהיה היסטוריה */
+export const competitorOffers = pgTable(
+  'competitor_offers',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    checkId: uuid('check_id')
+      .notNull()
+      .references(() => priceChecks.id, { onDelete: 'cascade' }),
+    productId: uuid('product_id')
+      .notNull()
+      .references(() => products.id, { onDelete: 'cascade' }),
+    ebayItemId: text('ebay_item_id').notNull(),
+    legacyItemId: text('legacy_item_id'),
+    title: text('title').notNull(),
+    seller: text('seller'),
+    sellerFeedbackScore: integer('seller_feedback_score'),
+    price: numeric('price', { precision: 12, scale: 2 }),
+    currency: text('currency'),
+    /** משלוח למדינת הבדיקה לפי eBay. null = לא ידוע / לא שולח */
+    shipping: numeric('shipping', { precision: 12, scale: 2 }),
+    shippingType: text('shipping_type'),
+    conditionId: text('condition_id'),
+    condition: text('condition'),
+    conditionGroup: text('condition_group').notNull(),
+    buyingOptions: jsonb('buying_options').$type<string[]>().notNull().default([]),
+    url: text('url'),
+    country: text('country'),
+    matchLevel: text('match_level').notNull(),
+    matchScore: integer('match_score').notNull(),
+    /** נכלל בחישוב (אותה קבוצת מצב, התאמה exact/likely, מחיר ב-USD, לא מכירה פומבית בלבד) */
+    compared: boolean('compared').notNull().default(false),
+    /** אישור / דחייה ידנית של ההתאמה (בהמשך, מהמסך) */
+    manualMatch: boolean('manual_match'),
+  },
+  (t) => [
+    uniqueIndex('competitor_offers_check_item_uq').on(t.checkId, t.ebayItemId),
+    index('competitor_offers_product_idx').on(t.productId),
+    index('competitor_offers_seller_idx').on(t.seller),
+  ],
+)

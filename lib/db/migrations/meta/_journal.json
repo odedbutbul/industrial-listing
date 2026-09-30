@@ -64,6 +64,13 @@
       "when": 1790756787750,
       "tag": "0008_shipping_costs",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1790757821596,
+      "tag": "0009_price_checks",
+      "breakpoints": true
     }
   ]
 }
