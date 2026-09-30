@@ -20,7 +20,8 @@
     "job:pull-leads": "tsx jobs/pull-leads.ts",
     "job:fetch-shipping": "tsx jobs/fetch-shipping.ts",
     "job:woo-shipping": "tsx jobs/woo-shipping.ts",
-    "job:check-prices": "tsx jobs/check-prices.ts"
+    "job:check-prices": "tsx jobs/check-prices.ts",
+    "job:quote-check": "tsx jobs/quote-check.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.1",
