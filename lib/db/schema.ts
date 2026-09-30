@@ -592,3 +592,40 @@ export const competitorOffers = pgTable(
     index('competitor_offers_seller_idx').on(t.seller),
   ],
 )
+
+// ── ביקורות מ-eBay (פידבק שהמוכרת קיבלה, GetFeedback — קריאה בלבד) ─────────────
+
+/**
+ * פידבק אחד שקונה השאיר למוכרת. feedback_id ייחודי = משיכה חוזרת מעדכנת ולא מכפילה.
+ * שם הקונה נשמר מוסתר בלבד (d***k) — לא שומרים את שם המשתמש המלא.
+ * show_on_site נקבע רק ידנית במסך; שום ביקורת לא מוצגת באתר בלי בחירה.
+ */
+export const ebayFeedback = pgTable(
+  'ebay_feedback',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    feedbackId: text('feedback_id').notNull(),
+    /** Positive · Neutral · Negative */
+    commentType: text('comment_type').notNull(),
+    commentText: text('comment_text').notNull().default(''),
+    commentTime: timestamp('comment_time', { withTimezone: true }).notNull(),
+    buyerMasked: text('buyer_masked'),
+    buyerScore: integer('buyer_score'),
+    itemId: text('item_id'),
+    itemTitle: text('item_title'),
+    itemPrice: numeric('item_price', { precision: 12, scale: 2 }),
+    currency: text('currency'),
+    /** תגובת המוכרת לפידבק (FeedbackResponse), אם יש */
+    response: text('response'),
+    showOnSite: boolean('show_on_site').notNull().default(false),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    fetchedAt: timestamp('fetched_at', { withTimezone: true }).notNull().defaultNow(),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('ebay_feedback_feedback_id_uq').on(t.feedbackId),
+    index('ebay_feedback_time_idx').on(t.commentTime),
+    index('ebay_feedback_item_idx').on(t.itemId),
+    check('ebay_feedback_show_positive', sql`not ${t.showOnSite} or ${t.commentType} = 'Positive'`),
+  ],
+)

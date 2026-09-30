@@ -26,7 +26,7 @@ export class EbayApiError extends Error {
 
 type XmlNode = Record<string, unknown>
 
-async function tradingCall(callName: string, innerXml: string): Promise<XmlNode> {
+export async function tradingCall(callName: string, innerXml: string): Promise<XmlNode> {
   assertEbayCallAllowed(callName)
   const config = getEbayConfig()
   const token = await getValidAccessToken()

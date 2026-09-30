@@ -10,6 +10,7 @@ export const EBAY_READ_ONLY_CALLS = new Set([
   'GeteBayDetails',
   'GetSellerList',
   'GetOrders',
+  'GetFeedback', // פידבק שהמוכרת קיבלה — קריאה בלבד
   'VerifyAddItem', // בדיקת תקינות בלבד — לא יוצר מודעה
 ])
 

@@ -71,6 +71,13 @@
       "when": 1790757821596,
       "tag": "0009_price_checks",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1790762086308,
+      "tag": "0010_ebay_feedback",
+      "breakpoints": true
     }
   ]
 }
