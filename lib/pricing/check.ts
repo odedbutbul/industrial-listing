@@ -4,16 +4,7 @@ import { db, schema } from '@/lib/db/client'
 import { getItemShipping, searchItems, type BrowseItem, type ShippingQuote } from '@/lib/ebay/browse'
 import { withJobLock } from '@/lib/sync/lock'
 import { writeSyncLog } from '@/lib/sync/log'
-import {
-  conditionGroup,
-  matchListing,
-  priceStats,
-  totalPrice,
-  usableMpn,
-  type ConditionGroup,
-  type MatchResult,
-  type PriceStats,
-} from './match'
+import { classifyOffer, compare, conditionGroup, priceStats, usableMpn, type ConditionGroup, type MatchResult, type PriceStats } from './match'
 
 // בדיקת מחירים מול מתחרים ב-eBay: לכל מוצר ולכל מדינת יעד — חיפוש לפי מספר החלק (Browse API, GET בלבד),
 // התאמה לפי הכותרת, והשוואה רק מול מודעות באותה קבוצת מצב.
@@ -21,8 +12,8 @@ import {
 // שום דבר לא משתנה ב-eBay או בחנות.
 
 const JOB = 'price-check'
-/** החשבון שלנו — לא משווים מול עצמנו */
-const OWN_SELLERS = ['vizvik16']
+/** החשבונות של הלקוחה ב-eBay — לא משווים מול עצמנו (vizko2017: אישור עודד 30/09/2026) */
+const OWN_SELLERS = ['vizvik16', 'vizko2017']
 const DELAY_MS = 300
 
 export interface CheckOptions {
@@ -40,6 +31,8 @@ export interface OfferRow {
   group: ConditionGroup
   compared: boolean
   excludeReason: string | null
+  /** החלטה ידנית שנשמרה מבדיקה קודמת של אותה מודעה */
+  manual?: boolean | null
 }
 
 export interface ProductCheck {
@@ -130,16 +123,8 @@ function storedUsShipping(c: Candidate): number | null {
   return us.cost != null && Number.isFinite(Number(us.cost)) ? Number(us.cost) : null
 }
 
-function classify(item: BrowseItem, ours: { mpn: string; brand: string | null }, group: ConditionGroup): OfferRow {
-  const match = matchListing(ours, item.title)
-  const g = conditionGroup(item.conditionId)
-  let excludeReason: string | null = null
-  if (match.level === 'weak') excludeReason = 'התאמה חלשה'
-  else if (g !== group) excludeReason = 'מצב אחר'
-  else if (item.price == null) excludeReason = 'אין מחיר'
-  else if (item.currency !== 'USD') excludeReason = `מטבע ${item.currency}`
-  else if (!item.buyingOptions.some((o) => o === 'FIXED_PRICE' || o === 'BEST_OFFER')) excludeReason = 'מכירה פומבית בלבד'
-  return { item, match, group: g, compared: excludeReason === null, excludeReason }
+function classify(item: BrowseItem, ours: { mpn: string; brand: string | null }, group: ConditionGroup, manual: boolean | null): OfferRow {
+  return { item, ...classifyOffer(item, ours, group, manual) }
 }
 
 /** המשלוח שלנו למדינה — מהמודעה החיה ב-eBay, כמו שהקונה רואה אותו */
@@ -152,7 +137,25 @@ async function ourShipping(c: Candidate, country: string): Promise<{ cost: numbe
   return { cost: country === 'US' ? storedUsShipping(c) : null, options: [], calls: 0 }
 }
 
-async function checkOne(c: Candidate, country: string, excludeSellers: string[]): Promise<ProductCheck & { calls: number }> {
+/** החלטות ידניות (זה / לא אותו מוצר) — עוברות לבדיקות הבאות של אותה מודעה */
+type Decisions = Map<string, boolean>
+const decisionKey = (productId: string, ebayItemId: string) => `${productId}|${ebayItemId}`
+
+async function loadDecisions(productIds: string[]): Promise<Decisions> {
+  if (!productIds.length) return new Map()
+  const rows = await db
+    .selectDistinctOn([schema.competitorOffers.productId, schema.competitorOffers.ebayItemId], {
+      productId: schema.competitorOffers.productId,
+      ebayItemId: schema.competitorOffers.ebayItemId,
+      manual: schema.competitorOffers.manualMatch,
+    })
+    .from(schema.competitorOffers)
+    .where(and(inArray(schema.competitorOffers.productId, productIds), isNotNull(schema.competitorOffers.manualMatch)))
+    .orderBy(schema.competitorOffers.productId, schema.competitorOffers.ebayItemId, sql`${schema.competitorOffers.id} desc`)
+  return new Map(rows.map((r) => [decisionKey(r.productId, r.ebayItemId), r.manual!]))
+}
+
+async function checkOne(c: Candidate, country: string, excludeSellers: string[], decisions: Decisions = new Map()): Promise<ProductCheck & { calls: number }> {
   const mpn = usableMpn(c.mpn)!
   const group = conditionGroup(c.conditionId)
   const ourPrice = c.price != null ? Number(c.price) : null
@@ -168,24 +171,18 @@ async function checkOne(c: Candidate, country: string, excludeSellers: string[])
     const offers = res.items
       // ביטחון כפול: גם אם הסינון של eBay לא תפס — לא משווים מול עצמנו
       .filter((i) => !i.seller || !excludeSellers.some((s) => s.toLowerCase() === i.seller!.toLowerCase()))
-      .map((i) => classify(i, { mpn, brand: c.brand }, group))
-    const compared = offers.filter((o) => o.compared)
-    const item = priceStats(ourPrice, compared.map((o) => Number(o.item.price)))
-    const total = priceStats(
-      totalPrice(ourPrice, ship.cost),
-      compared.map((o) => totalPrice(o.item.price, o.item.shipping)).filter((v): v is number => v != null),
-    )
-    const useTotal = total.count > 0 && total.position !== 'no_price'
+      .map((i) => {
+        const manual = decisions.get(decisionKey(c.productId, i.itemId)) ?? null
+        return { ...classify(i, { mpn, brand: c.brand }, group, manual), manual }
+      })
+    const cmp = compare(ourPrice, ship.cost, offers.filter((o) => o.compared).map((o) => o.item))
     return {
       ...base,
       ourShipping: ship.cost,
       ourShippingOptions: ship.options,
       totalResults: res.total,
       offers,
-      stats: useTotal ? total : item,
-      basis: useTotal ? 'total' : 'item',
-      item,
-      total,
+      ...cmp,
       error: null,
       calls,
     }
@@ -261,6 +258,7 @@ async function saveCheck(runId: string, r: ProductCheck): Promise<void> {
         matchLevel: o.match.level,
         matchScore: o.match.score,
         compared: o.compared,
+        manualMatch: o.manual ?? null,
       })),
     )
   })
@@ -306,12 +304,13 @@ export async function runPriceCheck(opts: CheckOptions = {}): Promise<CheckRunRe
       return false
     })
 
+    const decisions = await loadDecisions(candidates.map((c) => c.productId))
     const checks: ProductCheck[] = []
     let apiCalls = 0
     for (const c of candidates) {
       for (const country of countries) {
         if (apiCalls > 0) await new Promise((r) => setTimeout(r, DELAY_MS))
-        const { calls, ...r } = await checkOne(c, country, excludeSellers)
+        const { calls, ...r } = await checkOne(c, country, excludeSellers, decisions)
         apiCalls += calls
         checks.push(r)
         if (!dryRun) {
@@ -362,5 +361,60 @@ export async function runPriceCheck(opts: CheckOptions = {}): Promise<CheckRunRe
       })
     }
     return result
+  })
+}
+
+/**
+ * אחרי החלטה ידנית על מודעה: שומר את ההחלטה ומחשב מחדש את ההשוואה של הבדיקה (בלי קריאה ל-eBay).
+ * manual: true = אותו מוצר · false = לא אותו מוצר · null = חזרה לכללים.
+ */
+export async function setOfferDecision(offerId: number, manual: boolean | null): Promise<{ checkId: string } | null> {
+  return db.transaction(async (tx) => {
+    const [offer] = await tx.select({ checkId: schema.competitorOffers.checkId }).from(schema.competitorOffers).where(eq(schema.competitorOffers.id, offerId))
+    if (!offer) return null
+    const [check] = await tx
+      .select({
+        id: schema.priceChecks.id,
+        ourPrice: schema.priceChecks.ourPrice,
+        ourShipping: schema.priceChecks.ourShipping,
+        group: schema.priceChecks.conditionGroup,
+        mpn: schema.priceChecks.query,
+        brand: schema.products.brand,
+      })
+      .from(schema.priceChecks)
+      .innerJoin(schema.products, eq(schema.products.id, schema.priceChecks.productId))
+      .where(eq(schema.priceChecks.id, offer.checkId))
+      .for('update', { of: schema.priceChecks })
+    await tx.update(schema.competitorOffers).set({ manualMatch: manual }).where(eq(schema.competitorOffers.id, offerId))
+
+    const offers = await tx.select().from(schema.competitorOffers).where(eq(schema.competitorOffers.checkId, check.id))
+    const kept: { price: string | null; shipping: string | null }[] = []
+    for (const o of offers) {
+      const k = classifyOffer(
+        { title: o.title, conditionId: o.conditionId, price: o.price, currency: o.currency, shipping: o.shipping, buyingOptions: o.buyingOptions },
+        { mpn: check.mpn, brand: check.brand },
+        check.group as ConditionGroup,
+        o.manualMatch,
+      )
+      if (k.compared !== o.compared) await tx.update(schema.competitorOffers).set({ compared: k.compared }).where(eq(schema.competitorOffers.id, o.id))
+      if (k.compared) kept.push(o)
+    }
+    const num = (v: number | null) => (v == null ? null : String(v))
+    const cmp = compare(check.ourPrice != null ? Number(check.ourPrice) : null, check.ourShipping != null ? Number(check.ourShipping) : null, kept)
+    await tx
+      .update(schema.priceChecks)
+      .set({
+        compareCount: cmp.stats.count,
+        minPrice: num(cmp.stats.min),
+        medianPrice: num(cmp.stats.median),
+        maxPrice: num(cmp.stats.max),
+        vsMedianPct: num(cmp.stats.vsMedianPct),
+        vsMinPct: num(cmp.stats.vsMinPct),
+        position: cmp.stats.position,
+        basis: cmp.basis,
+        itemStats: cmp.item,
+      })
+      .where(eq(schema.priceChecks.id, check.id))
+    return { checkId: check.id }
   })
 }

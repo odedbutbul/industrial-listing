@@ -20,6 +20,18 @@ export function usableMpn(mpn: string | null | undefined): string | null {
   return trimmed
 }
 
+/** מספר חלק שלא מזהה מוצר לבד: עד 6 תווים, או ספרות בלבד (עד 8) */
+export function isGenericPart(compact: string): boolean {
+  return compact.length <= 6 || (/^[0-9]+$/.test(compact) && compact.length <= 8)
+}
+
+/** מילים בשם מותג שלא מזהות אותו לבד */
+const GENERIC_BRAND_WORDS = new Set([
+  'INC', 'CORP', 'LTD', 'LLC', 'GMBH', 'THE', 'AND', 'CO', 'AUTOMATION', 'SYSTEMS', 'SYSTEM', 'INSTRUMENTS', 'INSTRUMENT',
+  'TECHNOLOGIES', 'TECHNOLOGY', 'ELECTRIC', 'ELECTRONICS', 'INDUSTRIES', 'INDUSTRIAL', 'INTERNATIONAL', 'SCIENTIFIC',
+  'VACUUM', 'ADVANCED', 'ENERGY', 'CONTROLS', 'CONTROL', 'GROUP', 'COMPANY', 'MOTION', 'POWER', 'DRIVE', 'LASER', 'MEDICAL',
+])
+
 export type MatchLevel = 'exact' | 'likely' | 'weak'
 
 export interface MatchResult {
@@ -56,9 +68,14 @@ export function matchListing(ours: { mpn: string; brand: string | null }, title:
   }
 
   const brandC = ours.brand ? compactPart(ours.brand) : ''
-  // מותג: המילה הראשונה של המותג מספיקה ("ALLEN BRADLEY" ↔ "Allen-Bradley", "Rockwell Allen Bradley")
-  const brandFirst = ours.brand ? compactPart(ours.brand.split(/[\s\-/]+/)[0] ?? '') : ''
-  const brandHit = !brandC || (brandC.length >= 2 && (titleC.includes(brandC) || (brandFirst.length >= 3 && titleC.includes(brandFirst))))
+  // מותג: השם המלא, או כל מילה מזהה בו ("Bosch Rexroth" ↔ "Rexroth IndraControl", "ALLEN BRADLEY" ↔ "Allen-Bradley")
+  const brandWords = ours.brand
+    ? ours.brand
+        .split(/[\s\-/&.,]+/)
+        .map(compactPart)
+        .filter((w) => w.length >= 3 && !GENERIC_BRAND_WORDS.has(w))
+    : []
+  const brandHit = !brandC || (brandC.length >= 2 && titleC.includes(brandC)) || brandWords.some((w) => tokens.includes(w) || titleC.includes(w))
 
   if (wordMatch) {
     reasons.push('מספר החלק בכותרת')
@@ -67,6 +84,11 @@ export function matchListing(ours: { mpn: string; brand: string | null }, title:
       return { level: 'exact', score: 100, reasons }
     }
     reasons.push('המותג לא בכותרת')
+    // מספר קצר או מספרי בלבד ("XM21", "302303") מופיע גם במוצרים אחרים לגמרי — בלי מותג זו לא התאמה
+    if (isGenericPart(mpnC)) {
+      reasons.push('מספר חלק קצר / מספרי — נדרש מותג')
+      return { level: 'weak', score: 30, reasons }
+    }
     return { level: 'likely', score: 75, reasons }
   }
   if (titleC.includes(mpnC)) {
@@ -166,4 +188,58 @@ export const POSITION_LABEL: Record<Position, string> = {
   most_expensive: 'היקרים ביותר',
   only_us: 'אין מתחרים באותו מצב',
   no_price: 'אין לנו מחיר',
+}
+
+// ── סיווג מודעה + חישוב ההשוואה (משותף לריצה ולחישוב מחדש אחרי החלטה ידנית) ──
+
+export interface OfferInput {
+  title: string
+  conditionId: string | null
+  price: string | null
+  currency: string | null
+  shipping: string | null
+  buyingOptions: string[]
+}
+
+export interface OfferClass {
+  match: MatchResult
+  group: ConditionGroup
+  compared: boolean
+  excludeReason: string | null
+}
+
+/**
+ * האם המודעה נכנסת להשוואה. manual: true = אישרת שזה אותו מוצר (גובר על התאמה חלשה ועל מצב אחר),
+ * false = דחית, null = לפי הכללים.
+ */
+export function classifyOffer(o: OfferInput, ours: { mpn: string; brand: string | null }, group: ConditionGroup, manual: boolean | null = null): OfferClass {
+  const match = matchListing(ours, o.title)
+  const g = conditionGroup(o.conditionId)
+  let excludeReason: string | null = null
+  if (manual === false) excludeReason = 'סומן: לא אותו מוצר'
+  else if (manual !== true && match.level === 'weak') excludeReason = 'התאמה חלשה'
+  else if (manual !== true && g !== group) excludeReason = 'מצב אחר'
+  else if (o.price == null) excludeReason = 'אין מחיר'
+  else if (o.currency !== 'USD') excludeReason = `מטבע ${o.currency}`
+  else if (!o.buyingOptions.some((b) => b === 'FIXED_PRICE' || b === 'BEST_OFFER')) excludeReason = 'מכירה פומבית בלבד'
+  return { match, group: g, compared: excludeReason === null, excludeReason }
+}
+
+export interface Comparison {
+  /** ההשוואה הקובעת */
+  stats: PriceStats
+  /** total = כולל משלוח עד הקונה · item = מחיר פריט בלבד (כשאין משלוח ידוע לשני הצדדים) */
+  basis: 'total' | 'item'
+  item: PriceStats
+  total: PriceStats
+}
+
+export function compare(ourPrice: number | null, ourShipping: number | null, compared: Pick<OfferInput, 'price' | 'shipping'>[]): Comparison {
+  const item = priceStats(ourPrice, compared.map((o) => Number(o.price)))
+  const total = priceStats(
+    totalPrice(ourPrice, ourShipping),
+    compared.map((o) => totalPrice(o.price, o.shipping)).filter((v): v is number => v != null),
+  )
+  const useTotal = total.count > 0 && total.position !== 'no_price'
+  return { stats: useTotal ? total : item, basis: useTotal ? 'total' : 'item', item, total }
 }
