@@ -3,7 +3,8 @@
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { useEffect, useState } from 'react'
-import { ArrowRight, ExternalLink, FileText, Mail } from 'lucide-react'
+import { ArrowRight, Calculator, ExternalLink, FileText, Mail } from 'lucide-react'
+import { conditionFromText } from '@/lib/pricing/match'
 import { api } from '@/components/sync/api'
 import { ago, bytes, dateTime, LEAD_KIND, LEAD_STATUS, num } from '@/components/sync/format'
 import type { LeadDetail, LeadStatus } from '@/components/sync/types'
@@ -64,10 +65,21 @@ export default function LeadPage() {
               {l.short ? ' (טופס קצר)' : ''} · התקבל {ago(l.submittedAt)}
             </p>
           </div>
-          <a className="ax-btn is-primary" href={mailto}>
-            <Mail size={18} aria-hidden="true" />
-            תשובה במייל
-          </a>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {l.part && (
+              <Link
+                className="ax-btn"
+                href={`/sync/pricing/quote?${new URLSearchParams({ mpn: l.part, ...(l.maker ? { brand: l.maker } : {}), condition: conditionFromText(l.condition) })}`}
+              >
+                <Calculator size={18} aria-hidden="true" />
+                בדיקת מחיר בשוק
+              </Link>
+            )}
+            <a className="ax-btn is-primary" href={mailto}>
+              <Mail size={18} aria-hidden="true" />
+              תשובה במייל
+            </a>
+          </div>
         </div>
       </div>
 

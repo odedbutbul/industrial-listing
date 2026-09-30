@@ -13,7 +13,7 @@ import { classifyOffer, compare, conditionGroup, priceStats, usableMpn, type Con
 
 const JOB = 'price-check'
 /** החשבונות של הלקוחה ב-eBay — לא משווים מול עצמנו (vizko2017: אישור עודד 30/09/2026) */
-const OWN_SELLERS = ['vizvik16', 'vizko2017']
+export const OWN_SELLERS = ['vizvik16', 'vizko2017']
 const DELAY_MS = 300
 
 export interface CheckOptions {

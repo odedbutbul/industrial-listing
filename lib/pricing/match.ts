@@ -243,3 +243,21 @@ export function compare(ourPrice: number | null, ourShipping: number | null, com
   const useTotal = total.count > 0 && total.position !== 'no_price'
   return { stats: useTotal ? total : item, basis: useTotal ? 'total' : 'item', item, total }
 }
+
+// ── בדיקת הצעת לקוח ──
+
+export type QuoteCondition = ConditionGroup | 'any'
+
+const TEXT_CONDITION: [RegExp, QuoteCondition][] = [
+  [/refurb|recondition|מחודש/i, 'refurbished'],
+  [/for parts|not working|לחלקים/i, 'parts'],
+  [/new|חדש/i, 'new'],
+  [/used|משומש|pre-?owned/i, 'used'],
+]
+
+/** "מצב נדרש" מטופס באתר (טקסט חופשי) → קבוצת מצב. לא מזוהה / "Any" → any */
+export function conditionFromText(text: string | null | undefined): QuoteCondition {
+  if (!text) return 'any'
+  for (const [re, c] of TEXT_CONDITION) if (re.test(text)) return c
+  return 'any'
+}

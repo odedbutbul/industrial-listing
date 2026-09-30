@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useCallback, useState } from 'react'
-import { Check, ExternalLink, RefreshCw, RotateCcw, Scale, Store, X } from 'lucide-react'
+import { Calculator, Check, ExternalLink, RefreshCw, RotateCcw, Scale, Store, X } from 'lucide-react'
 import type { OfferRow, PricePage, PriceRow, PriceFilter } from '@/lib/pricing/queries'
 import { CONDITION_LABEL, POSITION_LABEL, type ConditionGroup, type Position } from '@/lib/pricing/match'
 import { api } from '@/components/sync/api'
@@ -223,6 +223,10 @@ function Head({ sub }: { sub: string }) {
         <h1 className="ax-h1">מחירים מול מתחרים</h1>
         <p className="ax-sub">{sub}</p>
       </div>
+      <Link href="/sync/pricing/quote" className="ax-btn is-primary">
+        <Calculator size={18} aria-hidden="true" />
+        בדיקת הצעת לקוח
+      </Link>
     </div>
   )
 }
