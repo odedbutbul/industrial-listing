@@ -150,7 +150,7 @@ export interface ImportResult {
 
 export interface BackgroundRun {
   id: string
-  kind: 'import-preview' | 'import' | 'enrich' | 'orders-poll' | 'woo-preview' | 'woo-create' | 'woo-shipping-preview' | 'woo-shipping'
+  kind: 'import-preview' | 'import' | 'enrich' | 'orders-poll' | 'woo-preview' | 'woo-create' | 'woo-shipping-preview' | 'woo-shipping' | 'ebay-prices'
   status: 'running' | 'done' | 'failed'
   startedAt: string
   finishedAt: string | null
@@ -255,11 +255,24 @@ export interface ShippingSyncItem {
   status: 'update' | 'same' | 'no_data' | 'missing'
   current: { us: string; intl: string } | null
   next: { us: string; intl: string } | null
+  /** מחיר המוצר: בחנות → במערכת. null = לא משתנה */
+  price: { current: string; next: string } | null
+  shipping: boolean
 }
 
 export interface ShippingSyncPlan {
   items: ShippingSyncItem[]
   counts: Record<ShippingSyncItem['status'], number>
+  changes: { price: number; shipping: number }
+  lastEbayFetch: string | null
+}
+
+/** משיכת מחירים ומשלוח מ-eBay (lib/sync/shipping-costs.ts) */
+export interface EbayPricesResult {
+  updated: number
+  priceChanged: number
+  notInSystem: number
+  errors: { page: number; error: string }[]
 }
 
 export interface ShippingSyncResult extends ShippingSyncPlan {

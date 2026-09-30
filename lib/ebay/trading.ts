@@ -217,8 +217,19 @@ export function parseShippingCosts(item: XmlNode): ShippingCosts | null {
 
 // ── GetSellerList: מחירי משלוח לכל המודעות הפעילות ─────────────────────────────
 
+export interface SellerListItem {
+  itemId: string
+  sku: string | null
+  shippingCosts: ShippingCosts | null
+  /** מחיר המודעה עכשיו (SellingStatus.CurrentPrice). במכירה פומבית זו ההצעה הגבוהה — לכן גם listingType */
+  price: string | null
+  currency: string | null
+  /** FixedPriceItem · StoresFixedPrice · Chinese (מכירה פומבית) … */
+  listingType: string | null
+}
+
 export interface SellerListShippingPage {
-  items: { itemId: string; sku: string | null; shippingCosts: ShippingCosts | null }[]
+  items: SellerListItem[]
   totalPages: number
   totalEntries: number
 }
@@ -226,7 +237,7 @@ export interface SellerListShippingPage {
 /**
  * מודעות שמסתיימות מעכשיו ועד 119 יום (eBay מגביל ל-120) — זה כל המודעות הפעילות:
  * מודעת GTC מתחדשת כל 30 יום, אז מועד הסיום שלה תמיד בחלון.
- * OutputSelector מצמצם את התשובה ל-ItemID, SKU ופרטי המשלוח (בלי תיאורים).
+ * OutputSelector מצמצם את התשובה ל-ItemID, SKU, מחיר, סוג מודעה ופרטי המשלוח (בלי תיאורים).
  */
 export async function getSellerListShippingPage(page: number, perPage = 200, now = new Date()): Promise<SellerListShippingPage> {
   const to = new Date(now.getTime() + 119 * 86400_000)
@@ -240,6 +251,8 @@ export async function getSellerListShippingPage(page: number, perPage = 200, now
   <OutputSelector>ItemArray.Item.SKU</OutputSelector>
   <OutputSelector>ItemArray.Item.ShippingDetails</OutputSelector>
   <OutputSelector>ItemArray.Item.SellerProfiles</OutputSelector>
+  <OutputSelector>ItemArray.Item.SellingStatus</OutputSelector>
+  <OutputSelector>ItemArray.Item.ListingType</OutputSelector>
   <OutputSelector>PaginationResult</OutputSelector>`,
   )
   const pagination = (r.PaginationResult ?? {}) as XmlNode
@@ -247,7 +260,10 @@ export async function getSellerListShippingPage(page: number, perPage = 200, now
   return {
     totalPages: int(pagination.TotalNumberOfPages) ?? 1,
     totalEntries: int(pagination.TotalNumberOfEntries) ?? rawItems.length,
-    items: rawItems.map((i) => ({ itemId: String(i.ItemID), sku: str(i.SKU), shippingCosts: parseShippingCosts(i) })),
+    items: rawItems.map((i) => {
+      const { amount, currency } = money(((i.SellingStatus ?? {}) as XmlNode).CurrentPrice)
+      return { itemId: String(i.ItemID), sku: str(i.SKU), shippingCosts: parseShippingCosts(i), price: amount, currency, listingType: str(i.ListingType) }
+    }),
   }
 }
 

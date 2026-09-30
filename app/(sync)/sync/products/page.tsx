@@ -158,11 +158,11 @@ function Products() {
           {filter === 'in_woo' && (
             <div className="ax-card" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: '10px 20px' }}>
               <span className="ax-hint" style={{ flex: '1 1 220px' }}>
-                מעדכן בכל המוצרים שבחנות את מחירי המשלוח מ-eBay (ארה״ב ושאר העולם). קודם תצוגה מקדימה.
+                מעדכן בכל המוצרים שבחנות את המחיר ואת מחירי המשלוח כמו ב-eBay — רק מה שהשתנה. קודם תצוגה מקדימה. רץ גם אוטומטית כל בוקר.
               </span>
               <button type="button" className="ax-btn is-primary" onClick={() => setShippingOpen(true)}>
                 <Truck size={18} aria-hidden="true" />
-                עדכון מחירי משלוח בחנות
+                עדכון מחירים ומשלוח בחנות
               </button>
             </div>
           )}

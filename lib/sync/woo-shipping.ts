@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { and, eq, isNotNull } from 'drizzle-orm'
+import { and, eq, isNotNull, max } from 'drizzle-orm'
 import { db, schema } from '@/lib/db/client'
 import { WooApiError, wooGet, wooRequest } from '@/lib/woo/client'
 import { shippingMeta } from '@/lib/woo/products'
@@ -7,8 +7,11 @@ import type { ImportProgress } from './import-ebay'
 import { withJobLock } from './lock'
 import { writeSyncLog } from './log'
 
-// מחירי המשלוח מ-eBay → מוצרים שכבר בחנות. תמיד ידני: תצוגה מקדימה (קריאה בלבד מהחנות) → אישור → עדכון.
-// בעדכון נשלחים רק שדות ה-meta של המשלוח (`_ship_*`, `_sync_shipping`). מחיר, מלאי, תיאור ותמונות לא נשלחים.
+// מחיר המוצר ומחירי המשלוח (מ-eBay, דרך products.price / products.shipping_costs) → מוצרים שכבר בחנות.
+// ידני מהמסך: תצוגה מקדימה (קריאה בלבד מהחנות) → אישור → עדכון. אוטומטי: כל בוקר אחרי משיכת המחירים מ-eBay
+// (החלטת עודד 30/09/2026) — `npm run job:woo-shipping -- --apply`.
+// נשלחים רק מה שהשתנה: `regular_price` ו/או שדות ה-meta של המשלוח (`_ship_*`, `_sync_shipping`).
+// מלאי, תיאור, תמונות וקטגוריות לא נשלחים. כל שינוי מחיר בחנות נרשם בלוג (מה היה ← מה נשלח).
 
 export const WOO_SHIPPING_JOB = 'woo_shipping'
 const READ_PAGE = 100
@@ -25,11 +28,19 @@ export interface ShippingSyncItem {
   /** מה יש עכשיו בחנות → מה יהיה (ארה"ב / עולם) */
   current: { us: string; intl: string } | null
   next: { us: string; intl: string } | null
+  /** מחיר המוצר: בחנות → במערכת. null = לא משתנה */
+  price: { current: string; next: string } | null
+  /** האם המשלוח משתנה */
+  shipping: boolean
 }
 
 export interface ShippingSyncPlan {
   items: ShippingSyncItem[]
   counts: Record<ShippingSyncStatus, number>
+  /** כמה מוצרים יקבלו מחיר חדש / משלוח חדש (מתוך "update") */
+  changes: { price: number; shipping: number }
+  /** מתי נמשכו לאחרונה המחירים מ-eBay (הכי מאוחר) */
+  lastEbayFetch: string | null
 }
 
 export interface ShippingSyncResult extends ShippingSyncPlan {
@@ -40,13 +51,16 @@ export interface ShippingSyncResult extends ShippingSyncPlan {
 
 type WooMeta = { key: string; value: unknown }
 
-async function readStoreMeta(ids: number[], onProgress?: (p: ImportProgress) => void): Promise<Map<number, Map<string, string>>> {
-  const out = new Map<number, Map<string, string>>()
+type StoreProduct = { price: string; meta: Map<string, string> }
+
+async function readStoreMeta(ids: number[], onProgress?: (p: ImportProgress) => void): Promise<Map<number, StoreProduct>> {
+  const out = new Map<number, StoreProduct>()
   for (let i = 0; i < ids.length; i += READ_PAGE) {
     const chunk = ids.slice(i, i + READ_PAGE)
-    // status=any: גם טיוטות. _fields מצמצם את התשובה ל-id + meta
-    const { data } = await wooGet<{ id: number; meta_data?: WooMeta[] }[]>('products', { include: chunk.join(','), per_page: READ_PAGE, status: 'any', _fields: 'id,meta_data' })
-    for (const p of data) out.set(p.id, new Map((p.meta_data ?? []).map((m) => [m.key, typeof m.value === 'string' ? m.value : JSON.stringify(m.value)])))
+    // status=any: גם טיוטות. _fields מצמצם את התשובה ל-id + מחיר + meta
+    const { data } = await wooGet<{ id: number; regular_price?: string; meta_data?: WooMeta[] }[]>('products', { include: chunk.join(','), per_page: READ_PAGE, status: 'any', _fields: 'id,regular_price,meta_data' })
+    for (const p of data)
+      out.set(p.id, { price: p.regular_price ?? '', meta: new Map((p.meta_data ?? []).map((m) => [m.key, typeof m.value === 'string' ? m.value : JSON.stringify(m.value)])) })
     onProgress?.({ phase: 'pages', done: Math.min(i + READ_PAGE, ids.length), total: ids.length })
   }
   return out
@@ -69,6 +83,13 @@ function sameMeta(have: string | undefined, want: string): boolean {
   }
 }
 
+/** המחיר לשליחה לחנות, אם הוא שונה ממה שבחנות. מחיר חסר / לא חיובי במערכת — לא נוגעים. */
+export function priceToSend(system: string | null, store: string): string | null {
+  const n = Number(system)
+  if (system === null || !Number.isFinite(n) || n <= 0) return null
+  return store !== '' && Number(store) === n ? null : n.toFixed(2)
+}
+
 async function plan(onProgress?: (p: ImportProgress) => void) {
   const rows = await db
     .select({
@@ -77,6 +98,7 @@ async function plan(onProgress?: (p: ImportProgress) => void) {
       sku: schema.channelMappings.sku,
       wooProductId: schema.channelMappings.wooProductId,
       shippingCosts: schema.products.shippingCosts,
+      price: schema.products.price,
     })
     .from(schema.products)
     .innerJoin(schema.channelMappings, eq(schema.channelMappings.productId, schema.products.id))
@@ -86,26 +108,43 @@ async function plan(onProgress?: (p: ImportProgress) => void) {
   onProgress?.({ phase: 'pages', done: 0, total: rows.length })
   const store = await readStoreMeta(rows.map((r) => r.wooProductId!), onProgress)
 
-  const items: (ShippingSyncItem & { meta: { key: string; value: string }[] })[] = []
+  const items: (ShippingSyncItem & { meta: { key: string; value: string }[]; sendPrice: string | null })[] = []
   for (const r of rows) {
     const meta = shippingMeta(r.shippingCosts)
     const next = meta.length ? { us: meta.find((m) => m.key === '_ship_us')!.value, intl: meta.find((m) => m.key === '_ship_intl')!.value } : null
     const have = store.get(r.wooProductId!)
-    const current = have && (have.has('_ship_us') || have.has('_ship_intl')) ? { us: have.get('_ship_us') ?? '', intl: have.get('_ship_intl') ?? '' } : null
-    const status: ShippingSyncStatus = !have ? 'missing' : !meta.length ? 'no_data' : meta.every((m) => sameMeta(have.get(m.key), m.value)) ? 'same' : 'update'
-    items.push({ productId: r.productId, title: r.title, sku: r.sku, wooProductId: r.wooProductId!, status, current, next, meta })
+    const current = have && (have.meta.has('_ship_us') || have.meta.has('_ship_intl')) ? { us: have.meta.get('_ship_us') ?? '', intl: have.meta.get('_ship_intl') ?? '' } : null
+    const shipping = !!have && meta.length > 0 && !meta.every((m) => sameMeta(have.meta.get(m.key), m.value))
+    const sendPrice = have ? priceToSend(r.price, have.price) : null
+    // "no_data" = אין מחירי משלוח מ-eBay ואין מחיר לעדכן
+    const status: ShippingSyncStatus = !have ? 'missing' : shipping || sendPrice !== null ? 'update' : !meta.length ? 'no_data' : 'same'
+    items.push({
+      productId: r.productId,
+      title: r.title,
+      sku: r.sku,
+      wooProductId: r.wooProductId!,
+      status,
+      current,
+      next,
+      price: sendPrice !== null ? { current: have!.price, next: sendPrice } : null,
+      shipping,
+      meta: shipping ? meta : [],
+      sendPrice,
+    })
   }
   const counts = { update: 0, same: 0, no_data: 0, missing: 0 }
   for (const i of items) counts[i.status]++
-  return { items, counts }
+  const changes = { price: items.filter((i) => i.price).length, shipping: items.filter((i) => i.shipping).length }
+  const [{ at }] = await db.select({ at: max(schema.products.shippingCostsFetchedAt) }).from(schema.products)
+  return { items, counts, changes, lastEbayFetch: at ? new Date(at).toISOString() : null }
 }
 
-const strip = (items: (ShippingSyncItem & { meta?: unknown })[]): ShippingSyncItem[] =>
-  items.map((i) => ({ productId: i.productId, title: i.title, sku: i.sku, wooProductId: i.wooProductId, status: i.status, current: i.current, next: i.next }))
+const strip = (items: (ShippingSyncItem & { meta?: unknown; sendPrice?: unknown })[]): ShippingSyncItem[] =>
+  items.map((i) => ({ productId: i.productId, title: i.title, sku: i.sku, wooProductId: i.wooProductId, status: i.status, current: i.current, next: i.next, price: i.price, shipping: i.shipping }))
 
 export async function previewWooShipping(onProgress?: (p: ImportProgress) => void): Promise<ShippingSyncPlan> {
   const p = await plan(onProgress)
-  return { items: strip(p.items), counts: p.counts }
+  return { items: strip(p.items), counts: p.counts, changes: p.changes, lastEbayFetch: p.lastEbayFetch }
 }
 
 export async function pushWooShipping(onProgress?: (p: ImportProgress) => void): Promise<ShippingSyncResult> {
@@ -116,12 +155,15 @@ export async function pushWooShipping(onProgress?: (p: ImportProgress) => void):
     const todo = p.items.filter((i) => i.status === 'update')
     const failed: ShippingSyncResult['failed'] = []
     let updated = 0
+    const priceLog: (typeof schema.syncLog.$inferInsert)[] = []
     onProgress?.({ phase: 'writing', done: 0, total: todo.length })
 
     for (let i = 0; i < todo.length; i += WRITE_BATCH) {
       const chunk = todo.slice(i, i + WRITE_BATCH)
-      // רק id + meta_data. WooCommerce מעדכן meta לפי key ולא נוגע בשאר השדות
-      const body = { update: chunk.map((c) => ({ id: c.wooProductId, meta_data: c.meta })) }
+      // רק id + מה שהשתנה (regular_price ו/או meta_data). WooCommerce מעדכן meta לפי key ולא נוגע בשאר השדות
+      const body = {
+        update: chunk.map((c) => ({ id: c.wooProductId, ...(c.sendPrice !== null ? { regular_price: c.sendPrice } : {}), ...(c.meta.length ? { meta_data: c.meta } : {}) })),
+      }
       let results: ({ id?: number; error?: { message?: string } } | undefined)[]
       try {
         const r = await wooRequest<{ update?: { id?: number; error?: { message?: string } }[] }>('POST', 'products/batch', { body })
@@ -136,15 +178,17 @@ export async function pushWooShipping(onProgress?: (p: ImportProgress) => void):
         if (res?.id && !res.error) {
           updated++
           c.status = 'same'
+          if (c.price) priceLog.push({ runId, job: WOO_SHIPPING_JOB, channel: 'woo', action: 'update_price', productId: c.productId, success: true, details: { sku: c.sku, wooProductId: c.wooProductId, from: c.price.current, to: c.price.next } })
         } else {
           const error = res?.error?.message ?? 'החנות לא אישרה את העדכון'
           failed.push({ productId: c.productId, sku: c.sku, error })
-          await writeSyncLog({ runId, job: WOO_SHIPPING_JOB, channel: 'woo', action: 'update_shipping', productId: c.productId, success: false, error, details: { sku: c.sku, wooProductId: c.wooProductId } })
+          await writeSyncLog({ runId, job: WOO_SHIPPING_JOB, channel: 'woo', action: 'update_price_shipping', productId: c.productId, success: false, error, details: { sku: c.sku, wooProductId: c.wooProductId, price: c.price, shipping: c.shipping } })
         }
       }
       onProgress?.({ phase: 'writing', done: Math.min(i + WRITE_BATCH, todo.length), total: todo.length })
     }
 
+    await writeSyncLog(priceLog)
     await writeSyncLog({
       runId,
       job: WOO_SHIPPING_JOB,
@@ -152,9 +196,9 @@ export async function pushWooShipping(onProgress?: (p: ImportProgress) => void):
       action: 'run',
       success: failed.length === 0,
       error: failed.length ? `${failed.length} מוצרים לא עודכנו` : null,
-      details: { planned: todo.length, updated, failed: failed.length, same: p.counts.same, noData: p.counts.no_data, missing: p.counts.missing },
+      details: { planned: todo.length, updated, failed: failed.length, prices: p.changes.price, shipping: p.changes.shipping, same: p.counts.same, noData: p.counts.no_data, missing: p.counts.missing },
       durationMs: Date.now() - started,
     })
-    return { runId, items: strip(p.items), counts: p.counts, updated, failed }
+    return { runId, items: strip(p.items), counts: p.counts, changes: p.changes, lastEbayFetch: p.lastEbayFetch, updated, failed }
   })
 }

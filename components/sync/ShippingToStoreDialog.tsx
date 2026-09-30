@@ -1,15 +1,16 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { AlertCircle } from 'lucide-react'
+import { AlertCircle, RefreshCw } from 'lucide-react'
 import { api, announceDataChanged, ApiError } from './api'
-import { money, num } from './format'
-import type { BackgroundRun, ShippingSyncItem, ShippingSyncPlan, ShippingSyncResult } from './types'
+import { ago, dateTime, money, num } from './format'
+import type { BackgroundRun, EbayPricesResult, ShippingSyncItem, ShippingSyncPlan, ShippingSyncResult } from './types'
 import { Modal, Pill, Spin, useToast } from './ui'
 
 /**
- * מחירי המשלוח מ-eBay → המוצרים שכבר בחנות. קודם תצוגה מקדימה (קריאה בלבד מהחנות),
- * ורק אחרי אישור: עדכון שדות המשלוח בלבד. מחיר, מלאי, תיאור ותמונות לא משתנים.
+ * מחיר המוצר ומחירי המשלוח → המוצרים שכבר בחנות. קודם תצוגה מקדימה (קריאה בלבד מהחנות),
+ * ורק אחרי אישור: עדכון המחיר ו/או שדות המשלוח שהשתנו. מלאי, תיאור ותמונות לא משתנים.
+ * "משיכה עכשיו מ-eBay" מרענן את המחירים במערכת לפני התצוגה המקדימה (אחרת — מהמשיכה של הבוקר).
  */
 export function ShippingToStoreDialog({ onClose }: { onClose: () => void }) {
   const toast = useToast()
@@ -17,6 +18,8 @@ export function ShippingToStoreDialog({ onClose }: { onClose: () => void }) {
   const [plan, setPlan] = useState<ShippingSyncPlan | null>(null)
   const [result, setResult] = useState<ShippingSyncResult | null>(null)
   const [error, setError] = useState('')
+  /** תוצאת "משיכה עכשיו מ-eBay" כשהייתה שגיאה — מוצג בחלון, בלי לשנות את כפתור העדכון */
+  const [refreshError, setRefreshError] = useState('')
   const timer = useRef<number>(0)
 
   const poll = useCallback((runId: string, onFinish: (r: BackgroundRun) => void) => {
@@ -36,14 +39,21 @@ export function ShippingToStoreDialog({ onClose }: { onClose: () => void }) {
   }, [])
 
   const start = useCallback(
-    async (mode: 'preview' | 'update') => {
+    async function go(mode: 'refresh' | 'preview' | 'update'): Promise<void> {
       setError('')
       const finish = (r: BackgroundRun) => {
         if (r.kind === 'woo-shipping-preview') return setPlan(r.result as ShippingSyncPlan)
+        if (r.kind === 'ebay-prices') {
+          const e = r.result as EbayPricesResult
+          setRefreshError(e.errors.length ? `המשיכה מ-eBay לא הושלמה (${e.errors[0].error}). המחירים שמוצגים — מהמשיכה הקודמת.` : '')
+          toast(e.errors.length ? `המשיכה מ-eBay הסתיימה עם ${num(e.errors.length)} שגיאות — פרטים בלוג` : `נמשכו מ-eBay ${num(e.updated)} מוצרים · ${num(e.priceChanged)} מחירים השתנו`, e.errors.length ? 'bad' : 'ok')
+          setPlan(null)
+          return void go('preview')
+        }
         const res = r.result as ShippingSyncResult
         setResult(res)
         announceDataChanged()
-        toast(res.failed.length ? `עודכנו ${num(res.updated)} מוצרים, ${num(res.failed.length)} נכשלו — פרטים בלוג` : `מחירי המשלוח עודכנו ב-${num(res.updated)} מוצרים בחנות`, res.failed.length ? 'bad' : 'ok')
+        toast(res.failed.length ? `עודכנו ${num(res.updated)} מוצרים, ${num(res.failed.length)} נכשלו — פרטים בלוג` : `עודכנו ${num(res.updated)} מוצרים בחנות`, res.failed.length ? 'bad' : 'ok')
       }
       try {
         const { runId } = await api.post<{ runId: string }>('/api/sync/woo/shipping', { mode })
@@ -51,7 +61,7 @@ export function ShippingToStoreDialog({ onClose }: { onClose: () => void }) {
       } catch (e) {
         if (e instanceof ApiError && e.status === 409) {
           const current = await api.get<BackgroundRun>('/api/ebay/import').catch(() => null)
-          if (current?.id && (current.kind === 'woo-shipping-preview' || current.kind === 'woo-shipping')) return poll(current.id, finish)
+          if (current?.id && (current.kind === 'woo-shipping-preview' || current.kind === 'woo-shipping' || current.kind === 'ebay-prices')) return poll(current.id, finish)
           return setError(current?.id ? 'כבר רצה פעולה אחרת (ייבוא או שליחה לחנות). נסה שוב כשהיא תסתיים' : 'הפעולה הקודמת הסתיימה הרגע — נסה שוב')
         }
         setError(e instanceof Error ? e.message : 'הפעולה נכשלה')
@@ -71,6 +81,7 @@ export function ShippingToStoreDialog({ onClose }: { onClose: () => void }) {
 
   const running = run?.status === 'running'
   const updating = running && run?.kind === 'woo-shipping'
+  const refreshing = running && run?.kind === 'ebay-prices'
   const p = run?.progress
   const pct = p && p.total ? Math.round((p.done / p.total) * 100) : 0
   const shown = result ?? plan
@@ -82,7 +93,7 @@ export function ShippingToStoreDialog({ onClose }: { onClose: () => void }) {
     </button>
   ) : (
     <>
-      <button type="button" className="ax-btn" onClick={onClose} disabled={updating}>
+      <button type="button" className="ax-btn" onClick={onClose} disabled={updating || refreshing}>
         ביטול
       </button>
       {error ? (
@@ -101,10 +112,35 @@ export function ShippingToStoreDialog({ onClose }: { onClose: () => void }) {
   const listed = (shown?.items ?? []).filter((i) => i.status !== 'same' || result?.failed.some((f) => f.productId === i.productId))
 
   return (
-    <Modal title="מחירי משלוח למוצרים שבחנות" onClose={updating ? () => {} : onClose} foot={foot} maxWidth={620}>
+    <Modal title="מחירים ומשלוח למוצרים שבחנות" onClose={updating || refreshing ? () => {} : onClose} foot={foot} maxWidth={620}>
       <p style={{ margin: 0, color: 'var(--ax-text2)' }}>
-        מעדכן במוצרים שבחנות <strong>רק</strong> את מחירי המשלוח מ-eBay (ארה״ב ושאר העולם). מחיר, מלאי, תיאור ותמונות לא משתנים. שום דבר לא משתנה ב-eBay.
+        מעדכן במוצרים שבחנות <strong>רק</strong> את מחיר המוצר ואת מחירי המשלוח (ארה״ב ושאר העולם), כמו ב-eBay — ורק מה שהשתנה. מלאי, תיאור ותמונות לא משתנים. שום דבר לא משתנה ב-eBay.
       </p>
+
+      {refreshError && !result && (
+        <div className="ax-alert is-warn" role="alert">
+          <AlertCircle size={18} aria-hidden="true" />
+          <span>{refreshError}</span>
+        </div>
+      )}
+
+      {!result && (
+        <div className="ax-inner" style={{ padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <span className="ax-hint" style={{ flex: '1 1 220px' }}>
+            {plan?.lastEbayFetch ? (
+              <>
+                המחירים נמשכו מ-eBay <span title={dateTime(plan.lastEbayFetch)}>{ago(plan.lastEbayFetch)}</span>. משיכה אוטומטית כל בוקר.
+              </>
+            ) : (
+              'המחירים נמשכים מ-eBay כל בוקר.'
+            )}
+          </span>
+          <button type="button" className="ax-btn is-sm" disabled={running} onClick={() => start('refresh')}>
+            {refreshing ? <Spin /> : <RefreshCw size={16} aria-hidden="true" />}
+            {refreshing ? 'מושך מ-eBay…' : 'משיכה עכשיו מ-eBay'}
+          </button>
+        </div>
+      )}
 
       {error && (
         <div className="ax-alert is-bad" role="alert">
@@ -117,7 +153,11 @@ export function ShippingToStoreDialog({ onClose }: { onClose: () => void }) {
         <div className="ax-inner" style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }} role="status" aria-live="polite">
           <span style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--ax-text2)' }}>
             <Spin size={18} />
-            {!p || p.phase === 'pages' ? `קורא את המוצרים מהחנות${p?.total ? ` — ${num(p.done)} מתוך ${num(p.total)}` : '…'}` : `מעדכן בחנות — ${num(p.done)} מתוך ${num(p.total)}`}
+            {refreshing
+              ? `קורא מחירים מ-eBay${p?.total ? ` — דף ${num(p.done)} מתוך ${num(p.total)}` : '…'} (כמה דקות)`
+              : !p || p.phase === 'pages'
+                ? `קורא את המוצרים מהחנות${p?.total ? ` — ${num(p.done)} מתוך ${num(p.total)}` : '…'}`
+                : `מעדכן בחנות — ${num(p.done)} מתוך ${num(p.total)}`}
           </span>
           {p && p.total > 0 && (
             <div className="ax-bar">
@@ -134,10 +174,13 @@ export function ShippingToStoreDialog({ onClose }: { onClose: () => void }) {
                 {result.failed.length > 0 && <Row label="נכשלו" value={num(result.failed.length)} tone="bad" />}
               </>
             ) : (
-              <Row label="יתעדכנו" value={num(shown.counts.update)} strong />
+              <>
+                <Row label="יתעדכנו" value={num(shown.counts.update)} strong />
+                {shown.counts.update > 0 && <Row label="מתוכם: מחיר חדש · משלוח חדש" value={`${num(shown.changes.price)} · ${num(shown.changes.shipping)}`} />}
+              </>
             )}
             {shown.counts.same > 0 && !result && <Row label="כבר מעודכנים" value={num(shown.counts.same)} />}
-            {shown.counts.no_data > 0 && <Row label="אין מחירי משלוח מ-eBay (לא ישתנו)" value={num(shown.counts.no_data)} tone="warn" />}
+            {shown.counts.no_data > 0 && <Row label="אין מחירי משלוח מ-eBay והמחיר זהה (לא ישתנו)" value={num(shown.counts.no_data)} tone="warn" />}
             {shown.counts.missing > 0 && <Row label="לא נמצאו בחנות" value={num(shown.counts.missing)} tone="warn" />}
           </div>
           {listed.length > 0 && <ItemList items={listed} failed={result?.failed} done={!!result} />}
@@ -176,9 +219,24 @@ function ItemList({ items, failed, done }: { items: ShippingSyncItem[]; failed?:
               <span style={{ display: 'block', overflowWrap: 'anywhere' }}>{i.title}</span>
               <span className="ax-hint" style={{ display: 'block', color: err ? 'var(--ax-bad)' : undefined }}>
                 {err ??
-                  (i.next ? (
+                  (i.price || (i.shipping && i.next) ? (
                     <>
-                      ארה״ב {shipValue(i.current?.us)} ← <b>{shipValue(i.next.us)}</b> · עולם {shipValue(i.current?.intl)} ← <b>{shipValue(i.next.intl)}</b>
+                      {i.price && (
+                        <span style={{ display: 'block' }}>
+                          מחיר {money(i.price.current)} ← <b>{money(i.price.next)}</b>
+                        </span>
+                      )}
+                      {i.shipping && i.next && (
+                        <span style={{ display: 'block' }}>
+                          {i.current?.us === i.next.us && i.current?.intl === i.next.intl ? (
+                            <>משלוח ללא שינוי במחיר — פרטי השירותים יתעדכנו</>
+                          ) : (
+                            <>
+                              ארה״ב {shipValue(i.current?.us)} ← <b>{shipValue(i.next.us)}</b> · עולם {shipValue(i.current?.intl)} ← <b>{shipValue(i.next.intl)}</b>
+                            </>
+                          )}
+                        </span>
+                      )}
                     </>
                   ) : (
                     <span className="ax-num ax-ltr">{i.sku}</span>

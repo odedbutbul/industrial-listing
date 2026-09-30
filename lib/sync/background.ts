@@ -5,7 +5,7 @@ import type { ImportProgress } from './import-ebay'
 // בקשת HTTP ארוכה נחתכת ע"י Cloudflare אחרי ~100 שניות (524) — לכן לא מחכים לה.
 // המצב נשמר בזיכרון (תהליך PM2 יחיד). הנעילה האמיתית נגד ריצה כפולה היא ה-advisory lock ב-DB.
 
-export type RunKind = 'import-preview' | 'import' | 'enrich' | 'orders-poll' | 'woo-preview' | 'woo-create' | 'woo-shipping-preview' | 'woo-shipping' | 'analytics-fetch'
+export type RunKind = 'import-preview' | 'import' | 'enrich' | 'orders-poll' | 'woo-preview' | 'woo-create' | 'woo-shipping-preview' | 'woo-shipping' | 'ebay-prices' | 'analytics-fetch'
 
 export interface BackgroundRun {
   id: string
