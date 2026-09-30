@@ -326,6 +326,8 @@ export async function enrichProductDetails(opts: { limit: number; concurrency?: 
               conditionDescription: d.conditionDescription,
               itemSpecifics: d.itemSpecifics,
               shipping: d.shipping,
+              shippingCosts: d.shippingCosts,
+              shippingCostsFetchedAt: new Date(),
               location: d.location,
               country: d.country,
               ebayListingStartedAt: d.listingStartedAt ? new Date(d.listingStartedAt) : null,

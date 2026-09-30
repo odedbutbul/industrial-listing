@@ -34,6 +34,28 @@ export interface ProductRow {
   lastSyncedAt: string | null
   syncEnabled: boolean
   hasDetails: boolean
+  /** ארה"ב + שאר העולם בלבד. null = מחירי המשלוח עוד לא נמשכו */
+  ship: Pick<ShippingCosts, 'us' | 'intl' | 'currency' | 'globalShipping'> | null
+}
+
+export interface ShippingOption {
+  service: string | null
+  cost: string | null
+  additionalCost: string | null
+  free: boolean
+  shipTo: string[]
+}
+
+export interface ShippingCosts {
+  type: string | null
+  currency: string | null
+  us: ShippingOption | null
+  intl: ShippingOption | null
+  domestic: ShippingOption[]
+  international: ShippingOption[]
+  globalShipping: boolean
+  excludeLocations: string[]
+  policyName: string | null
 }
 
 export interface LedgerEntry {
@@ -88,6 +110,8 @@ export interface ProductDetail {
       dimensionUnit: string | null
       packageType: string | null
     } | null
+    shippingCosts: ShippingCosts | null
+    shippingCostsFetchedAt: string | null
     location: string | null
     country: string | null
     ebayListingStartedAt: string | null

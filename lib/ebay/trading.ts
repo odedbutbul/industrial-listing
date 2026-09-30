@@ -14,7 +14,8 @@ const parser = new XMLParser({
   attributeNamePrefix: '@_',
   parseTagValue: false,
   parseAttributeValue: false,
-  isArray: (name) => ['Item', 'PictureURL', 'NameValueList', 'Value', 'Errors', 'Variation'].includes(name),
+  isArray: (name) =>
+    ['Item', 'PictureURL', 'NameValueList', 'Value', 'Errors', 'Variation', 'ShippingServiceOptions', 'InternationalShippingServiceOption', 'ShipToLocation', 'ExcludeShipToLocation'].includes(name),
 })
 
 export class EbayApiError extends Error {
@@ -147,6 +148,109 @@ export async function getActiveListingsPage(page: number, perPage = 200): Promis
   }
 }
 
+// ── מחירי משלוח (ShippingDetails) ─────────────────────────────────────────────
+
+export interface ShippingOption {
+  service: string | null
+  /** מחיר לפריט הראשון. null = מחושב אצל eBay לפי מיקום הקונה (Calculated) */
+  cost: string | null
+  /** מחיר לכל פריט נוסף באותה הזמנה */
+  additionalCost: string | null
+  free: boolean
+  /** בינלאומי בלבד: לאן השירות שולח (Worldwide, Europe, CA...) */
+  shipTo: string[]
+}
+
+export interface ShippingCosts {
+  /** Flat · Calculated · FlatDomesticCalculatedInternational · CalculatedDomesticFlatInternational · Freight · NotSpecified */
+  type: string | null
+  currency: string | null
+  /** השירות הראשון לארה"ב (עדיפות 1) */
+  us: ShippingOption | null
+  /** השירות הבינלאומי הראשון — "שאר העולם" */
+  intl: ShippingOption | null
+  domestic: ShippingOption[]
+  international: ShippingOption[]
+  /** eBay International Shipping / Global Shipping Program — eBay מחשב את המחיר לחו"ל */
+  globalShipping: boolean
+  excludeLocations: string[]
+  /** שם מדיניות המשלוח (Business Policy), אם יש */
+  policyName: string | null
+}
+
+function shippingOption(o: XmlNode, international: boolean): { priority: number; option: ShippingOption; currency: string | null } {
+  const cost = money(o.ShippingServiceCost)
+  const additional = money(o.ShippingServiceAdditionalCost)
+  const free = String(o.FreeShipping ?? '') === 'true' || (cost.amount !== null && Number(cost.amount) === 0)
+  return {
+    priority: int(o.ShippingServicePriority) ?? 99,
+    currency: cost.currency ?? additional.currency,
+    option: {
+      service: str(o.ShippingService),
+      cost: cost.amount,
+      additionalCost: additional.amount,
+      free,
+      shipTo: international ? ((o.ShipToLocation as unknown[] | undefined) ?? []).map(String).filter(Boolean) : [],
+    },
+  }
+}
+
+/** ShippingDetails של מודעה → מחיר לארה"ב ומחיר לשאר העולם. null = אין פרטי משלוח בתשובה. */
+export function parseShippingCosts(item: XmlNode): ShippingCosts | null {
+  const d = item.ShippingDetails as XmlNode | undefined
+  if (!d) return null
+  const dom = ((d.ShippingServiceOptions as XmlNode[] | undefined) ?? []).map((o) => shippingOption(o, false)).sort((a, b) => a.priority - b.priority)
+  const intl = ((d.InternationalShippingServiceOption as XmlNode[] | undefined) ?? []).map((o) => shippingOption(o, true)).sort((a, b) => a.priority - b.priority)
+  const profile = ((item.SellerProfiles as XmlNode | undefined)?.SellerShippingProfile ?? {}) as XmlNode
+  return {
+    type: str(d.ShippingType),
+    currency: [...dom, ...intl].find((o) => o.currency)?.currency ?? null,
+    us: dom[0]?.option ?? null,
+    intl: intl[0]?.option ?? null,
+    domestic: dom.map((o) => o.option),
+    international: intl.map((o) => o.option),
+    globalShipping: String(d.GlobalShipping ?? '') === 'true',
+    excludeLocations: ((d.ExcludeShipToLocation as unknown[] | undefined) ?? []).map(String).filter(Boolean),
+    policyName: str(profile.ShippingProfileName),
+  }
+}
+
+// ── GetSellerList: מחירי משלוח לכל המודעות הפעילות ─────────────────────────────
+
+export interface SellerListShippingPage {
+  items: { itemId: string; sku: string | null; shippingCosts: ShippingCosts | null }[]
+  totalPages: number
+  totalEntries: number
+}
+
+/**
+ * מודעות שמסתיימות מעכשיו ועד 119 יום (eBay מגביל ל-120) — זה כל המודעות הפעילות:
+ * מודעת GTC מתחדשת כל 30 יום, אז מועד הסיום שלה תמיד בחלון.
+ * OutputSelector מצמצם את התשובה ל-ItemID, SKU ופרטי המשלוח (בלי תיאורים).
+ */
+export async function getSellerListShippingPage(page: number, perPage = 200, now = new Date()): Promise<SellerListShippingPage> {
+  const to = new Date(now.getTime() + 119 * 86400_000)
+  const r = await tradingCall(
+    'GetSellerList',
+    `  <EndTimeFrom>${now.toISOString()}</EndTimeFrom>
+  <EndTimeTo>${to.toISOString()}</EndTimeTo>
+  <DetailLevel>ReturnAll</DetailLevel>
+  <Pagination><EntriesPerPage>${perPage}</EntriesPerPage><PageNumber>${page}</PageNumber></Pagination>
+  <OutputSelector>ItemArray.Item.ItemID</OutputSelector>
+  <OutputSelector>ItemArray.Item.SKU</OutputSelector>
+  <OutputSelector>ItemArray.Item.ShippingDetails</OutputSelector>
+  <OutputSelector>ItemArray.Item.SellerProfiles</OutputSelector>
+  <OutputSelector>PaginationResult</OutputSelector>`,
+  )
+  const pagination = (r.PaginationResult ?? {}) as XmlNode
+  const rawItems = (((r.ItemArray ?? {}) as XmlNode).Item as XmlNode[] | undefined) ?? []
+  return {
+    totalPages: int(pagination.TotalNumberOfPages) ?? 1,
+    totalEntries: int(pagination.TotalNumberOfEntries) ?? rawItems.length,
+    items: rawItems.map((i) => ({ itemId: String(i.ItemID), sku: str(i.SKU), shippingCosts: parseShippingCosts(i) })),
+  }
+}
+
 // ── GetItem ──────────────────────────────────────────────────────────────────
 
 export interface EbayItemDetail {
@@ -185,6 +289,8 @@ export interface EbayItemDetail {
     dimensionUnit: string | null
     packageType: string | null
   } | null
+  /** מחירי משלוח לארה"ב ולשאר העולם (ShippingDetails) */
+  shippingCosts: ShippingCosts | null
   location: string | null
   country: string | null
   listingStartedAt: string | null
@@ -280,6 +386,7 @@ export async function getItem(itemId: string): Promise<EbayItemDetail> {
         packageType: str(pkg.ShippingPackage),
       }
     })(),
+    shippingCosts: parseShippingCosts(item),
     location: str(item.Location),
     country: str(item.Country),
     listingStartedAt: str((item.ListingDetails as XmlNode | undefined)?.StartTime),

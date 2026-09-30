@@ -1,4 +1,5 @@
 import { sql } from 'drizzle-orm'
+import type { ShippingCosts } from '@/lib/ebay/trading'
 import {
   bigint,
   bigserial,
@@ -99,6 +100,9 @@ export const products = pgTable('products', {
     dimensionUnit: string | null
     packageType: string | null
   } | null>(),
+  /** מחירי משלוח מ-eBay: ארה"ב + שאר העולם + כל השירותים (ShippingDetails) */
+  shippingCosts: jsonb('shipping_costs').$type<ShippingCosts | null>(),
+  shippingCostsFetchedAt: timestamp('shipping_costs_fetched_at', { withTimezone: true }),
   location: text('location'),
   country: text('country'),
   ebayListingStartedAt: timestamp('ebay_listing_started_at', { withTimezone: true }),

@@ -3,9 +3,9 @@
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useCallback, useEffect, useState } from 'react'
-import { Download, ImageOff, Search, Store } from 'lucide-react'
+import { Download, FileDown, ImageOff, Search, Store } from 'lucide-react'
 import { api, openImport } from '@/components/sync/api'
-import { MISMATCH, money, num, stockStatus, SYNC_OFF, WOO_NOT_LINKED } from '@/components/sync/format'
+import { MISMATCH, money, num, shipPrice, shipIsMoney, stockStatus, SYNC_OFF, WOO_NOT_LINKED } from '@/components/sync/format'
 import { useDataChanged } from '@/components/sync/hooks'
 import type { ProductRow } from '@/components/sync/types'
 import { SendToStoreDialog } from '@/components/sync/SendToStoreDialog'
@@ -114,6 +114,10 @@ function Products() {
           <h1 className="ax-h1">מוצרים</h1>
           <p className="ax-sub">{!data ? ' ' : filtered ? `${num(data.total)} תוצאות` : `${num(data.total)} מוצרים · ${num(data.inStock)} במלאי`}</p>
         </div>
+        <a className="ax-btn" href="/api/sync/products/shipping-csv" download>
+          <FileDown size={18} aria-hidden="true" />
+          מחירי משלוח (CSV)
+        </a>
       </div>
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
@@ -179,7 +183,7 @@ function Products() {
           <section className="ax-card" aria-label="רשימת מוצרים">
             <div className="ax-only-desktop">
               <div className="ax-table-wrap">
-                <table className="ax-table" style={{ minWidth: 920 }}>
+                <table className="ax-table" style={{ minWidth: 1080 }}>
                   <thead>
                     <tr>
                       <th style={{ width: 44 }}>
@@ -191,6 +195,8 @@ function Products() {
                       <th>מלאי</th>
                       <th>ב-eBay</th>
                       <th>מחיר</th>
+                      <th>משלוח ארה״ב</th>
+                      <th>משלוח לעולם</th>
                       <th>האתר</th>
                       <th>סטטוס</th>
                     </tr>
@@ -229,6 +235,12 @@ function Products() {
                           </td>
                           <td style={{ whiteSpace: 'nowrap' }}>
                             <span className="ax-num">{money(r.price, r.currency)}</span>
+                          </td>
+                          <td style={{ whiteSpace: 'nowrap' }}>
+                            <span className={shipIsMoney(r.ship?.us) ? 'ax-num' : undefined}>{r.ship ? shipPrice(r.ship.us, r.ship.currency) : '—'}</span>
+                          </td>
+                          <td style={{ whiteSpace: 'nowrap' }}>
+                            <span className={shipIsMoney(r.ship?.intl) ? 'ax-num' : undefined}>{r.ship ? shipPrice(r.ship.intl, r.ship.currency, r.ship.globalShipping) : '—'}</span>
                           </td>
                           <td onClick={(e) => r.wooProductId && e.stopPropagation()}>{r.wooProductId ? <WooLink id={r.wooProductId} /> : <Pill t={WOO_NOT_LINKED[1]}>{WOO_NOT_LINKED[0]}</Pill>}</td>
                           <td>
@@ -272,6 +284,16 @@ function Products() {
                         </span>
                       </span>
                       <span className="ax-num">{money(r.price, r.currency)}</span>
+                      {r.ship && (
+                        <span>
+                          <bdi className="ax-muted">משלוח ארה״ב</bdi> <span className={shipIsMoney(r.ship.us) ? 'ax-num' : undefined}>{shipPrice(r.ship.us, r.ship.currency)}</span>
+                        </span>
+                      )}
+                      {r.ship && (
+                        <span>
+                          <bdi className="ax-muted">לעולם</bdi> <span className={shipIsMoney(r.ship.intl) ? 'ax-num' : undefined}>{shipPrice(r.ship.intl, r.ship.currency, r.ship.globalShipping)}</span>
+                        </span>
+                      )}
                       {r.wooProductId && (
                         <span>
                           <bdi className="ax-muted">בחנות</bdi> <WooLink id={r.wooProductId} />

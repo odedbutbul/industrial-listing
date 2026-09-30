@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { api } from '@/components/sync/api'
-import { ACTION_LABEL, ago, dateTime, JOB_LABEL, LEDGER_REASON, LEDGER_SOURCE, money, num, stockStatus, WOO_NOT_LINKED } from '@/components/sync/format'
+import { ACTION_LABEL, ago, dateTime, JOB_LABEL, LEDGER_REASON, LEDGER_SOURCE, money, num, shipPrice, shipIsMoney, stockStatus, WOO_NOT_LINKED } from '@/components/sync/format'
 import { useDataChanged } from '@/components/sync/hooks'
 import type { ProductDetail } from '@/components/sync/types'
 import { WooLink } from '@/components/sync/WooLink'
@@ -142,6 +142,8 @@ export default function ProductPage() {
           )}
         </div>
       </div>
+
+      <ShippingCard p={p} />
 
       <FullDetails p={p} />
 
@@ -344,5 +346,81 @@ function FullDetails({ p }: { p: ProductDetail['product'] }) {
         )}
       </div>
     </>
+  )
+}
+
+const SHIPPING_TYPE: Record<string, string> = {
+  Flat: 'מחיר קבוע',
+  Calculated: 'מחושב לפי הקונה',
+  FlatDomesticCalculatedInternational: 'קבוע בארה״ב · מחושב לחו״ל',
+  CalculatedDomesticFlatInternational: 'מחושב בארה״ב · קבוע לחו״ל',
+  Free: 'חינם',
+  Freight: 'הובלה (Freight)',
+  NotSpecified: 'לא הוגדר',
+}
+
+/** מחירי המשלוח מ-eBay: ארה״ב ושאר העולם, ומתחת כל השירותים שהוגדרו במודעה */
+function ShippingCard({ p }: { p: ProductDetail['product'] }) {
+  const c = p.shippingCosts
+  if (!c)
+    return (
+      <div className="ax-alert tone-gray">
+        <Info size={18} aria-hidden="true" />
+        <span>מחירי המשלוח של המודעה עוד לא נקראו מ-eBay. הם ייקראו בריצת מחירי המשלוח הבאה.</span>
+      </div>
+    )
+  const services = [
+    ...c.domestic.map((o) => ({ o, region: 'ארה״ב' })),
+    ...c.international.map((o) => ({ o, region: o.shipTo.length ? o.shipTo.join(', ') : 'בינלאומי' })),
+  ]
+  return (
+    <div className="ax-card">
+      <div className="ax-card-head">
+        <h2 className="ax-h2">מחירי משלוח</h2>
+        <span className="ax-muted" style={{ fontSize: 12.5 }}>
+          מ-eBay · <span className="ax-num">{dateTime(p.shippingCostsFetchedAt)}</span>
+        </span>
+      </div>
+      <div className="ax-card-pad" style={{ display: 'flex', gap: 12, flexWrap: 'wrap', paddingBottom: 8 }}>
+        <div className="ax-inner" style={{ flex: '1 1 200px', minWidth: 0, padding: 14, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span className="ax-kpi-label">לארה״ב</span>
+          <span className={shipIsMoney(c.us) ? 'ax-kpi-value' : 'ax-h2'}>{shipPrice(c.us, c.currency)}</span>
+          <span className="ax-hint ax-ltr" style={{ textAlign: 'start' }}>{c.us?.service ?? '—'}</span>
+        </div>
+        <div className="ax-inner" style={{ flex: '1 1 200px', minWidth: 0, padding: 14, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span className="ax-kpi-label">לשאר העולם</span>
+          <span className={shipIsMoney(c.intl) ? 'ax-kpi-value' : 'ax-h2'}>{shipPrice(c.intl, c.currency, c.globalShipping)}</span>
+          <span className="ax-hint ax-ltr" style={{ textAlign: 'start' }}>{c.intl?.service ?? (c.globalShipping ? 'eBay מחשב את המחיר לחו״ל' : 'אין משלוח לחו״ל')}</span>
+        </div>
+      </div>
+      <div className="ax-kv">
+        <span>סוג המשלוח</span>
+        <span>{c.type ? SHIPPING_TYPE[c.type] ?? c.type : '—'}</span>
+      </div>
+      {c.policyName && (
+        <div className="ax-kv">
+          <span>מדיניות משלוח</span>
+          <span className="ax-ltr">{c.policyName}</span>
+        </div>
+      )}
+      {services.map(({ o, region }, i) => (
+        <div key={i} className="ax-kv">
+          <span>
+            <span className="ax-ltr">{o.service ?? '—'}</span>
+            <span className="ax-muted" style={{ fontSize: 12.5 }}> · {region}</span>
+          </span>
+          <span className={shipIsMoney(o) ? 'ax-num' : undefined}>
+            {shipPrice(o, c.currency)}
+            {o.additionalCost !== null && !o.free && <span className="ax-muted"> · נוסף {money(o.additionalCost, c.currency ?? 'USD')}</span>}
+          </span>
+        </div>
+      ))}
+      {c.excludeLocations.length > 0 && (
+        <div className="ax-kv">
+          <span>לא נשלח אל</span>
+          <span className="ax-ltr" style={{ textAlign: 'end' }}>{c.excludeLocations.join(', ')}</span>
+        </div>
+      )}
+    </div>
   )
 }

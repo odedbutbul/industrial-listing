@@ -3,6 +3,7 @@ import { db, schema } from '@/lib/db/client'
 import { getConnectionStatus } from '@/lib/ebay/auth'
 import { missingEbayEnv } from '@/lib/ebay/config'
 import { ebayWritesEnabled } from '@/lib/ebay/guard'
+import type { ShippingCosts } from '@/lib/ebay/trading'
 import { IMPORT_JOB } from './import-ebay'
 
 // שאילתות קריאה למסכי /sync. קוראות רק מ-Postgres — שום קריאה ל-eBay.
@@ -91,6 +92,8 @@ export async function getOverview() {
 
 export const PRODUCTS_PAGE = 200
 
+type ShipSummary = Pick<ShippingCosts, 'us' | 'intl' | 'currency' | 'globalShipping'>
+
 export async function listProducts(opts: { q?: string; filter?: ProductFilter; offset?: number }) {
   const q = opts.q?.trim()
   const offset = Math.max(opts.offset ?? 0, 0)
@@ -116,6 +119,7 @@ export async function listProducts(opts: { q?: string; filter?: ProductFilter; o
       lastSyncedAt: channelMappings.lastSyncedAt,
       syncEnabled: channelMappings.syncEnabled,
       hasDetails: sql<boolean>`${products.detailsFetchedAt} is not null`,
+      ship: sql<ShipSummary | null>`case when ${products.shippingCosts} is null then null else jsonb_build_object('us', ${products.shippingCosts}->'us', 'intl', ${products.shippingCosts}->'intl', 'currency', ${products.shippingCosts}->'currency', 'globalShipping', ${products.shippingCosts}->'globalShipping') end`,
     })
     .from(products)
     .innerJoin(channelMappings, eq(channelMappings.productId, products.id))
@@ -335,4 +339,23 @@ export async function ordersMonthlySummary(opts: { channel?: OrderChannelFilter;
     otherCurrency: span?.otherCurrency ?? 0,
     timezone: MONTH_TZ,
   }
+}
+
+// ── מחירי משלוח — קובץ לכל המוצרים ───────────────────────────────────────────
+
+export async function listShippingCosts() {
+  return db
+    .select({
+      sku: channelMappings.sku,
+      ebayItemId: channelMappings.ebayItemId,
+      title: products.title,
+      price: products.price,
+      currency: products.currency,
+      shippingCosts: products.shippingCosts,
+      fetchedAt: products.shippingCostsFetchedAt,
+    })
+    .from(products)
+    .innerJoin(channelMappings, eq(channelMappings.productId, products.id))
+    .where(eq(products.archived, false))
+    .orderBy(channelMappings.sku)
 }

@@ -69,6 +69,7 @@ async function loadSources(ids: string[]) {
       ebayCategoryName: products.ebayCategoryName,
       itemSpecifics: products.itemSpecifics,
       ebayListingStartedAt: products.ebayListingStartedAt,
+      shippingCosts: products.shippingCosts,
       archived: products.archived,
       detailsFetchedAt: products.detailsFetchedAt,
       sku: channelMappings.sku,

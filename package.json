@@ -17,7 +17,8 @@
     "start:prod": "next start -H 127.0.0.1 -p ${PORT:-3141}",
     "job:poll-ebay-orders": "tsx jobs/poll-ebay-orders.ts",
     "job:fetch-analytics": "tsx jobs/fetch-analytics.ts",
-    "job:pull-leads": "tsx jobs/pull-leads.ts"
+    "job:pull-leads": "tsx jobs/pull-leads.ts",
+    "job:fetch-shipping": "tsx jobs/fetch-shipping.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.1",

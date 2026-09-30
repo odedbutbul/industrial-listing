@@ -57,6 +57,13 @@
       "when": 1790698078459,
       "tag": "0007_customers",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1790756787750,
+      "tag": "0008_shipping_costs",
+      "breakpoints": true
     }
   ]
 }

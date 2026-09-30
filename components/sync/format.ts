@@ -100,6 +100,7 @@ export const LEDGER_SOURCE: Record<string, string> = {
 export const JOB_LABEL: Record<string, string> = {
   'import-ebay': 'ייבוא מ-eBay',
   'enrich-ebay': 'פרטי מוצרים מ-eBay',
+  'shipping-costs': 'מחירי משלוח מ-eBay',
   'ebay-auth': 'חיבור eBay',
   'poll-ebay-orders': 'הזמנות מ-eBay',
   woo_products: 'שליחה לחנות',
@@ -112,6 +113,7 @@ export const ACTION_LABEL: Record<string, string> = {
   run: 'ריצה',
   import_item: 'ייבוא מוצר',
   get_item: 'קריאת מודעה',
+  get_seller_list: 'קריאת מחירי משלוח',
   qty_mismatch: 'פער כמות',
   skip_item: 'דילוג על מודעה',
   import_batch: 'שמירת מנה',
@@ -155,3 +157,14 @@ export function bytes(n: number): string {
   if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`
   return `${(n / 1024 / 1024).toFixed(1)} MB`
 }
+
+/** מחיר משלוח של שירות אחד: חינם / סכום / מחושב לפי הקונה / — */
+export function shipPrice(opt: { cost: string | null; free: boolean } | null | undefined, currency: string | null | undefined, globalShipping = false): string {
+  if (!opt) return globalShipping ? 'eBay International' : '—'
+  if (opt.free) return 'חינם'
+  if (opt.cost === null) return 'מחושב לפי הקונה'
+  return money(opt.cost, currency ?? 'USD')
+}
+
+/** האם shipPrice יחזיר סכום (גופן מספרים) ולא מילים */
+export const shipIsMoney = (opt: { cost: string | null; free: boolean } | null | undefined) => !!opt && !opt.free && opt.cost !== null

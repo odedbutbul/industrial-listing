@@ -117,6 +117,7 @@
 | `pa_condition` (גלובלי) | `condition_id` | סנכרון | כן + פילטר |
 | meta `_mpn`, `_mpn_norm` | `mpn` | סנכרון | כן + חיפוש |
 | meta `_condition_notes` | `condition_description` | סנכרון | רק כשיש ערך |
+| meta `_ship_us`, `_ship_us_additional`, `_ship_intl`, `_ship_intl_additional`, `_ship_currency`, `_sync_shipping` (JSON) | `shipping_costs` (ShippingDetails של eBay) | סנכרון | לשיטת המשלוח באתר. ערך: סכום, `0` = חינם, `calculated` = אין מחיר קבוע, ריק = אין שירות |
 | מאפיינים מקומיים | כל `item_specifics` חוץ מ-Brand/MPN | סנכרון | טבלת מאפיינים |
 | `product_cat` | `categorize.ts` (סוג מוצר) | סנכרון | כן |
 | meta `_sync_ebay_item_id`, `_sync_ebay_category`, `_sync_listed_at`, `_sync_updated_at` | מערכת הסנכרון | סנכרון | **לא** (מוסתרים, עם קו תחתון) |

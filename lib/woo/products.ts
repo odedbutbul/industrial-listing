@@ -1,3 +1,4 @@
+import type { ShippingCosts, ShippingOption } from '@/lib/ebay/trading'
 import { wooGet, wooRequest } from './client'
 import { cleanDescription, ebayLargeImage } from './clean-description'
 import { CATEGORY_TREE, categorize } from './categorize'
@@ -45,6 +46,7 @@ export interface SourceProduct {
   ebayCategoryName: string | null
   itemSpecifics: Record<string, string[]> | null
   ebayListingStartedAt: Date | null
+  shippingCosts: ShippingCosts | null
   sku: string
   ebayItemId: string | null
   available: number
@@ -60,6 +62,26 @@ export interface BuildContext {
 
 type Meta = { key: string; value: string }
 
+/** מחיר משלוח ל-meta: סכום ("25.00"), "0" לחינם, "calculated" כשאין מחיר קבוע, "" כשאין שירות */
+const shipMetaValue = (o: ShippingOption | null) => (!o ? '' : o.free ? '0' : o.cost ?? 'calculated')
+
+/**
+ * מחירי המשלוח מ-eBay כ-meta של המוצר, כדי ששיטת משלוח באתר תקרא אותם:
+ * `_ship_us` / `_ship_intl` — הפריט הראשון, `_ship_us_additional` / `_ship_intl_additional` — כל פריט נוסף,
+ * `_ship_currency`, ו-`_sync_shipping` — כל הפרטים (JSON). בלי נתוני משלוח — אין שדות.
+ */
+export function shippingMeta(c: ShippingCosts | null): Meta[] {
+  if (!c) return []
+  return [
+    { key: '_ship_us', value: shipMetaValue(c.us) },
+    { key: '_ship_us_additional', value: c.us && !c.us.free ? c.us.additionalCost ?? '' : '' },
+    { key: '_ship_intl', value: shipMetaValue(c.intl) },
+    { key: '_ship_intl_additional', value: c.intl && !c.intl.free ? c.intl.additionalCost ?? '' : '' },
+    { key: '_ship_currency', value: c.currency ?? 'USD' },
+    { key: '_sync_shipping', value: JSON.stringify(c) },
+  ]
+}
+
 export function buildWooProduct(p: SourceProduct, ctx: BuildContext) {
   const images = p.images.map(ebayLargeImage)
   const meta: Meta[] = [
@@ -71,6 +93,7 @@ export function buildWooProduct(p: SourceProduct, ctx: BuildContext) {
   ]
   if (p.mpn) meta.push({ key: '_mpn', value: p.mpn }, { key: '_mpn_norm', value: mpnNorm(p.mpn) })
   if (p.conditionDescription) meta.push({ key: '_condition_notes', value: p.conditionDescription })
+  meta.push(...shippingMeta(p.shippingCosts))
 
   const attributes: { id?: number; name?: string; options: string[]; visible: boolean; variation: false }[] = []
   const condLabel = p.conditionId ? CONDITION_LABELS[p.conditionId] ?? p.condition : p.condition
