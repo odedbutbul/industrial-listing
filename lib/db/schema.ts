@@ -15,6 +15,7 @@ import {
   timestamp,
   uniqueIndex,
   uuid,
+  customType,
 } from 'drizzle-orm/pg-core'
 
 // ── Enums ────────────────────────────────────────────────────────────────────
@@ -108,8 +109,26 @@ export const products = pgTable('products', {
   ebayListingStartedAt: timestamp('ebay_listing_started_at', { withTimezone: true }),
   /** מתי נקראו הפרטים המלאים (GetItem). null = רק מה שיש ברשימה. */
   detailsFetchedAt: timestamp('details_fetched_at', { withTimezone: true }),
+  // ── מוצר ידני (נוצר במערכת, לא קשור ל-eBay) ──
+  /** ebay = יובא ממודעה ב-eBay · manual = נוצר ידנית במערכת, חנות בלבד */
+  source: text('source').$type<'ebay' | 'manual'>().notNull().default('ebay'),
+  shortDescription: text('short_description'),
+  salePrice: numeric('sale_price', { precision: 12, scale: 2 }),
+  saleFrom: timestamp('sale_from', { withTimezone: true }),
+  saleTo: timestamp('sale_to', { withTimezone: true }),
+  /** slug-ים מ-CATEGORY_TREE (lib/woo/categorize.ts) */
+  categorySlugs: jsonb('category_slugs').$type<string[]>(),
+  tags: jsonb('tags').$type<string[]>(),
+  /** משקל ומידות ביחידות של החנות (WooCommerce → Settings → Products) */
+  packageDims: jsonb('package_dims').$type<{ weight: string; length: string; width: string; height: string } | null>(),
+  /** שאלות ותשובות של המוצר → _vz_faq בחנות */
+  faq: jsonb('faq').$type<{ q: string; a: string }[] | null>(),
+  /** טקסט חלופי לכל תמונה: media_files.id → alt */
+  imageAlts: jsonb('image_alts').$type<Record<string, string> | null>(),
+  /** הקטגוריה הראשית (פירורי לחם ב-theme) — slug מתוך category_slugs */
+  primaryCategory: text('primary_category'),
   ...timestamps,
-})
+}, (t) => [check('products_source_chk', sql`${t.source} in ('ebay', 'manual')`)])
 
 /** מיפוי 1:1 בין מוצר לבין הזהויות שלו בכל ערוץ. SKU הוא המפתח המשותף. */
 export const channelMappings = pgTable(
@@ -628,4 +647,31 @@ export const ebayFeedback = pgTable(
     index('ebay_feedback_item_idx').on(t.itemId),
     check('ebay_feedback_show_positive', sql`not ${t.showOnSite} or ${t.commentType} = 'Positive'`),
   ],
+)
+
+// ── תמונות שהועלו למוצרים ידניים ─────────────────────────────────────────────
+
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({ dataType: () => 'bytea' })
+
+/**
+ * קובץ תמונה שהועלה במערכת (מוצר ידני). מוגש בכתובת ציבורית (/api/public/media/<id>/<name>)
+ * כדי ש-WooCommerce יוריד אותו לספריית המדיה שלו. woo_media_id — ה-attachment בחנות אחרי השליחה,
+ * כדי שעדכון חוזר לא יעלה את התמונה שוב.
+ */
+export const mediaFiles = pgTable(
+  'media_files',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    productId: uuid('product_id').references(() => products.id, { onDelete: 'set null' }),
+    fileName: text('file_name').notNull(),
+    mime: text('mime').notNull(),
+    size: integer('size').notNull(),
+    width: integer('width'),
+    height: integer('height'),
+    data: bytea('data').notNull(),
+    wooMediaId: bigint('woo_media_id', { mode: 'number' }),
+    wooSrc: text('woo_src'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('media_files_product_idx').on(t.productId), check('media_files_mime_chk', sql`${t.mime} in ('image/jpeg', 'image/png', 'image/webp')`)],
 )

@@ -23,11 +23,12 @@ type Query = Record<string, string | number | boolean | undefined>
 
 const TIMEOUT_MS = 20_000
 
-export async function wooRequest<T>(method: 'GET' | 'POST' | 'PUT' | 'DELETE', path: string, opts: { query?: Query; body?: unknown } = {}): Promise<WooResponse<T>> {
+export async function wooRequest<T>(method: 'GET' | 'POST' | 'PUT' | 'DELETE', path: string, opts: { query?: Query; body?: unknown; timeoutMs?: number } = {}): Promise<WooResponse<T>> {
   const cfg = getWooConfig()
   const url = new URL(`${cfg.baseUrl}/wp-json/wc/v3/${path.replace(/^\/+/, '')}`)
   for (const [k, v] of Object.entries(opts.query ?? {})) if (v !== undefined) url.searchParams.set(k, String(v))
 
+  const timeoutMs = opts.timeoutMs ?? TIMEOUT_MS
   let res: Response
   try {
     res = await fetch(url, {
@@ -39,11 +40,11 @@ export async function wooRequest<T>(method: 'GET' | 'POST' | 'PUT' | 'DELETE', p
       },
       body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
       cache: 'no-store',
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutMs),
     })
   } catch (e) {
     const timeout = e instanceof Error && (e.name === 'TimeoutError' || e.name === 'AbortError')
-    throw new WooApiError(timeout ? `החנות לא ענתה תוך ${TIMEOUT_MS / 1000} שניות` : 'אין חיבור לחנות (DNS / רשת / SSL)', 0)
+    throw new WooApiError(timeout ? `החנות לא ענתה תוך ${timeoutMs / 1000} שניות` : 'אין חיבור לחנות (DNS / רשת / SSL)', 0)
   }
 
   const text = await res.text()

@@ -102,7 +102,8 @@ async function runPoll(opts: { from?: Date; to?: Date; onProgress?: (p: ImportPr
         .where(or(itemIds.length ? inArray(schema.channelMappings.ebayItemId, itemIds) : undefined, skus.length ? inArray(schema.channelMappings.sku, skus) : undefined))
     : []
   const byItem = new Map(mappings.filter((m) => m.ebayItemId).map((m) => [m.ebayItemId!, m]))
-  const bySku = new Map(mappings.map((m) => [m.sku, m]))
+  // רק מוצרים שמקושרים למודעה — מוצר ידני (בלי ebay_item_id) לא קשור ל-eBay ומכירה שם לא נוגעת במלאי שלו
+  const bySku = new Map(mappings.filter((m) => m.ebayItemId).map((m) => [m.sku, m]))
   const resolve = (l: EbayOrderLine) => (l.itemId && byItem.get(l.itemId)) || (l.sku && bySku.get(l.sku)) || null
 
   // זמן הייבוא הראשון — הזמנה מלפניו של מודעה שלא יובאה היא היסטוריה, לא בעיה

@@ -23,6 +23,8 @@ export interface Overview {
 export interface ProductRow {
   id: string
   title: string
+  /** manual = נוצר ידנית במערכת, לא קשור ל-eBay */
+  source: 'ebay' | 'manual'
   image: string | null
   price: string | null
   currency: string
@@ -87,6 +89,7 @@ export interface ProductDetail {
   product: {
     id: string
     title: string
+    source: 'ebay' | 'manual'
     description: string | null
     condition: string | null
     price: string | null

@@ -1,7 +1,7 @@
 // כל הקריאות לשרת ממסכי /sync. שגיאה הופכת להודעה בעברית; 401/הפניה ל-login מחזירה למסך הכניסה.
 
 export class ApiError extends Error {
-  constructor(readonly status: number, message: string) {
+  constructor(readonly status: number, message: string, readonly data: unknown = null) {
     super(message)
   }
 }
@@ -25,7 +25,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     throw new ApiError(401, 'נדרשת כניסה מחדש')
   }
   const data = (res.headers.get('content-type') ?? '').includes('json') ? await res.json() : null
-  if (!res.ok) throw new ApiError(res.status, data?.error || `שגיאה ${res.status}`)
+  if (!res.ok) throw new ApiError(res.status, data?.error || `שגיאה ${res.status}`, data)
   return data as T
 }
 

@@ -1,0 +1,111 @@
+/* ══ טופס מוצר ידני (הרחבות פרויקט) ══════════════════════════════════════
+   עורך טקסט, תמונות, בורר קטגוריות ותגיות, סרגל פעולות צף.
+   רק טוקנים, רדיוסים, גבהים וצללים שכבר קיימים ב-app-ui.css — אין כאן ערך חזותי חדש. */
+
+/* פריסה: עמודת תוכן + עמודת צד (כמו עורך מוצר של WooCommerce). מתחת ל-1100px — עמודה אחת */
+.ax-pf-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; align-items: start; }
+.ax-pf-col { display: flex; flex-direction: column; gap: 24px; min-width: 0; }
+@media (min-width: 1100px) { .ax-pf-layout { grid-template-columns: minmax(0, 1fr) 360px; } }
+.ax-pf-stack { display: flex; flex-direction: column; gap: 16px; }
+.ax-pf-row { display: flex; gap: 8px; align-items: flex-start; }
+.ax-pf-row > .ax-field { flex: 1; }
+
+/* ── עורך טקסט ─────────────────────────────────────────────────────────── */
+
+.ax-rte { border-radius: 12px; background: var(--ax-input); box-shadow: var(--ax-ring-input); overflow: hidden; transition: box-shadow 0.15s; }
+.ax-rte:focus-within { box-shadow: inset 0 0 0 2px var(--ax-accent); }
+.ax-rte-bar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 2px; padding: 6px;
+  border-bottom: 1px solid var(--ax-line); background: var(--ax-inner);
+}
+.ax-rte-bar .ax-btn.is-icon.is-sm[aria-pressed="true"] { background: var(--ax-tint); color: var(--ax-accent-text); }
+.ax-rte-bar .ax-select { width: auto; height: 34px; padding: 0 10px; border-radius: 10px; font-size: 13px; }
+.ax-rte-sep { width: 1px; height: 20px; margin: 0 4px; background: var(--ax-line); }
+.ax-rte-link { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px; border-bottom: 1px solid var(--ax-line); }
+.ax-rte-link .ax-input { flex: 1 1 220px; height: 36px; }
+
+.ax-rte-doc {
+  min-height: 300px; max-height: 70vh; overflow-y: auto; padding: 14px 18px; outline: none;
+  font-size: 15px; line-height: 1.65; color: var(--ax-text); text-align: left;
+}
+.ax-rte-doc > :first-child { margin-top: 0; }
+.ax-rte-doc p { margin: 0 0 12px; }
+.ax-rte-doc h2, .ax-rte-doc h3, .ax-rte-doc h4 { font-family: "Rubik", "Heebo", sans-serif; font-weight: 600; margin: 20px 0 8px; line-height: 1.3; }
+.ax-rte-doc h2 { font-size: 22px; }
+.ax-rte-doc h3 { font-size: 18px; }
+.ax-rte-doc h4 { font-size: 15px; }
+.ax-rte-doc ul, .ax-rte-doc ol { margin: 0 0 12px; padding-left: 24px; }
+.ax-rte-doc li > p { margin: 0 0 4px; }
+.ax-rte-doc blockquote { margin: 0 0 12px; padding: 4px 14px; border-left: 3px solid var(--ax-line); color: var(--ax-text2); }
+.ax-rte-doc a { color: var(--ax-accent-text); text-decoration: underline; }
+.ax-rte-doc hr { border: none; border-top: 1px solid var(--ax-line); margin: 18px 0; }
+.ax-rte-doc table { border-collapse: collapse; width: 100%; margin: 0 0 12px; font-size: 14px; }
+.ax-rte-doc th, .ax-rte-doc td { border: 1px solid var(--ax-line); padding: 6px 10px; vertical-align: top; text-align: left; }
+.ax-rte-doc th { background: var(--ax-hover2); font-weight: 600; }
+.ax-rte-doc th p, .ax-rte-doc td p { margin: 0; }
+.ax-rte-doc .selectedCell { background: var(--ax-tint); }
+.ax-rte-doc p.is-editor-empty:first-child::before { content: attr(data-placeholder); color: var(--ax-faint); float: left; height: 0; pointer-events: none; }
+.ax-rte-source {
+  display: block; width: 100%; min-height: 300px; padding: 14px 18px; border: none; outline: none; resize: vertical;
+  background: transparent; color: var(--ax-text); font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 13px; line-height: 1.6;
+}
+
+/* ── תמונות ────────────────────────────────────────────────────────────── */
+
+.ax-pf-drop {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; text-align: center;
+  padding: 24px 16px; border-radius: 14px; background: var(--ax-inner); box-shadow: var(--ax-ring-input);
+  color: var(--ax-text2); cursor: pointer; transition: background 0.15s, box-shadow 0.15s;
+}
+.ax-pf-drop:hover { background: var(--ax-hover2); }
+.ax-pf-drop.is-over { background: var(--ax-tint); box-shadow: inset 0 0 0 2px var(--ax-accent); }
+.ax-pf-drop:focus-within { box-shadow: inset 0 0 0 2px var(--ax-accent); }
+
+.ax-pf-images { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 12px; }
+.ax-pf-img {
+  position: relative; aspect-ratio: 1; border-radius: 14px; overflow: hidden;
+  background: var(--ax-inner); box-shadow: var(--ax-ring);
+}
+.ax-pf-img.is-main { grid-column: span 2; grid-row: span 2; }
+.ax-pf-img.is-drag { opacity: 0.45; }
+.ax-pf-img.is-target { box-shadow: inset 0 0 0 2px var(--ax-accent); }
+.ax-pf-img img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.ax-pf-img .ax-pill { position: absolute; top: 8px; right: 8px; }
+.ax-pf-img-tools {
+  position: absolute; left: 6px; right: 6px; bottom: 6px; display: flex; justify-content: center; gap: 4px;
+  opacity: 0; transition: opacity 0.15s;
+}
+.ax-pf-img:hover .ax-pf-img-tools, .ax-pf-img:focus-within .ax-pf-img-tools { opacity: 1; }
+@media (hover: none) { .ax-pf-img-tools { opacity: 1; } }
+.ax-pf-img-tools .ax-btn { background: var(--ax-dialog); box-shadow: var(--ax-ring); }
+.ax-pf-img-tools .ax-btn:hover { background: var(--ax-dialog); color: var(--ax-accent-text); }
+.ax-pf-img.is-pending { display: grid; place-items: center; color: var(--ax-muted); }
+
+/* ── קטגוריות ותגיות ───────────────────────────────────────────────────── */
+
+.ax-pf-tree { max-height: 300px; overflow-y: auto; padding: 6px; border-radius: 14px; background: var(--ax-inner); box-shadow: var(--ax-ring); }
+.ax-pf-tree .ax-check { display: flex; min-height: 36px; padding: 0 8px; border-radius: 10px; }
+.ax-pf-tree .ax-check:hover { background: var(--ax-hover2); }
+.ax-pf-tree .is-child { padding-right: 34px; }
+.ax-pf-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.ax-pf-chips .ax-pill { padding-left: 4px; }
+.ax-pf-chips .ax-pill button {
+  width: 18px; height: 18px; border: none; border-radius: 50%; padding: 0; display: grid; place-items: center;
+  background: transparent; color: inherit; cursor: pointer;
+}
+.ax-pf-chips .ax-pill button:hover { background: var(--ax-hover2); }
+
+/* ── סרגל פעולות צף בתחתית ─────────────────────────────────────────────── */
+
+.ax-pf-bar {
+  position: sticky; bottom: max(16px, env(safe-area-inset-bottom)); z-index: 30;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; padding: 10px 12px 10px 12px;
+  border-radius: 18px; background: var(--ax-dialog);
+  box-shadow: var(--ax-ring), 0 30px 60px -20px rgba(0, 0, 0, 0.5);
+}
+.ax-pf-bar-status { flex: 1 1 220px; min-width: 0; display: flex; flex-direction: column; gap: 2px; padding-right: 8px; font-size: 13.5px; }
+.ax-pf-bar-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+@media (max-width: 640px) {
+  .ax-pf-bar-actions { width: 100%; }
+  .ax-pf-bar-actions .ax-btn { flex: 1; }
+}

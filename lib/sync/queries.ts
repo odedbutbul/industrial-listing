@@ -22,7 +22,7 @@ const availableSq = db
 
 const availableExpr = sql<number>`coalesce(${availableSq.available}, 0)::int`
 
-export type ProductFilter = 'all' | 'in_stock' | 'sold_out' | 'mismatch' | 'no_woo' | 'ready' | 'in_woo'
+export type ProductFilter = 'all' | 'in_stock' | 'sold_out' | 'mismatch' | 'no_woo' | 'ready' | 'in_woo' | 'manual'
 
 function filterWhere(filter: ProductFilter): SQL | undefined {
   switch (filter) {
@@ -37,8 +37,10 @@ function filterWhere(filter: ProductFilter): SQL | undefined {
     case 'in_woo':
       return sql`${channelMappings.wooProductId} is not null`
     case 'ready':
-      // מוכנים לחנות: יש פרטים מלאים, לא מקושרים, הסנכרון פעיל
-      return sql`${products.detailsFetchedAt} is not null and ${channelMappings.wooProductId} is null and ${channelMappings.syncEnabled}`
+      // מוכנים לחנות (שליחה מרוכזת של מוצרי eBay): יש פרטים מלאים, לא מקושרים, הסנכרון פעיל
+      return sql`${products.source} = 'ebay' and ${products.detailsFetchedAt} is not null and ${channelMappings.wooProductId} is null and ${channelMappings.syncEnabled}`
+    case 'manual':
+      return sql`${products.source} = 'manual'`
     default:
       return undefined
   }
@@ -108,6 +110,7 @@ export async function listProducts(opts: { q?: string; filter?: ProductFilter; o
     .select({
       id: products.id,
       title: products.title,
+      source: products.source,
       image: sql<string | null>`${products.images}->>0`,
       price: products.price,
       currency: products.currency,

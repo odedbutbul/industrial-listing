@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useCallback, useEffect, useState } from 'react'
-import { Download, FileDown, ImageOff, Search, Store, Truck } from 'lucide-react'
+import { Download, FileDown, ImageOff, PackagePlus, Search, Store, Truck } from 'lucide-react'
 import { api, openImport } from '@/components/sync/api'
 import { MISMATCH, money, num, shipPrice, shipIsMoney, stockStatus, SYNC_OFF, WOO_NOT_LINKED } from '@/components/sync/format'
 import { useDataChanged } from '@/components/sync/hooks'
@@ -14,7 +14,7 @@ import { WooLink } from '@/components/sync/WooLink'
 import { EmptyState, LoadError, Pill, Seg, Spin, useLoad } from '@/components/sync/ui'
 
 type Page = { products: ProductRow[]; total: number; inStock: number; nextOffset: number | null }
-type Filter = 'all' | 'in_stock' | 'sold_out' | 'mismatch' | 'no_woo' | 'ready' | 'in_woo'
+type Filter = 'all' | 'in_stock' | 'sold_out' | 'mismatch' | 'no_woo' | 'ready' | 'in_woo' | 'manual'
 const FILTERS: [Filter, string][] = [
   ['all', 'הכל'],
   ['in_stock', 'במלאי'],
@@ -23,6 +23,7 @@ const FILTERS: [Filter, string][] = [
   ['no_woo', 'לא מקושרים לאתר'],
   ['ready', 'מוכנים לחנות'],
   ['in_woo', 'בחנות'],
+  ['manual', 'ידניים'],
 ]
 
 /** כמה מוצרים אפשר לשלוח לחנות בפעם אחת (כמו MAX_SELECTION בשרת) */
@@ -105,7 +106,8 @@ function Products() {
 
   const rows = data ? [...data.products, ...more] : undefined
   const filtered = filter !== 'all' || !!q
-  const selectable = (rows ?? []).filter((r) => !r.wooProductId)
+  // מוצר ידני נשלח לחנות מהטופס שלו, לא מהשליחה המרוכזת
+  const selectable = (rows ?? []).filter((r) => !r.wooProductId && r.source !== 'manual')
   const allSelected = selectable.length > 0 && selectable.every((r) => selected.has(r.id))
   const toggleAll = () => setSelected(allSelected ? new Set() : new Set(selectable.slice(0, MAX_SEND).map((r) => r.id)))
 
@@ -116,10 +118,16 @@ function Products() {
           <h1 className="ax-h1">מוצרים</h1>
           <p className="ax-sub">{!data ? ' ' : filtered ? `${num(data.total)} תוצאות` : `${num(data.total)} מוצרים · ${num(data.inStock)} במלאי`}</p>
         </div>
-        <a className="ax-btn" href="/api/sync/products/shipping-csv" download>
-          <FileDown size={18} aria-hidden="true" />
-          מחירי משלוח (CSV)
-        </a>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          <a className="ax-btn" href="/api/sync/products/shipping-csv" download>
+            <FileDown size={18} aria-hidden="true" />
+            מחירי משלוח (CSV)
+          </a>
+          <Link className="ax-btn is-primary" href="/sync/products/new">
+            <PackagePlus size={18} aria-hidden="true" />
+            העלאת מוצר
+          </Link>
+        </div>
       </div>
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
@@ -138,12 +146,18 @@ function Products() {
         <EmptyState
           icon={Download}
           title="עדיין אין מוצרים"
-          text="מייבאים את המודעות הפעילות מ-eBay — קודם תצוגה מקדימה, ושום דבר לא משתנה ב-eBay."
+          text="מייבאים את המודעות הפעילות מ-eBay — קודם תצוגה מקדימה, ושום דבר לא משתנה ב-eBay. אפשר גם להעלות מוצר ידני לחנות."
           action={
-            <button type="button" className="ax-btn is-primary" onClick={openImport}>
-              <Download size={18} aria-hidden="true" />
-              ייבוא מ-eBay
-            </button>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'center' }}>
+              <button type="button" className="ax-btn is-primary" onClick={openImport}>
+                <Download size={18} aria-hidden="true" />
+                ייבוא מ-eBay
+              </button>
+              <Link className="ax-btn" href="/sync/products/new">
+                <PackagePlus size={18} aria-hidden="true" />
+                העלאת מוצר
+              </Link>
+            </div>
           }
         />
       ) : rows.length === 0 ? (
@@ -228,6 +242,7 @@ function Products() {
                               <Link href={`/sync/products/${r.id}`} className="ax-row-title" onClick={(e) => e.stopPropagation()}>
                                 {r.title || '—'}
                               </Link>
+                              {r.source === 'manual' && <ManualPill />}
                             </div>
                           </td>
                           <td style={{ whiteSpace: 'nowrap' }}>
@@ -278,6 +293,7 @@ function Products() {
                       <Link href={`/sync/products/${r.id}`} className="ax-row-title" style={{ minWidth: 0 }}>
                         {r.title || '—'}
                       </Link>
+                      {r.source === 'manual' && <ManualPill />}
                     </div>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px', fontSize: 13 }}>
                       <span>
@@ -337,9 +353,18 @@ function Products() {
 function SelectBox({ r, checked, onToggle }: { r: ProductRow; checked: boolean; onToggle: (id: string) => void }) {
   return (
     <label className="ax-check" style={{ minWidth: 44, minHeight: 44, justifyContent: 'center' }}>
-      <input type="checkbox" checked={checked} disabled={!!r.wooProductId} onChange={() => onToggle(r.id)} />
-      <span className="ax-sr">{r.wooProductId ? `${r.title} — כבר בחנות` : `בחירת ${r.title}`}</span>
+      <input type="checkbox" checked={checked} disabled={!!r.wooProductId || r.source === 'manual'} onChange={() => onToggle(r.id)} />
+      <span className="ax-sr">{r.wooProductId ? `${r.title} — כבר בחנות` : r.source === 'manual' ? `${r.title} — מוצר ידני, נשלח מדף המוצר` : `בחירת ${r.title}`}</span>
     </label>
+  )
+}
+
+/** מוצר שנוצר ידנית במערכת — לא קשור ל-eBay */
+function ManualPill() {
+  return (
+    <span style={{ flexShrink: 0 }}>
+      <Pill t="violet">ידני</Pill>
+    </span>
   )
 }
 
@@ -363,7 +388,7 @@ function Pills({ r, mismatch }: { r: ProductRow; mismatch: boolean }) {
       </Pill>
       {mismatch && <Pill t={MISMATCH[1]}>{MISMATCH[0]}</Pill>}
       {!r.syncEnabled && <Pill t={SYNC_OFF[1]}>{SYNC_OFF[0]}</Pill>}
-      {!r.hasDetails && !r.wooProductId && <Pill t="gray">בלי פרטים מלאים</Pill>}
+      {!r.hasDetails && !r.wooProductId && r.source !== 'manual' && <Pill t="gray">בלי פרטים מלאים</Pill>}
     </div>
   )
 }
