@@ -196,6 +196,11 @@ export function MultiCombobox({
               </li>
             ))}
             {!items.length && <li className="ax-combo-empty">{loading ? 'מחפש…' : q.trim() ? 'לא נמצא' : 'מקלידים כדי לחפש'}</li>}
+            {create && !canCreate && (
+              <li className="ax-combo-empty" role="presentation" style={{ borderTop: '1px solid var(--ax-line)', marginTop: 4 }}>
+                <Plus size={14} aria-hidden="true" style={{ verticalAlign: -2 }} /> לא ברשימה? מקלידים את השם המלא ובוחרים &quot;{createLabel}&quot;
+              </li>
+            )}
           </ul>
         )}
       </div>
