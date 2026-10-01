@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { ZoomThumb } from '@/components/sync/Lightbox'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useCallback, useEffect, useState } from 'react'
 import { Download, FileDown, ImageOff, PackagePlus, Search, Store, Truck } from 'lucide-react'
@@ -238,7 +239,7 @@ function Products() {
                           </td>
                           <td>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 240 }}>
-                              <Thumb src={r.image} />
+                              <Thumb src={r.image} title={r.title} />
                               <Link href={`/sync/products/${r.id}`} className="ax-row-title" onClick={(e) => e.stopPropagation()}>
                                 {r.title || '—'}
                               </Link>
@@ -289,7 +290,7 @@ function Products() {
                   <div key={r.id} className="ax-mcard">
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                       <SelectBox r={r} checked={selected.has(r.id)} onToggle={toggle} />
-                      <Thumb src={r.image} />
+                      <Thumb src={r.image} title={r.title} />
                       <Link href={`/sync/products/${r.id}`} className="ax-row-title" style={{ minWidth: 0 }}>
                         {r.title || '—'}
                       </Link>
@@ -368,10 +369,9 @@ function ManualPill() {
   )
 }
 
-function Thumb({ src }: { src: string | null }) {
+function Thumb({ src, title }: { src: string | null; title: string | null }) {
   return src ? (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img src={src} alt="" width={40} height={40} loading="lazy" style={{ width: 40, height: 40, borderRadius: 12, objectFit: 'cover', flexShrink: 0, boxShadow: 'var(--ax-ring)' }} />
+    <ZoomThumb images={[src]} title={title ?? undefined} size={40} alt={`התמונה של ${title || 'המוצר'}`} />
   ) : (
     <span className="ax-tile" aria-hidden="true">
       <ImageOff size={18} />

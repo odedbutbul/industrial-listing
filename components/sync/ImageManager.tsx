@@ -1,9 +1,10 @@
 'use client'
 
-import { ArrowLeft, ArrowRight, ImagePlus, Star, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, ImagePlus, Maximize2, Star, X } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { MAX_IMAGE_BYTES, MAX_IMAGES } from '@/lib/products/manual-shared'
 import { bytes } from './format'
+import { LightboxPortal } from './Lightbox'
 import { Pill, Spin } from './ui'
 
 export interface UploadedImage {
@@ -72,6 +73,8 @@ export function ImageManager({ images, onChange, onError, error, titleForAlt }: 
   const [over, setOver] = useState(false)
   const [drag, setDrag] = useState<number | null>(null)
   const [target, setTarget] = useState<number | null>(null)
+  /** התמונה שפתוחה בגודל מלא */
+  const [zoom, setZoom] = useState<number | null>(null)
   const latest = useRef(images)
   latest.current = images
 
@@ -133,9 +136,12 @@ export function ImageManager({ images, onChange, onError, error, titleForAlt }: 
               onDragEnd={() => (setDrag(null), setTarget(null))}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={img.url} alt={i === 0 ? `תמונה ראשית — ${titleForAlt || 'מוצר'}` : `תמונה ${i + 1} — ${titleForAlt || 'מוצר'}`} loading="lazy" draggable={false} />
+              <img src={img.url} alt={i === 0 ? `תמונה ראשית — ${titleForAlt || 'מוצר'}` : `תמונה ${i + 1} — ${titleForAlt || 'מוצר'}`} loading="lazy" draggable={false} onClick={() => setZoom(i)} style={{ cursor: 'zoom-in' }} />
               {i === 0 && <Pill t="accent">ראשית</Pill>}
               <div className="ax-pf-img-tools">
+                <button type="button" className="ax-btn is-icon is-sm" aria-label={`תמונה ${i + 1}: הגדלה`} title="הגדלה" onClick={() => setZoom(i)}>
+                  <Maximize2 size={16} aria-hidden="true" />
+                </button>
                 {i > 0 && (
                   <>
                     <button type="button" className="ax-btn is-icon is-sm" aria-label={`תמונה ${i + 1}: הפוך לראשית`} title="הפוך לראשית" onClick={() => move(i, 0)}>
@@ -220,6 +226,7 @@ export function ImageManager({ images, onChange, onError, error, titleForAlt }: 
           {error}
         </span>
       )}
+      {zoom !== null && images[zoom] && <LightboxPortal images={images.map((x) => x.url)} index={zoom} title={titleForAlt || undefined} onClose={() => setZoom(null)} />}
       {images.length > 0 && (
         <span className="ax-hint">
           <span className="ax-num">{images.length}</span> תמונות · <bdi className="ax-num" dir="ltr">{bytes(images.reduce((s, x) => s + x.size, 0))}</bdi> · גוררים כדי לסדר; הראשונה היא התמונה הראשית בחנות

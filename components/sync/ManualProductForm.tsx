@@ -22,6 +22,7 @@ import {
 import { api, ApiError } from './api'
 import { ago, num } from './format'
 import { ImageManager, type UploadedImage } from './ImageManager'
+import { ZoomThumb } from './Lightbox'
 import { MultiCombobox, type ComboOption } from './MultiCombobox'
 import { RichTextEditor } from './RichTextEditor'
 import { Field, LoadError, Pill, Seg, Spin, StatusMark, Switch, useLoad, useToast } from './ui'
@@ -640,8 +641,7 @@ function ImageAlts({ images, value, title, onChange }: { images: UploadedImage[]
       <ol className="ax-pf-stack" style={{ listStyle: 'none', margin: '4px 0 14px', padding: 0, gap: 10 }}>
         {images.map((img, i) => (
           <li key={img.id} style={{ display: 'flex', gap: 12, alignItems: 'flex-end' }}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={img.url} alt="" width={44} height={44} style={{ width: 44, height: 44, borderRadius: 12, objectFit: 'cover', flexShrink: 0, boxShadow: 'var(--ax-ring)' }} />
+            <ZoomThumb images={images.map((x) => x.url)} index={i} title={title || undefined} size={44} thumb={false} alt={`תמונה ${i + 1}`} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <Field id={`alt_${img.id}`} label={`תמונה ${i + 1}${i === 0 ? ' (ראשית)' : ''}`}>
                 <input id={`alt_${img.id}`} className="ax-input" dir="ltr" lang="en" value={value[img.id] ?? ''} placeholder={`${title || 'Product'} — photo ${i + 1} of ${images.length}`} onChange={(e) => onChange({ ...value, [img.id]: e.target.value })} />

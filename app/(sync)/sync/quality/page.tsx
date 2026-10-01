@@ -7,7 +7,8 @@ import { Check, ExternalLink, RotateCcw, ScanSearch } from 'lucide-react'
 import { api } from '@/components/sync/api'
 import { ago, date, num } from '@/components/sync/format'
 import { useDataChanged } from '@/components/sync/hooks'
-import { CHECK_LABEL, SEVERITY, ebayThumb } from '@/components/sync/quality'
+import { ZoomThumb } from '@/components/sync/Lightbox'
+import { CHECK_LABEL, SEVERITY } from '@/components/sync/quality'
 import { EmptyState, Kpi, LoadError, Pill, Seg, Spin, useLoad, useToast } from '@/components/sync/ui'
 
 type Check = keyof typeof CHECK_LABEL
@@ -253,17 +254,10 @@ function Quality() {
   )
 }
 
-function Thumb({ src, alt, size = 56 }: { src: string; alt: string; size?: number }) {
-  return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img src={ebayThumb(src)} alt={alt} width={size} height={size} loading="lazy" style={{ width: size, height: size, borderRadius: 12, objectFit: 'cover', flexShrink: 0, boxShadow: 'var(--ax-ring)' }} />
-  )
-}
-
 function ProductCell({ r }: { r: IssueRow }) {
   return (
     <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', minWidth: 0 }}>
-      {r.image ? <Thumb src={r.image} alt={`התמונה הראשונה של ${r.title}`} /> : null}
+      {r.image ? <ZoomThumb images={[r.image]} title={r.title} size={56} alt={`התמונה הראשונה של ${r.title}`} /> : null}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0, fontSize: 13.5 }}>
         <Link href={`/sync/products/${r.productId}`}>
           <span dir="ltr" style={{ unicodeBidi: 'isolate' }}>
@@ -308,9 +302,7 @@ function IssueCell({ r }: { r: IssueRow }) {
       {d.imageUrls && d.imageUrls.length > 0 && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }} aria-label="התמונות המשותפות">
           {d.imageUrls.slice(0, 6).map((u, i) => (
-            <a key={u} href={u} target="_blank" rel="noopener noreferrer" aria-label={`תמונה ${d.positions?.[i] ?? i + 1} בגודל מלא (נפתח בחלון חדש)`}>
-              <Thumb src={u} alt="" size={44} />
-            </a>
+            <ZoomThumb key={u} images={d.imageUrls!} index={i} title={r.title} size={44} alt={`תמונה ${d.positions?.[i] ?? i + 1} המשותפת`} />
           ))}
         </div>
       )}

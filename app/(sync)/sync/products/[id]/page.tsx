@@ -9,6 +9,7 @@ import type { ProductDetail } from '@/components/sync/types'
 import { WooLink } from '@/components/sync/WooLink'
 import { ProductHistory } from '@/components/sync/ProductHistory'
 import { QualityAlert } from '@/components/sync/QualityAlert'
+import { ZoomThumb } from '@/components/sync/Lightbox'
 import dynamic from 'next/dynamic'
 
 // הטופס (עורך הטקסט) נטען רק למוצר ידני — דף מוצר eBay לא צריך אותו
@@ -147,8 +148,7 @@ export default function ProductPage() {
           {p.images.length > 0 && (
             <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 2 }}>
               {p.images.slice(0, 24).map((src, i) => (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img key={src} src={src} alt={`תמונה ${i + 1} של ${p.title}`} width={72} height={72} loading="lazy" style={{ width: 72, height: 72, borderRadius: 12, objectFit: 'cover', flexShrink: 0, boxShadow: 'var(--ax-ring)' }} />
+                <ZoomThumb key={src} images={p.images} index={i} title={p.title} size={72} alt={`תמונה ${i + 1} של ${p.title}`} />
               ))}
             </div>
           )}
