@@ -17,6 +17,8 @@ export interface UploadedImage {
 
 const MAX_SIDE = 2400
 const TYPES = ['image/jpeg', 'image/png', 'image/webp']
+/** יעד אחרי דחיסה — מתחת למגבלת גודל הבקשה הנפוצה ב-nginx (1MB) */
+const TARGET_BYTES = 950 * 1024
 
 /** הקטנה בדפדפן: צד ארוך עד 2400px, WebP (או JPEG כשהדפדפן לא מקודד WebP). קובץ קטן מספיק נשלח כמו שהוא. */
 async function prepare(file: File): Promise<{ blob: Blob; width: number; height: number }> {
@@ -24,7 +26,7 @@ async function prepare(file: File): Promise<{ blob: Blob; width: number; height:
   const scale = Math.min(1, MAX_SIDE / Math.max(bmp.width, bmp.height))
   const width = Math.round(bmp.width * scale)
   const height = Math.round(bmp.height * scale)
-  if (scale === 1 && file.size <= 1.5 * 1024 * 1024 && file.type !== 'image/png') {
+  if (scale === 1 && file.size <= TARGET_BYTES && file.type !== 'image/png') {
     bmp.close()
     return { blob: file, width, height }
   }
@@ -33,9 +35,15 @@ async function prepare(file: File): Promise<{ blob: Blob; width: number; height:
   canvas.height = height
   canvas.getContext('2d')!.drawImage(bmp, 0, 0, width, height)
   bmp.close()
-  const toBlob = (type: string) => new Promise<Blob | null>((r) => canvas.toBlob(r, type, 0.88))
-  let blob = await toBlob('image/webp')
-  if (!blob || blob.type !== 'image/webp') blob = await toBlob('image/jpeg')
+  const toBlob = (type: string, q: number) => new Promise<Blob | null>((r) => canvas.toBlob(r, type, q))
+  const webp = (await toBlob('image/webp', 0.88))?.type === 'image/webp'
+  const type = webp ? 'image/webp' : 'image/jpeg'
+  // איכות יורדת בהדרגה עד שהקובץ מתחת ליעד
+  let blob: Blob | null = null
+  for (const q of [0.88, 0.8, 0.72, 0.64, 0.55]) {
+    blob = await toBlob(type, q)
+    if (blob && blob.size <= TARGET_BYTES) break
+  }
   if (!blob) throw new Error('לא הצלחנו לעבד את התמונה')
   return { blob, width, height }
 }
@@ -143,7 +151,17 @@ export function ImageManager({ images, onChange, onError, error, titleForAlt }: 
                     <ArrowLeft size={16} aria-hidden="true" />
                   </button>
                 )}
-                <button type="button" className="ax-btn is-icon is-sm" aria-label={`הסרת תמונה ${i + 1}`} title="הסרה" onClick={() => onChange(images.filter((x) => x.id !== img.id))}>
+                <button
+                  type="button"
+                  className="ax-btn is-icon is-sm"
+                  aria-label={`הסרת תמונה ${i + 1}`}
+                  title="הסרה"
+                  onClick={() => {
+                    onChange(images.filter((x) => x.id !== img.id))
+                    // תמונה מטופס שעוד לא נשמר נמחקת מיד מהחנות; של מוצר שמור — רק בשמירה (השרת מחליט)
+                    void fetch(`/api/sync/media/${img.id}`, { method: 'DELETE', credentials: 'same-origin' }).catch(() => {})
+                  }}
+                >
                   <X size={16} aria-hidden="true" />
                 </button>
               </div>
@@ -181,7 +199,7 @@ export function ImageManager({ images, onChange, onError, error, titleForAlt }: 
           </span>
           <span style={{ fontWeight: 600, color: 'var(--ax-text)' }}>{images.length ? 'הוספת תמונות לגלריה' : 'העלאת תמונה ראשית וגלריה'}</span>
           <span className="ax-hint">
-            גוררים לכאן או לוחצים לבחירה · JPG, PNG, WebP · עד {MAX_IMAGES} תמונות · מוקטנות אוטומטית ל-{MAX_SIDE}px
+            גוררים לכאן או לוחצים לבחירה · JPG, PNG, WebP · עד {MAX_IMAGES} תמונות · מוקטנות ל-{MAX_SIDE}px ועולות ישר לספריית המדיה של החנות
           </span>
           <input
             ref={input}

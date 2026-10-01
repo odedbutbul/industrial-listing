@@ -3,8 +3,7 @@ import type { NextRequest } from 'next/server'
 
 // /api/leads/ingest — מוגן בחתימת HMAC של האתר, לא ב-cookie (lib/leads/signature.ts)
 // /api/public/reviews — רק ביקורות שנבחרו להצגה באתר (lib/reviews/queries.ts → publicReviews)
-// /api/public/media/ — תמונות של מוצרים ידניים; החנות מורידה אותן משם (lib/woo/manual-push.ts)
-const PUBLIC_PATHS = ['/login', '/api/auth', '/api/ebay/oauth/callback', '/privacy', '/api/leads/ingest', '/api/public/reviews', '/api/public/media/']
+const PUBLIC_PATHS = ['/login', '/api/auth', '/api/ebay/oauth/callback', '/privacy', '/api/leads/ingest', '/api/public/reviews']
 
 function getSessionSecret(request: NextRequest): string {
   if (process.env.SESSION_SECRET) return process.env.SESSION_SECRET

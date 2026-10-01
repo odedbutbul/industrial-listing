@@ -7,6 +7,8 @@ import { AlertCircle, ArrowDown, ArrowRight, ArrowUp, Plus, Save, Store, Trash2,
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   CONDITIONS,
+  COUNTRY_CODES,
+  countryName,
   emptyManualProduct,
   MAX_FAQ,
   SHIP_REGIONS,
@@ -20,6 +22,7 @@ import {
 import { api, ApiError } from './api'
 import { ago, num } from './format'
 import { ImageManager, type UploadedImage } from './ImageManager'
+import { MultiCombobox, type ComboOption } from './MultiCombobox'
 import { RichTextEditor } from './RichTextEditor'
 import { Field, LoadError, Pill, Seg, Spin, StatusMark, Switch, useLoad, useToast } from './ui'
 import { WooLink } from './WooLink'
@@ -35,10 +38,22 @@ export interface ManualProductData {
 
 interface Options {
   categories: { slug: string; name: string; parent: string | null }[]
-  brands: string[]
   tags: string[]
   sku: string
 }
+
+/** שמות המדינות באנגלית, לפי א-ב (כמו ב-eBay) */
+const countries = COUNTRY_CODES.map(countryName).sort((a, b) => a.localeCompare(b, 'en'))
+
+/** "לא שולחים אל": אזורים של eBay + מדינות לפי קוד (מה שה-theme מזהה) */
+const EXCLUDE_OPTIONS: ComboOption[] = [
+  ...SHIP_REGIONS.map((r) => ({ value: r, meta: 'אזור' })),
+  ...COUNTRY_CODES.map((c) => ({ value: c, meta: countryName(c) })).sort((a, b) => a.meta.localeCompare(b.meta, 'en')),
+]
+
+/** חיפוש מותגים בשרת */
+const searchBrands = async (q: string): Promise<ComboOption[]> =>
+  (await api.get<{ brands: { name: string; count: number }[] }>(`/api/sync/products/manual/brands?q=${encodeURIComponent(q)}`)).brands.map((b) => ({ value: b.name, meta: `${b.count} מוצרים` }))
 
 type StoreResult = { action: 'created' | 'updated'; wooProductId: number; images: number }
 
@@ -66,6 +81,7 @@ export function ManualProductForm({ productId, initial, onSaved }: { productId?:
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [options.data])
 
+  const tagOptions = useMemo(() => (options.data?.tags ?? []).map((t) => ({ value: t })), [options.data])
   const payload = useMemo(() => ({ ...form, imageIds: images.map((i) => i.id) }), [form, images])
   const dirty = JSON.stringify(payload) !== saved
   const blockers = storeBlockers(payload)
@@ -87,6 +103,10 @@ export function ManualProductForm({ productId, initial, onSaved }: { productId?:
   const setShip = (side: 'us' | 'intl', v: Partial<ShipInput>) => {
     setForm((f) => ({ ...f, shipping: { ...f.shipping, [side]: { ...f.shipping[side], ...v } } }))
     setErrors((cur) => Object.fromEntries(Object.entries(cur).filter(([k]) => !k.startsWith(`ship_${side}_`))))
+  }
+  const setSpec = (k: keyof ManualProductInput['specs'], v: string) => {
+    setForm((f) => ({ ...f, specs: { ...f.specs, [k]: v } }))
+    if (errors[`spec_${k}`]) clearError(`spec_${k}`)
   }
   const setDim = (k: keyof ManualProductInput['dims'], v: string) => {
     setForm((f) => ({ ...f, dims: { ...f.dims, [k]: v } }))
@@ -209,10 +229,20 @@ export function ManualProductForm({ productId, initial, onSaved }: { productId?:
 
           <Section title="מאפיינים">
             <div className="ax-grid-2">
-              <Field id="brand" label="מותג" error={errors.brand}>
-                <input {...fp('brand')} className="ax-input" dir="ltr" list="brand-list" value={form.brand} onChange={(e) => set('brand', e.target.value)} autoComplete="off" />
-              </Field>
-              <datalist id="brand-list">{options.data?.brands.map((b) => <option key={b} value={b} />)}</datalist>
+              <MultiCombobox
+                id="brands"
+                label="מותג"
+                value={form.brands}
+                onChange={(v) => set('brands', v)}
+                source={searchBrands}
+                create={(t) => t.trim().replace(/\s+/g, ' ').slice(0, 100) || null}
+                createLabel="מותג חדש"
+                max={5}
+                firstBadge="ראשי"
+                error={errors.brands}
+                hint="מחפשים מותג קיים; מותג שלא קיים ייווצר בחנות. הראשון הוא המותג הראשי"
+                placeholder="חיפוש מותג…"
+              />
               <Field id="mpn" label="מק״ט יצרן (MPN)" error={errors.mpn}>
                 <input {...fp('mpn')} className="ax-input ax-num" dir="ltr" value={form.mpn} onChange={(e) => set('mpn', e.target.value)} autoComplete="off" />
               </Field>
@@ -230,7 +260,28 @@ export function ManualProductForm({ productId, initial, onSaved }: { productId?:
                 <input {...fp('conditionNotes', true)} className="ax-input" dir="ltr" value={form.conditionNotes} onChange={(e) => set('conditionNotes', e.target.value)} />
               </Field>
             </div>
-            <Attributes value={form.attributes} errors={errors} onChange={(v) => set('attributes', v)} />
+            <div className="ax-grid-2">
+              <Field id="spec_model" label="Model" error={errors.spec_model} hint="לרוב כמו ה-MPN או מספר הדגם על התווית">
+                <input {...fp('spec_model', true)} className="ax-input ax-num" dir="ltr" value={form.specs.model} onChange={(e) => setSpec('model', e.target.value)} autoComplete="off" />
+              </Field>
+              <Field id="spec_countryOfOrigin" label="Country of Origin" error={errors.spec_countryOfOrigin}>
+                <select {...fp('spec_countryOfOrigin')} className="ax-select" value={form.specs.countryOfOrigin} onChange={(e) => setSpec('countryOfOrigin', e.target.value)}>
+                  <option value="">לא ידוע</option>
+                  {countries.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field id="spec_type" label="Type" error={errors.spec_type} hint="למשל External Tape Drive">
+                <input {...fp('spec_type', true)} className="ax-input" dir="ltr" value={form.specs.type} onChange={(e) => setSpec('type', e.target.value)} autoComplete="off" />
+              </Field>
+              <Field id="spec_expirationDate" label="Expiration Date" error={errors.spec_expirationDate} hint="לפריטים סטריליים / עם תוקף">
+                <input {...fp('spec_expirationDate', true)} type="month" className="ax-input ax-num" value={form.specs.expirationDate} onChange={(e) => setSpec('expirationDate', e.target.value)} />
+              </Field>
+            </div>
+            <span className="ax-hint">שדות שלא מולאו לא מוצגים בטבלת המפרט בחנות. שאר המפרט הטכני — בתיאור המלא.</span>
           </Section>
 
           <Section title="שאלות ותשובות" aside={<span className="ax-hint">עד {MAX_FAQ}</span>}>
@@ -295,23 +346,20 @@ export function ManualProductForm({ productId, initial, onSaved }: { productId?:
             <ShipFields side="us" label="לארה״ב" value={form.shipping.us} errors={errors} onChange={(v) => setShip('us', v)} fp={fp} />
             <ShipFields side="intl" label="לשאר העולם" value={form.shipping.intl} errors={errors} onChange={(v) => setShip('intl', v)} fp={fp} />
             {form.shipping.intl.mode !== 'none' && (
-              <ChipInput
+              <MultiCombobox
                 id="ship_exclude"
                 label="לא שולחים אל"
                 tone="warn"
                 max={100}
                 value={form.shipping.exclude}
-                suggestions={SHIP_REGIONS}
-                normalize={(t) => {
-                  const v = t.trim().replace(/\s+/g, ' ')
-                  return /^[a-z]{2}$/i.test(v) ? v.toUpperCase() : SHIP_REGIONS.find((r) => r.toLowerCase() === v.toLowerCase()) ?? v
-                }}
+                source={EXCLUDE_OPTIONS}
                 onChange={(exclude) => {
                   setForm((f) => ({ ...f, shipping: { ...f.shipping, exclude } }))
                   clearError('ship_exclude')
                 }}
                 error={errors.ship_exclude}
-                hint="קוד מדינה (RU, IR, KP…) או אזור (Africa, Asia…). קונה משם יקבל בקופה ״צור קשר להצעת משלוח״."
+                hint="מדינה או אזור. קונה משם יקבל בקופה ״צור קשר להצעת משלוח״."
+                placeholder="חיפוש מדינה או אזור…"
               />
             )}
             <span className="ax-hint">בקופה הקונה בוחר בין Standard ל-Express. נשמר באותם שדות כמו מוצרי eBay, כך שהמשלוח באתר מחושב אותו דבר.</span>
@@ -341,7 +389,18 @@ export function ManualProductForm({ productId, initial, onSaved }: { productId?:
                     </select>
                   </Field>
                 )}
-                <ChipInput id="tags-input" label="תגיות" value={form.tags} suggestions={options.data.tags} onChange={(v) => set('tags', v)} hint="Enter או פסיק מוסיפים תגית. תגית שלא קיימת בחנות תיווצר בשליחה." />
+                <MultiCombobox
+                  id="tags-input"
+                  label="תגיות"
+                  tone="gray"
+                  value={form.tags}
+                  onChange={(v) => set('tags', v)}
+                  source={tagOptions}
+                  create={(t) => t.trim().replace(/\s+/g, ' ').slice(0, 60) || null}
+                  createLabel="תגית חדשה"
+                  hint="תגית שלא קיימת בחנות תיווצר בשליחה"
+                  placeholder="חיפוש או תגית חדשה…"
+                />
               </>
             )}
           </Section>
@@ -466,38 +525,6 @@ function ShipFields({ side, label, value, errors, onChange, fp }: { side: 'us' |
   )
 }
 
-/* ── מאפיינים חופשיים ── */
-
-function Attributes({ value, errors, onChange }: { value: ManualProductInput['attributes']; errors: FieldErrors; onChange: (v: ManualProductInput['attributes']) => void }) {
-  const update = (i: number, k: 'name' | 'values', v: string) => onChange(value.map((a, j) => (j === i ? { ...a, [k]: v } : a)))
-  return (
-    <div className="ax-pf-stack" style={{ gap: 10 }}>
-      <span className="ax-label">מפרט נוסף</span>
-      {value.length === 0 && <span className="ax-hint">שדות שיופיעו בטבלת המפרט בחנות, למשל Voltage · 24V DC. כמה ערכים — מופרדים בפסיק.</span>}
-      {value.map((a, i) => (
-        <div key={i} className="ax-pf-stack" style={{ gap: 4 }}>
-          <div className="ax-pf-row">
-            <input className="ax-input" dir="ltr" aria-label={`מאפיין ${i + 1}: שם`} placeholder="Name" value={a.name} onChange={(e) => update(i, 'name', e.target.value)} aria-invalid={errors[`attr_${i}`] ? true : undefined} />
-            <input className="ax-input" dir="ltr" aria-label={`מאפיין ${i + 1}: ערך`} placeholder="Value" value={a.values} onChange={(e) => update(i, 'values', e.target.value)} />
-            <button type="button" className="ax-btn is-icon is-ghost" aria-label={`הסרת מאפיין ${i + 1}`} onClick={() => onChange(value.filter((_, j) => j !== i))}>
-              <Trash2 size={18} aria-hidden="true" />
-            </button>
-          </div>
-          {errors[`attr_${i}`] && (
-            <span className="ax-hint" style={{ color: 'var(--ax-bad)' }} role="alert">
-              {errors[`attr_${i}`]}
-            </span>
-          )}
-        </div>
-      ))}
-      <button type="button" className="ax-btn is-sm" style={{ alignSelf: 'flex-start' }} onClick={() => onChange([...value, { name: '', values: '' }])} disabled={value.length >= 40}>
-        <Plus size={16} aria-hidden="true" />
-        הוספת שדה
-      </button>
-    </div>
-  )
-}
-
 /* ── קטגוריות ── */
 
 function Categories({ all, value, onChange }: { all: Options['categories']; value: string[]; onChange: (v: string[]) => void }) {
@@ -550,66 +577,6 @@ function Categories({ all, value, onChange }: { all: Options['categories']; valu
         })}
       </div>
       {!value.length && <span className="ax-hint">בלי קטגוריה — המוצר ייכנס ל-Uncategorized בחנות</span>}
-    </div>
-  )
-}
-
-/* ── שדה תגיות (תגיות המוצר, מדינות שלא שולחים אליהן) ── */
-
-function ChipInput({ id, label, hint, value, suggestions, onChange, normalize, max = 30, error, tone = 'gray' }: { id: string; label: string; hint: ReactNode; value: string[]; suggestions: string[]; onChange: (v: string[]) => void; normalize?: (s: string) => string; max?: number; error?: string; tone?: 'gray' | 'warn' }) {
-  const [text, setText] = useState('')
-  const add = (raw: string) => {
-    const parts = raw.split(',').map((t) => (normalize ? normalize(t) : t.trim().replace(/\s+/g, ' '))).filter(Boolean)
-    const next = [...value]
-    for (const t of parts) if (!next.some((x) => x.toLowerCase() === t.toLowerCase()) && next.length < max) next.push(t.slice(0, 60))
-    onChange(next)
-    setText('')
-  }
-  return (
-    <div className="ax-pf-stack" style={{ gap: 10 }}>
-      <label className="ax-label" htmlFor={id}>
-        {label}
-      </label>
-      {value.length > 0 && (
-        <div className="ax-pf-chips" aria-label={`${label} — נבחרו`}>
-          {value.map((t) => (
-            <span key={t} className={`ax-pill tone-${tone} ax-ltr`}>
-              {t}
-              <button type="button" aria-label={`הסרת ${t}`} onClick={() => onChange(value.filter((x) => x !== t))}>
-                <X size={12} aria-hidden="true" />
-              </button>
-            </span>
-          ))}
-        </div>
-      )}
-      <input
-        id={id}
-        className="ax-input"
-        dir="ltr"
-        list={`${id}-list`}
-        value={text}
-        placeholder="מקלידים ולוחצים Enter"
-        aria-describedby={error ? `${id}-err` : `${id}-hint`}
-        aria-invalid={error ? true : undefined}
-        onChange={(e) => (e.target.value.endsWith(',') ? add(e.target.value) : setText(e.target.value))}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            e.preventDefault()
-            add(text)
-          } else if (e.key === 'Backspace' && !text && value.length) onChange(value.slice(0, -1))
-        }}
-        onBlur={() => text.trim() && add(text)}
-      />
-      <datalist id={`${id}-list`}>{suggestions.filter((s) => !value.includes(s)).map((s) => <option key={s} value={s} />)}</datalist>
-      {error ? (
-        <span id={`${id}-err`} className="ax-hint" style={{ color: 'var(--ax-bad)' }}>
-          {error}
-        </span>
-      ) : (
-        <span id={`${id}-hint`} className="ax-hint">
-          {hint}
-        </span>
-      )}
     </div>
   )
 }

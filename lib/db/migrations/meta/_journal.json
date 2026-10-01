@@ -92,6 +92,13 @@
       "when": 1790861752044,
       "tag": "0012_manual_product_site_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1790864580847,
+      "tag": "0013_media_in_wordpress",
+      "breakpoints": true
     }
   ]
 }

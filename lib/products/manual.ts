@@ -3,7 +3,8 @@ import { and, eq, inArray, isNull, or, sql } from 'drizzle-orm'
 import { db, schema } from '@/lib/db/client'
 import type { ShippingCosts, ShippingOption } from '@/lib/ebay/trading'
 import { writeSyncLog } from '@/lib/sync/log'
-import { CONDITIONS, emptyShip, mediaIdFromUrl, mediaUrl, SHIP_SERVICE, validateManualProduct, type FieldErrors, type ManualProductInput, type ShipInput } from './manual-shared'
+import { deleteRemovedMedia, productMedia } from './media'
+import { CONDITIONS, emptyShip, expirationInput, expirationLabel, SPEC_NAMES,  SHIP_SERVICE, validateManualProduct, type FieldErrors, type ManualProductInput, type ShipInput } from './manual-shared'
 
 // מוצר ידני: נוצר במערכת, לא קשור ל-eBay (אין ebay_item_id), נשלח לחנות בלבד.
 // המלאי נרשם ב-ledger כמו כל מוצר: פתיחה = initial, שינוי בעריכה = manual_adjust.
@@ -83,30 +84,29 @@ const orNull = (s: string) => (s.trim() ? s.trim() : null)
 const day = (s: string) => (s ? new Date(`${s}T00:00:00Z`) : null)
 const conditionLabel = (id: string) => CONDITIONS.find(([c]) => c === id)?.[1] ?? null
 
-/** תמונות לפי הסדר → כתובות במערכת. מזהה שלא קיים / שייך למוצר אחר נדחה. */
+/** תמונות לפי הסדר → הכתובות שלהן בחנות. מזהה שלא קיים / שייך למוצר אחר נדחה. */
 async function resolveImages(ids: string[], productId: string | null): Promise<string[]> {
   if (!ids.length) return []
   if (new Set(ids).size !== ids.length) throw new ManualProductError('אותה תמונה מופיעה פעמיים', 400, { images: 'אותה תמונה מופיעה פעמיים' })
   const rows = await db
-    .select({ id: mediaFiles.id, fileName: mediaFiles.fileName, productId: mediaFiles.productId })
+    .select({ id: mediaFiles.id, wooSrc: mediaFiles.wooSrc })
     .from(mediaFiles)
     .where(and(inArray(mediaFiles.id, ids), productId ? or(isNull(mediaFiles.productId), eq(mediaFiles.productId, productId)) : isNull(mediaFiles.productId)))
   const byId = new Map(rows.map((r) => [r.id, r]))
   return ids.map((id) => {
     const r = byId.get(id)
     if (!r) throw new ManualProductError('אחת התמונות לא נמצאה — העלה אותה שוב', 400, { images: 'אחת התמונות לא נמצאה — העלה אותה שוב' })
-    return mediaUrl(r.id, r.fileName)
+    return r.wooSrc
   })
 }
 
 function productValues(p: ManualProductInput, images: string[]) {
   const specifics: Record<string, string[]> = {}
-  for (const a of p.attributes) {
-    const name = clean(a.name)
-    const values = a.values.split(/[,|]/).map(clean).filter(Boolean)
-    if (name && values.length) specifics[name] = values
-  }
-  if (p.brand.trim()) specifics.Brand = [clean(p.brand)]
+  // שדות קבועים בלבד, באותם שמות כמו ה-Item Specifics של מוצרי eBay
+  const spec = { model: clean(p.specs.model), countryOfOrigin: p.specs.countryOfOrigin, type: clean(p.specs.type), expirationDate: expirationLabel(p.specs.expirationDate) }
+  for (const k of Object.keys(SPEC_NAMES) as (keyof typeof SPEC_NAMES)[]) if (spec[k]) specifics[SPEC_NAMES[k]] = [spec[k]]
+  const brands = p.brands.map(clean).filter(Boolean)
+  if (brands.length) specifics.Brand = brands
   if (p.mpn.trim()) specifics.MPN = [clean(p.mpn)]
   const dims = { weight: p.dims.weight.trim(), length: p.dims.length.trim(), width: p.dims.width.trim(), height: p.dims.height.trim() }
   return {
@@ -120,7 +120,7 @@ function productValues(p: ManualProductInput, images: string[]) {
     saleTo: day(p.saleTo),
     currency: 'USD',
     images,
-    brand: orNull(clean(p.brand)),
+    brand: brands[0] ?? null,
     mpn: orNull(clean(p.mpn)),
     conditionId: orNull(p.conditionId),
     condition: conditionLabel(p.conditionId),
@@ -201,6 +201,9 @@ export async function updateManualProduct(id: string, p: ManualProductInput, exp
     if (p.imageIds.length) await tx.update(mediaFiles).set({ productId: id }).where(inArray(mediaFiles.id, p.imageIds))
   })
   await writeSyncLog({ job: MANUAL_JOB, action: 'update_manual', productId: id, success: true, details: { sku, qtyDelta: delta, images: images.length } })
+  // תמונות שהוסרו: מוצר שעוד לא בחנות — נמחקות מספריית המדיה עכשיו. מוצר בחנות — אחרי העדכון הבא בחנות,
+  // כדי שהמוצר בחנות לא יצביע על תמונה שנמחקה
+  if (!mapping.wooProductId) await deleteRemovedMedia(id, p.imageIds)
 }
 
 // ── טעינה לטופס ─────────────────────────────────────────────────────────────
@@ -216,11 +219,10 @@ export async function loadManualProduct(id: string) {
     .select({ available: sql<number>`coalesce(sum(${stockLedger.delta}), 0)::int` })
     .from(stockLedger)
     .where(eq(stockLedger.productId, id))
-  const imageIds = p.images.map(mediaIdFromUrl).filter((x): x is string => !!x)
-  const media = imageIds.length
-    ? await db.select({ id: mediaFiles.id, fileName: mediaFiles.fileName, width: mediaFiles.width, height: mediaFiles.height, size: mediaFiles.size }).from(mediaFiles).where(inArray(mediaFiles.id, imageIds))
-    : []
+  const media = await productMedia(id, p.images)
+  const imageIds = media.map((x) => x.id)
   const specifics = { ...(p.itemSpecifics ?? {}) }
+  const brandList = specifics.Brand ?? []
   delete specifics.Brand
   delete specifics.MPN
   const input: ManualProductInput = {
@@ -233,13 +235,18 @@ export async function loadManualProduct(id: string) {
     saleFrom: isoDay(p.saleFrom),
     saleTo: isoDay(p.saleTo),
     quantity: Math.max(available, 0),
-    brand: p.brand ?? '',
+    brands: brandList.length ? brandList : p.brand ? [p.brand] : [],
     mpn: p.mpn ?? '',
     conditionId: p.conditionId ?? '',
     conditionNotes: p.conditionDescription ?? '',
     categorySlugs: p.categorySlugs ?? [],
     tags: p.tags ?? [],
-    attributes: Object.entries(specifics).map(([name, values]) => ({ name, values: values.join(', ') })),
+    specs: {
+      model: specifics[SPEC_NAMES.model]?.[0] ?? '',
+      countryOfOrigin: specifics[SPEC_NAMES.countryOfOrigin]?.[0] ?? '',
+      type: specifics[SPEC_NAMES.type]?.[0] ?? '',
+      expirationDate: expirationInput(specifics[SPEC_NAMES.expirationDate]?.[0] ?? ''),
+    },
     imageIds,
     shipping: { us: fromSide(p.shippingCosts?.domestic, SHIP_SERVICE.us), intl: fromSide(p.shippingCosts?.international, SHIP_SERVICE.intl), exclude: p.shippingCosts?.excludeLocations ?? [] },
     dims: p.packageDims ?? { weight: '', length: '', width: '', height: '' },
@@ -247,11 +254,10 @@ export async function loadManualProduct(id: string) {
     imageAlts: p.imageAlts ?? {},
     primaryCategory: p.primaryCategory ?? '',
   }
-  const byId = new Map(media.map((x) => [x.id, x]))
   return {
     input,
     available,
-    images: imageIds.map((mid) => byId.get(mid)).filter((x): x is NonNullable<typeof x> => !!x).map((x) => ({ ...x, url: mediaUrl(x.id, x.fileName) })),
+    images: media.map((x) => ({ id: x.id, fileName: x.fileName, width: x.width, height: x.height, size: x.size, url: x.wooSrc })),
     wooProductId: m?.wooProductId ?? null,
     lastSyncedAt: m?.lastSyncedAt ?? null,
     updatedAt: p.updatedAt,

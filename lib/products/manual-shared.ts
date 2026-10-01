@@ -38,13 +38,15 @@ export interface ManualProductInput {
   saleFrom: string
   saleTo: string
   quantity: number
-  brand: string
+  /** מותגים — הראשון הוא המותג הראשי (ה-theme מציג אותו ובסכמה) */
+  brands: string[]
   mpn: string
   conditionId: string
   conditionNotes: string
   categorySlugs: string[]
   tags: string[]
-  attributes: { name: string; values: string }[]
+  /** מפרט — שדות קבועים בלבד, באותם שמות כמו במוצרי eBay (מאפיינים בחנות) */
+  specs: SpecsInput
   /** מזהי media_files לפי הסדר — הראשון הוא התמונה הראשית */
   imageIds: string[]
   /** exclude: מדינות (קוד בן 2 אותיות) או אזורים של eBay שלא שולחים אליהם */
@@ -60,6 +62,44 @@ export interface ManualProductInput {
 
 export const MAX_FAQ = 15
 
+export interface SpecsInput {
+  model: string
+  /** שם המדינה באנגלית, כמו ב-eBay ("Germany") */
+  countryOfOrigin: string
+  type: string
+  /** YYYY-MM בטופס; בחנות "Dec 2022" כמו במוצרי eBay */
+  expirationDate: string
+}
+
+/** שם המאפיין בחנות לכל שדה מפרט — זהה ל-Item Specifics של eBay */
+export const SPEC_NAMES = { model: 'Model', countryOfOrigin: 'Country of Origin', type: 'Type', expirationDate: 'Expiration Date' } as const
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+/** "2022-12" → "Dec 2022" */
+export const expirationLabel = (ym: string) => (/^\d{4}-\d{2}$/.test(ym) ? `${MONTHS[Number(ym.slice(5)) - 1]} ${ym.slice(0, 4)}` : '')
+/** "Dec 2022" → "2022-12" */
+export const expirationInput = (label: string) => {
+  const m = label.match(/^([A-Za-z]{3})\w* (\d{4})$/)
+  const i = m ? MONTHS.findIndex((x) => x.toLowerCase() === m[1].toLowerCase()) : -1
+  return i >= 0 ? `${m![2]}-${String(i + 1).padStart(2, '0')}` : ''
+}
+
+/** ISO 3166-1 — השמות באנגלית מ-Intl (כמו ב-eBay: Germany, United States, Japan) */
+export const COUNTRY_CODES = 'AD AE AF AG AI AL AM AO AR AT AU AW AZ BA BB BD BE BF BG BH BI BJ BM BN BO BR BS BT BW BY BZ CA CD CF CG CH CI CL CM CN CO CR CU CV CY CZ DE DJ DK DM DO DZ EC EE EG ER ES ET FI FJ FR GA GB GD GE GH GI GM GN GQ GR GT GW GY HK HN HR HT HU ID IE IL IN IQ IR IS IT JM JO JP KE KG KH KM KN KP KR KW KY KZ LA LB LC LI LK LR LS LT LU LV LY MA MC MD ME MG MK ML MM MN MO MR MT MU MV MW MX MY MZ NA NE NG NI NL NO NP NZ OM PA PE PG PH PK PL PR PS PT PY QA RO RS RU RW SA SB SC SD SE SG SI SK SL SM SN SO SR SS ST SV SY SZ TD TG TH TJ TL TM TN TO TR TT TW TZ UA UG US UY UZ VA VC VE VG VN VU WS YE ZA ZM ZW'.split(' ')
+const regionNames = typeof Intl !== 'undefined' && 'DisplayNames' in Intl ? new Intl.DisplayNames(['en'], { type: 'region' }) : null
+/** שמות שבהם Intl שונה מהשם המקובל במודעות */
+const COUNTRY_OVERRIDES: Record<string, string> = {
+  HK: 'Hong Kong',
+  MO: 'Macau',
+  CZ: 'Czech Republic',
+  TR: 'Turkey',
+  PS: 'Palestine',
+  CD: 'Congo (DRC)',
+  CG: 'Congo',
+  CI: "Cote d'Ivoire",
+}
+export const countryName = (code: string) => COUNTRY_OVERRIDES[code] ?? regionNames?.of(code) ?? code
+
 /** אזורים שה-theme מזהה ב-excludeLocations (vz_ship_location_matches), חוץ מקוד מדינה בן 2 אותיות */
 export const SHIP_REGIONS = ['Africa', 'Asia', 'Europe', 'North America', 'Oceania', 'South America', 'Central America and Caribbean']
 export const isShipLocation = (v: string) => /^[A-Z]{2}$/.test(v) || SHIP_REGIONS.includes(v)
@@ -73,14 +113,10 @@ export const CONDITIONS: [string, string][] = [
   ['7000', 'For Parts / Not Working'],
 ]
 
-export const MEDIA_PATH = '/api/public/media'
 export const MAX_IMAGES = 12
 /** גודל מקסימלי לקובץ אחרי הדחיסה בדפדפן */
 export const MAX_IMAGE_BYTES = 8 * 1024 * 1024
 
-/** כתובת התמונה במערכת: /api/public/media/<id>/<name> */
-export const mediaUrl = (id: string, fileName: string) => `${MEDIA_PATH}/${id}/${encodeURIComponent(fileName)}`
-export const mediaIdFromUrl = (url: string) => url.match(/\/api\/public\/media\/([0-9a-f-]{36})\//i)?.[1] ?? null
 
 export const emptyShip = (): ShipInput => ({ mode: 'flat', cost: '', additional: '', express: false, expressCost: '', expressAdditional: '' })
 
@@ -94,13 +130,13 @@ export const emptyManualProduct = (): ManualProductInput => ({
   saleFrom: '',
   saleTo: '',
   quantity: 1,
-  brand: '',
+  brands: [],
   mpn: '',
   conditionId: '',
   conditionNotes: '',
   categorySlugs: [],
   tags: [],
-  attributes: [],
+  specs: { model: '', countryOfOrigin: '', type: '', expirationDate: '' },
   imageIds: [],
   shipping: { us: emptyShip(), intl: emptyShip(), exclude: [] },
   dims: { weight: '', length: '', width: '', height: '' },
@@ -144,10 +180,9 @@ export function validateManualProduct(p: ManualProductInput): FieldErrors {
     }
   }
   for (const k of ['weight', 'length', 'width', 'height'] as const) if (p.dims[k] && !DIM.test(p.dims[k])) e[`dims_${k}`] = 'מספר בלבד'
-  p.attributes.forEach((a, i) => {
-    if (!a.name.trim() && a.values.trim()) e[`attr_${i}`] = 'חסר שם למאפיין'
-    else if (a.name.trim() && !a.values.trim()) e[`attr_${i}`] = 'חסר ערך'
-  })
+  if (p.specs.countryOfOrigin && !COUNTRY_CODES.some((c) => countryName(c) === p.specs.countryOfOrigin)) e.spec_countryOfOrigin = 'בחר מדינה מהרשימה'
+  if (p.specs.expirationDate && !/^\d{4}-(0[1-9]|1[0-2])$/.test(p.specs.expirationDate)) e.spec_expirationDate = 'חודש ושנה'
+  for (const k of ['model', 'type'] as const) if (p.specs[k].length > 120) e[`spec_${k}`] = 'עד 120 תווים'
   p.faq.forEach((f, i) => {
     if (!f.q.trim() && f.a.trim()) e[`faq_${i}`] = 'חסרה שאלה'
     else if (f.q.trim() && !f.a.trim()) e[`faq_${i}`] = 'חסרה תשובה'
@@ -156,6 +191,7 @@ export function validateManualProduct(p: ManualProductInput): FieldErrors {
   if (p.primaryCategory && !p.categorySlugs.includes(p.primaryCategory)) e.primaryCategory = 'הקטגוריה הראשית חייבת להיות אחת מהקטגוריות שנבחרו'
   const badLoc = p.shipping.exclude.find((x) => !isShipLocation(x))
   if (badLoc) e.ship_exclude = `${badLoc} — קוד מדינה בן 2 אותיות (למשל RU) או אזור מהרשימה`
+  if (p.brands.length > 5) e.brands = 'עד 5 מותגים'
   if (p.imageIds.length > MAX_IMAGES) e.images = `עד ${MAX_IMAGES} תמונות`
   if (p.shortDescription.length > 2000) e.shortDescription = 'עד 2,000 תווים'
   return e

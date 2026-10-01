@@ -15,7 +15,6 @@ import {
   timestamp,
   uniqueIndex,
   uuid,
-  customType,
 } from 'drizzle-orm/pg-core'
 
 // ── Enums ────────────────────────────────────────────────────────────────────
@@ -649,14 +648,11 @@ export const ebayFeedback = pgTable(
   ],
 )
 
-// ── תמונות שהועלו למוצרים ידניים ─────────────────────────────────────────────
-
-const bytea = customType<{ data: Buffer; driverData: Buffer }>({ dataType: () => 'bytea' })
+// ── תמונות של מוצרים ידניים ──────────────────────────────────────────────────
 
 /**
- * קובץ תמונה שהועלה במערכת (מוצר ידני). מוגש בכתובת ציבורית (/api/public/media/<id>/<name>)
- * כדי ש-WooCommerce יוריד אותו לספריית המדיה שלו. woo_media_id — ה-attachment בחנות אחרי השליחה,
- * כדי שעדכון חוזר לא יעלה את התמונה שוב.
+ * תמונה של מוצר ידני. הקובץ עצמו לא נשמר במערכת (החלטת עודד 01/10/2026): הוא עולה ישר לספריית המדיה
+ * של WordPress, וכאן רק המזהה והכתובת שם. product_id null = הועלתה בטופס שעוד לא נשמר (נמחקת אחרי 24 שעות).
  */
 export const mediaFiles = pgTable(
   'media_files',
@@ -668,9 +664,9 @@ export const mediaFiles = pgTable(
     size: integer('size').notNull(),
     width: integer('width'),
     height: integer('height'),
-    data: bytea('data').notNull(),
-    wooMediaId: bigint('woo_media_id', { mode: 'number' }),
-    wooSrc: text('woo_src'),
+    /** ה-attachment בספריית המדיה של החנות */
+    wooMediaId: bigint('woo_media_id', { mode: 'number' }).notNull(),
+    wooSrc: text('woo_src').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('media_files_product_idx').on(t.productId), check('media_files_mime_chk', sql`${t.mime} in ('image/jpeg', 'image/png', 'image/webp')`)],

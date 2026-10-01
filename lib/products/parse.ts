@@ -16,6 +16,7 @@ export function parseManualInput(raw: unknown): ManualProductInput | null {
   const e = emptyManualProduct()
   const sh = (o.shipping ?? {}) as Record<string, unknown>
   const dims = (o.dims ?? {}) as Record<string, unknown>
+  const specs = (o.specs ?? {}) as Record<string, unknown>
   const qty = Number(o.quantity)
   return {
     title: str(o.title, 400),
@@ -27,13 +28,13 @@ export function parseManualInput(raw: unknown): ManualProductInput | null {
     saleFrom: str(o.saleFrom, 10),
     saleTo: str(o.saleTo, 10),
     quantity: Number.isFinite(qty) ? qty : e.quantity,
-    brand: str(o.brand, 200),
+    brands: Array.from(new Set(strArr(o.brands, 10).map((b) => b.trim().replace(/\s+/g, ' ').slice(0, 100)).filter(Boolean))),
     mpn: str(o.mpn, 200),
     conditionId: str(o.conditionId, 10),
     conditionNotes: str(o.conditionNotes, 2000),
     categorySlugs: strArr(o.categorySlugs, 20),
     tags: strArr(o.tags, 30).map((t) => t.slice(0, 60)),
-    attributes: (Array.isArray(o.attributes) ? o.attributes : []).slice(0, 40).map((a) => ({ name: str((a as Record<string, unknown>)?.name, 100), values: str((a as Record<string, unknown>)?.values, 1000) })),
+    specs: { model: str(specs.model, 200).trim(), countryOfOrigin: str(specs.countryOfOrigin, 100).trim(), type: str(specs.type, 200).trim(), expirationDate: str(specs.expirationDate, 7).trim() },
     imageIds: strArr(o.imageIds, 50).filter((x) => /^[0-9a-f-]{36}$/i.test(x)),
     shipping: { us: ship(sh.us), intl: ship(sh.intl), exclude: Array.from(new Set(strArr(sh.exclude, 100).map((x) => x.trim()).filter(Boolean))) },
     dims: { weight: str(dims.weight, 12).trim(), length: str(dims.length, 12).trim(), width: str(dims.width, 12).trim(), height: str(dims.height, 12).trim() },

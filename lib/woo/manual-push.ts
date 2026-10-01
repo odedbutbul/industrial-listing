@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto'
-import { eq, inArray, sql } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { db, schema } from '@/lib/db/client'
-import { mediaIdFromUrl, storeBlockers } from '@/lib/products/manual-shared'
+import { deleteRemovedMedia, productMedia } from '@/lib/products/media'
+import { SPEC_NAMES, storeBlockers } from '@/lib/products/manual-shared'
 import { withJobLock } from '@/lib/sync/lock'
 import { writeSyncLog } from '@/lib/sync/log'
 import { WooApiError, wooGet, wooRequest } from './client'
@@ -11,10 +12,10 @@ import { brandKey, CONDITION_LABELS, ensureBrands, ensureCategories, ensureCondi
 
 // שליחת מוצר ידני לחנות — תמיד בלחיצה של המשתמש, אחד בכל פעם.
 // פעם ראשונה: נוצר כטיוטה (החלטת עודד 01/10/2026). אחר כך: עדכון של אותו מוצר, בלי לשנות את הסטטוס בחנות.
-// כל התמונות עולות לספריית המדיה של WordPress (בניגוד למוצרי eBay, שם הגלריה נשארת ב-eBay).
+// התמונות כבר בספריית המדיה של WordPress (עולות ישר מהטופס, לא נשמרות במערכת) — נשלחות לפי id.
 
 export const WOO_MANUAL_JOB = 'woo_manual_product'
-const { products, channelMappings, stockLedger, mediaFiles } = schema
+const { products, channelMappings, stockLedger } = schema
 /** הורדת תמונות ע"י WordPress לוקחת זמן — כל מוצר מקבל עד 2 דקות */
 const PUSH_TIMEOUT_MS = 120_000
 
@@ -25,13 +26,6 @@ export class StorePushError extends Error {
 }
 
 type Meta = { key: string; value: unknown }
-type WooImage = { id?: number; src?: string; name?: string; alt?: string }
-
-function publicBase(): string {
-  const base = process.env.APP_BASE_URL?.replace(/\/+$/, '')
-  if (!base) throw new StorePushError('APP_BASE_URL חסר — החנות צריכה כתובת ציבורית כדי להוריד את התמונות', 500)
-  return base
-}
 
 /** תגיות לפי שם: קיימת → id, אחרת נוצרת */
 async function ensureTags(names: string[]): Promise<number[]> {
@@ -64,7 +58,8 @@ export async function pushManualProduct(productId: string): Promise<StorePushRes
     const m = await db.query.channelMappings.findFirst({ where: eq(channelMappings.productId, productId) })
     if (!m) throw new StorePushError('למוצר אין SKU במערכת', 500)
 
-    const imageIds = p.images.map(mediaIdFromUrl).filter((x): x is string => !!x)
+    const mediaRows = await productMedia(productId, p.images)
+    const imageIds = mediaRows.map((r) => r.id)
     const missing = storeBlockers({ title: p.title, price: p.price ?? '', imageIds })
     if (missing.length) throw new StorePushError(`חסר כדי לשלוח לחנות: ${missing.join(', ')}`)
 
@@ -86,32 +81,30 @@ export async function pushManualProduct(productId: string): Promise<StorePushRes
       .where(eq(stockLedger.productId, productId))
     const qty = Math.max(available, 0)
 
-    const media = await db.select({ id: mediaFiles.id, fileName: mediaFiles.fileName, wooMediaId: mediaFiles.wooMediaId }).from(mediaFiles).where(inArray(mediaFiles.id, imageIds))
-    const byId = new Map(media.map((x) => [x.id, x]))
-    const base = publicBase()
+    // התמונות כבר בספריית המדיה של החנות (עלו בטופס) — נשלחות לפי id
     const alts = p.imageAlts ?? {}
-    const images: WooImage[] = imageIds.map((id, i) => {
-      const f = byId.get(id)!
-      const alt = alts[id] || p.title
-      // תמונה שכבר בספריית המדיה של החנות — לפי id, כדי שלא תעלה שוב
-      if (f.wooMediaId) return { id: f.wooMediaId, alt }
-      return { src: `${base}/api/public/media/${f.id}/${encodeURIComponent(f.fileName)}`, name: i === 0 ? p.title : `${p.title} ${i + 1}`, alt }
-    })
+    const images = mediaRows.map((r) => ({ id: r.wooMediaId, alt: alts[r.id] || p.title }))
+    // _sync_gallery: אותו שדה שה-theme קורא במוצרי eBay — כאן עם כתובות החנות.
+    // _vz_img_alt: alt לכל תמונה לפי "a{attachment id}" — המפתח של ה-theme
+    const imgAlt = Object.fromEntries(mediaRows.filter((r) => alts[r.id]).map((r) => [`a${r.wooMediaId}`, alts[r.id]]))
 
     // מאפיינים: Condition גלובלי + מאפיינים חופשיים (בלי Brand/MPN, שיש להם שדות משלהם)
     const attributes: { id?: number; name?: string; options: string[]; visible: boolean; variation: false }[] = []
     const condLabel = p.conditionId ? CONDITION_LABELS[p.conditionId] : null
     if (condLabel) attributes.push({ id: await ensureConditionAttribute(), options: [condLabel], visible: true, variation: false })
-    for (const [name, values] of Object.entries(p.itemSpecifics ?? {})) {
-      if (['brand', 'mpn'].includes(name.toLowerCase())) continue
-      attributes.push({ name, options: values, visible: true, variation: false })
+    // המפרט בסדר קבוע (jsonb לא שומר סדר מפתחות): Model, Country of Origin, Type, Expiration Date
+    for (const name of Object.values(SPEC_NAMES)) {
+      const values = p.itemSpecifics?.[name]
+      if (values?.length) attributes.push({ name, options: values, visible: true, variation: false })
     }
 
-    let brandId: number | undefined
-    if (p.brand) {
+    // מותגים: הראשון הוא הראשי (ה-theme לוקח את הראשון). חסר בחנות → נוצר
+    const brandNames = p.itemSpecifics?.Brand?.length ? p.itemSpecifics.Brand : p.brand ? [p.brand] : []
+    let brandIds: number[] = []
+    if (brandNames.length) {
       const brands = await loadBrands()
-      await ensureBrands(new Map([[brandKey(p.brand), p.brand]]), brands)
-      brandId = brands.get(brandKey(p.brand))
+      await ensureBrands(new Map(brandNames.map((b) => [brandKey(b), b])), brands)
+      brandIds = Array.from(new Set(brandNames.map((b) => brands.get(brandKey(b))).filter((id): id is number => typeof id === 'number')))
     }
     let categories: { id: number }[] = []
     let primaryCat: number | undefined
@@ -133,6 +126,8 @@ export async function pushManualProduct(productId: string): Promise<StorePushRes
       { key: '_mpn_norm', value: p.mpn ? mpnNorm(p.mpn) : '' },
       { key: '_condition_notes', value: p.conditionDescription ?? '' },
       ...shippingMeta(p.shippingCosts),
+      { key: '_sync_gallery', value: JSON.stringify(mediaRows.slice(1).map((r) => r.wooSrc)) },
+      { key: '_vz_img_alt', value: Object.keys(imgAlt).length ? imgAlt : '' },
       // שאלות ותשובות של המוצר — אותו שדה שה-theme קורא (inc/product-seo.php). ריק = השאלות הכלליות
       { key: '_vz_faq', value: p.faq?.length ? p.faq : '' },
       ...(primaryCat ? [{ key: '_yoast_wpseo_primary_product_cat', value: String(primaryCat) }] : []),
@@ -156,12 +151,12 @@ export async function pushManualProduct(productId: string): Promise<StorePushRes
       attributes,
       categories,
       tags,
-      brands: brandId ? [{ id: brandId }] : [],
+      brands: brandIds.map((id) => ({ id })),
       meta_data: meta,
     }
 
     const creating = !m.wooProductId
-    let res: { id: number; images?: { id: number; src: string }[] }
+    let res: { id: number }
     try {
       res = creating
         ? (await wooRequest<typeof res>('POST', 'products', { body: { ...payload, status: 'draft' }, timeoutMs: PUSH_TIMEOUT_MS })).data
@@ -172,25 +167,8 @@ export async function pushManualProduct(productId: string): Promise<StorePushRes
       throw new StorePushError(error, 502)
     }
 
-    // ה-attachment של כל תמונה בחנות נשמר אצלנו, לפי הסדר שנשלח
-    const got = res.images ?? []
-    for (let i = 0; i < imageIds.length && i < got.length; i++) {
-      await db.update(mediaFiles).set({ wooMediaId: got[i].id, wooSrc: got[i].src }).where(eq(mediaFiles.id, imageIds[i]))
-    }
-    // _sync_gallery: אותו שדה שה-theme קורא במוצרי eBay — כאן עם כתובות החנות.
-    // _vz_img_alt: alt לכל תמונה לפי "a{attachment id}" — המפתח של ה-theme; ידוע רק אחרי שהחנות הורידה את התמונות
-    const gallery = JSON.stringify(got.slice(1).map((g) => g.src))
-    const imgAlt: Record<string, string> = {}
-    imageIds.forEach((id, i) => {
-      if (alts[id] && got[i]) imgAlt[`a${got[i].id}`] = alts[id]
-    })
-    const after = [
-      { key: '_sync_gallery', value: gallery },
-      { key: '_vz_img_alt', value: Object.keys(imgAlt).length ? imgAlt : '' },
-    ]
-    await wooRequest('PUT', `products/${res.id}`, { body: { meta_data: after } }).catch(async (e) => {
-      await writeSyncLog({ runId, job: WOO_MANUAL_JOB, channel: 'woo', action: 'update_gallery_meta', productId, success: false, error: e instanceof Error ? e.message : String(e) })
-    })
+    // תמונות שהוסרו מהמוצר — עכשיו כשהמוצר בחנות כבר לא מצביע עליהן, נמחקות מספריית המדיה
+    await deleteRemovedMedia(productId, imageIds)
 
     await db.update(channelMappings).set({ wooProductId: res.id, lastWooQty: qty, lastSyncedAt: new Date() }).where(eq(channelMappings.productId, productId))
     await writeSyncLog({
@@ -200,9 +178,9 @@ export async function pushManualProduct(productId: string): Promise<StorePushRes
       action: creating ? 'create_product' : 'update_product',
       productId,
       success: true,
-      details: { sku: m.sku, wooProductId: res.id, qty, images: got.length, ...(creating ? { status: 'draft' } : {}) },
+      details: { sku: m.sku, wooProductId: res.id, qty, images: images.length, ...(creating ? { status: 'draft' } : {}) },
       durationMs: Date.now() - started,
     })
-    return { action: creating ? 'created' : 'updated', wooProductId: res.id, images: got.length }
+    return { action: creating ? 'created' : 'updated', wooProductId: res.id, images: images.length }
   })
 }

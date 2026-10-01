@@ -109,3 +109,13 @@
   .ax-pf-bar-actions { width: 100%; }
   .ax-pf-bar-actions .ax-btn { flex: 1; }
 }
+
+/* ── בחירה מרובה עם חיפוש (MultiCombobox) — התפריט הוא .ax-menu של המערכת ── */
+.ax-combo { position: relative; }
+.ax-combo .ax-search { width: 100%; max-width: none; }
+.ax-combo-menu { left: 0; right: 0; top: calc(100% + 6px); min-width: 0; max-height: 300px; overflow-y: auto; margin: 0; list-style: none; }
+.ax-combo-menu .ax-menu-item { flex-shrink: 0; }
+.ax-combo-menu .ax-menu-item.is-active { background: var(--ax-hover2); }
+.ax-combo-empty { padding: 10px; color: var(--ax-muted); font-size: 13px; }
+/* כרטיס זכוכית (backdrop-filter) הוא שכבה נפרדת — כרטיס עם תפריט פתוח עולה מעל הכרטיסים שאחריו */
+.ax-card:has(.ax-combo-menu) { position: relative; z-index: 40; }
