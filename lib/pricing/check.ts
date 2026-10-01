@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm'
 import { db, schema } from '@/lib/db/client'
-import { getItemShipping, searchItems, type BrowseItem, type ShippingQuote } from '@/lib/ebay/browse'
+import { getItemShipping, searchCompetitors, type BrowseItem, type ShippingQuote } from '@/lib/ebay/browse'
 import { withJobLock } from '@/lib/sync/lock'
 import { writeSyncLog } from '@/lib/sync/log'
 import { classifyOffer, compare, conditionGroup, priceStats, usableMpn, type ConditionGroup, type MatchResult, type PriceStats } from './match'
@@ -227,8 +227,8 @@ async function checkOne(
   try {
     ship = await ourShipping(c, country, recent).catch(() => ({ ...ship, calls: 1 })) // משלוח שלנו לא זמין → ממשיכים עם מחיר פריט בלבד
     calls += ship.calls
-    const res = await searchItems({ q: mpn, excludeSellers, limit: 50, location: { country } })
-    calls++
+    const res = await searchCompetitors({ q: mpn, excludeSellers, country })
+    calls += res.calls
     const offers = res.items
       // ביטחון כפול: גם אם הסינון של eBay לא תפס — לא משווים מול עצמנו
       .filter((i) => !i.seller || !excludeSellers.some((s) => s.toLowerCase() === i.seller!.toLowerCase()))
@@ -377,8 +377,8 @@ export async function runPriceCheck(opts: CheckOptions = {}): Promise<CheckRunRe
     let budgetReached = false
     outer: for (const c of candidates) {
       for (const country of countries) {
-        // עד 2 קריאות לבדיקה — לא מתחילים בדיקה שעלולה לחרוג מהתקציב
-        if (apiCalls + 2 > maxCalls) {
+        // עד 3 קריאות לבדיקה (חיפוש ארה"ב + חיפוש במדינה + המשלוח שלנו) — לא מתחילים בדיקה שעלולה לחרוג מהתקציב
+        if (apiCalls + (country === 'US' ? 2 : 3) > maxCalls) {
           budgetReached = true
           break outer
         }

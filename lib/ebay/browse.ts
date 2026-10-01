@@ -7,7 +7,16 @@ import { EbayApiError } from './trading'
 // למדינה מסוימת). קריאה בלבד (GET).
 // שדות ופרמטרים לפי ה-OpenAPI הרשמי של eBay (developer.ebay.com/develop/api/spec/browse_api.json, נבדק 30/09/2026).
 
-type Amount = { value?: string; currency?: string }
+/** ConvertedAmount: כשהקונה במדינה אחרת eBay ממיר ל-currency שלו; convertedFrom* = הסכום המקורי */
+type Amount = { value?: string; currency?: string; convertedFromValue?: string; convertedFromCurrency?: string }
+
+/** הסכום בדולרים אם אפשר: value כשהוא USD, אחרת הסכום המקורי אם הוא USD */
+function usd(a: Amount | undefined): { value: string | null; currency: string | null } {
+  if (!a || a.value == null) return { value: null, currency: null }
+  if (a.currency === 'USD') return { value: a.value, currency: 'USD' }
+  if (a.convertedFromCurrency === 'USD' && a.convertedFromValue != null) return { value: a.convertedFromValue, currency: 'USD' }
+  return { value: a.value, currency: a.currency ?? null }
+}
 
 interface RawItemSummary {
   itemId: string
@@ -46,8 +55,14 @@ export interface BrowseItem {
   title: string
   price: string | null
   currency: string | null
-  /** המשלוח הזול ביותר למיקום הקונה שנשלח ב-location. null = eBay לא החזיר מחיר (לא שולח / לא ידוע) */
+  /** המחיר כפי ש-eBay החזיר (במטבע הקונה) — לחישוב שער כשממירים משלוח */
+  rawPrice?: string | null
+  /** המשלוח כפי ש-eBay החזיר (במטבע הקונה) */
+  rawShipping?: string | null
+  /** המשלוח הזול ביותר למיקום הקונה, בדולרים. null = eBay לא החזיר מחיר (לא שולח / לא ידוע) */
   shipping: string | null
+  /** האם המודעה שולחת למדינת הבדיקה. null = לא נבדק */
+  shipsToCountry?: boolean | null
   shippingType: string | null
   condition: string | null
   conditionId: string | null
@@ -72,7 +87,8 @@ export interface BrowseSearchParams {
   excludeSellers?: string[]
   /** רק המוכרים האלה */
   sellers?: string[]
-  /** מיקום הקונה — eBay מחשב לפיו את המשלוח. לא מסנן: מודעה שלא שולחת לשם חוזרת בלי מחיר משלוח */
+  /** מיקום הקונה — eBay מחשב לפיו את המשלוח, ממיר את המחירים למטבע שלו, ו**מחזיר רק מודעות ששולחות לשם**
+   *  (נבדק מול eBay אמיתי 01/10/2026: אותו MPN — ארה"ב 46 תוצאות, ישראל 37 בשקלים). לרשימת מתחרים מלאה — searchCompetitors */
   location?: BuyerLocation
   /** רק מודעות ששולחות למדינת הקונה (deliveryCountry). ברירת מחדל: לא — מתחרים לכל היעדים (החלטת עודד 01/10/2026) */
   onlyShipsToLocation?: boolean
@@ -134,13 +150,17 @@ async function browseGet<T>(path: string, url: URL, location?: BuyerLocation): P
 
 function toItem(r: RawItemSummary): BrowseItem {
   const ship = cheapest(r.shippingOptions)
-  const fixedShip = ship?.shippingCost?.value ?? null
+  const shipUsd = usd(ship?.shippingCost)
+  const fixedShip = shipUsd.currency === 'USD' ? shipUsd.value : null
+  const price = usd(r.price)
   return {
     itemId: r.itemId,
     legacyItemId: r.legacyItemId ?? null,
     title: r.title ?? '',
-    price: r.price?.value ?? null,
-    currency: r.price?.currency ?? null,
+    price: price.value,
+    currency: price.currency,
+    rawPrice: r.price?.value ?? null,
+    rawShipping: ship?.shippingCost?.value ?? null,
     shipping: fixedShip,
     shippingType: ship?.shippingCostType ?? null,
     condition: r.condition ?? null,
@@ -213,4 +233,31 @@ export async function getItemShipping(legacyItemId: string, location: BuyerLocat
 /** כל המודעות הפעילות של מוכר ב-eBay (עובד גם למוכר בלי חנות eBay Store) */
 export function sellerItemsUrl(username: string): string {
   return `https://www.ebay.com/sch/i.html?_ssn=${encodeURIComponent(username)}`
+}
+
+/**
+ * מתחרים לכל יעדי המשלוח + המשלוח שלהם למדינת הקונה.
+ * הרשימה והמחירים — תמיד לפי קונה בארה"ב (שוק EBAY_US, דולרים). למדינה אחרת: חיפוש שני רק כדי לדעת
+ * מי שולח לשם ובכמה; המשלוח מומר לדולרים לפי השער שעולה ממחיר אותה מודעה בשני החיפושים.
+ * קריאה אחת לארה"ב, שתיים לכל מדינה אחרת.
+ */
+export async function searchCompetitors(params: { q: string; excludeSellers?: string[]; country: string; limit?: number }): Promise<BrowseSearchResult & { calls: number }> {
+  const country = params.country.toUpperCase()
+  const base = await searchItems({ q: params.q, excludeSellers: params.excludeSellers, limit: params.limit ?? 50, location: { country: 'US' } })
+  if (country === 'US') return { ...base, items: base.items.map((i) => ({ ...i, shipsToCountry: true })), calls: 1 }
+
+  const local = await searchItems({ q: params.q, excludeSellers: params.excludeSellers, limit: 200, location: { country } })
+  const byId = new Map(local.items.map((i) => [i.itemId, i]))
+  const items = base.items.map((i) => {
+    const l = byId.get(i.itemId)
+    if (!l) return { ...i, shipping: null, shippingType: null, shipsToCountry: false }
+    let shipping: string | null = l.shipping
+    if (shipping == null && l.rawShipping != null) {
+      // שער: מחיר המודעה במטבע הקונה ÷ אותו מחיר בדולרים
+      const rate = Number(l.rawPrice) / Number(i.price)
+      if (Number.isFinite(rate) && rate > 0) shipping = (Math.round((Number(l.rawShipping) / rate) * 100) / 100).toFixed(2)
+    }
+    return { ...i, shipping, shippingType: l.shippingType, shipsToCountry: true }
+  })
+  return { total: base.total, items, calls: 2 }
 }

@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm'
 import { db } from '@/lib/db/client'
-import { searchItems, sellerItemsUrl } from '@/lib/ebay/browse'
+import { searchCompetitors, sellerItemsUrl } from '@/lib/ebay/browse'
 import { writeSyncLog } from '@/lib/sync/log'
 import { OWN_SELLERS } from './check'
 import { classifyOffer, compactPart, conditionGroup, priceStats, round2, totalPrice, usableMpn, type ConditionGroup, type MatchLevel, type PriceStats, type QuoteCondition } from './match'
@@ -30,6 +30,8 @@ export interface QuoteOffer {
   condition: string | null
   conditionGroup: ConditionGroup
   country: string | null
+  /** שולח למדינת הקונה שנבחרה */
+  shipsToCountry: boolean | null
   url: string | null
   matchLevel: MatchLevel
   /** נכלל בחישוב (התאמה מלאה/סבירה, אותו מצב אם נבחר, מחיר ב-USD, לא מכירה פומבית בלבד) */
@@ -86,7 +88,7 @@ export async function checkQuote(input: QuoteInput): Promise<QuoteResult> {
   const brand = input.brand?.trim() || null
   const started = Date.now()
 
-  const [res, ours] = await Promise.all([searchItems({ q: mpn, excludeSellers: OWN_SELLERS, limit: 50, location: { country } }), catalogMatches(mpn)])
+  const [res, ours] = await Promise.all([searchCompetitors({ q: mpn, excludeSellers: OWN_SELLERS, country }), catalogMatches(mpn)])
 
   const offers: QuoteOffer[] = res.items
     .filter((i) => !i.seller || !OWN_SELLERS.some((s) => s.toLowerCase() === i.seller!.toLowerCase()))
@@ -105,6 +107,7 @@ export async function checkQuote(input: QuoteInput): Promise<QuoteResult> {
         condition: i.condition,
         conditionGroup: g,
         country: i.country,
+        shipsToCountry: i.shipsToCountry ?? null,
         url: i.url,
         matchLevel: k.match.level,
         compared: k.compared,

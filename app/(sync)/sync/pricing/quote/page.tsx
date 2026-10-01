@@ -344,8 +344,10 @@ function OfferCard({ o, country, out, onToggle }: { o: QuoteOffer; country: stri
               <>
                 + משלוח <span className="ax-num">{money(o.shipping)}</span>
               </>
+            ) : o.shipsToCountry === false ? (
+              `לא שולח ל${countryName(country)}`
             ) : (
-              `משלוח ל${countryName(country)}: לא שולח / לא ידוע`
+              `משלוח ל${countryName(country)} לא ידוע`
             )}
           </span>
         </span>
