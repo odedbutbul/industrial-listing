@@ -671,3 +671,37 @@ export const mediaFiles = pgTable(
   },
   (t) => [index('media_files_product_idx').on(t.productId), check('media_files_mime_chk', sql`${t.mime} in ('image/jpeg', 'image/png', 'image/webp')`)],
 )
+
+// ── בדיקת איכות מודעות (שכבה 1, בלי AI) ──────────────────────────────────────
+
+/**
+ * ממצא של בדיקת איכות: מודעה שכנראה שוכפלה ממודעה אחרת ולא עודכנה (תמונה משותפת, כותרת שלא תואמת לתוכן…).
+ * הכללים ב-lib/quality/checks.ts. key יציב בין סריקות — כך "בדקתי, זה בסדר" נשמר.
+ * status: open = פתוח · dismissed = סומן כתקין ע"י המשתמש · resolved = לא נמצא בסריקה האחרונה (תוקן).
+ * קריאה בלבד מול eBay: הסריקה קוראת רק מה-DB, והתיקון עצמו נעשה ב-eBay ע"י המוכרת.
+ */
+export const listingIssues = pgTable(
+  'listing_issues',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    productId: uuid('product_id')
+      .notNull()
+      .references(() => products.id, { onDelete: 'cascade' }),
+    check: text('check').notNull(),
+    severity: text('severity').$type<'high' | 'medium' | 'low'>().notNull(),
+    key: text('key').notNull(),
+    message: text('message').notNull(),
+    details: jsonb('details').notNull().default({}),
+    status: text('status').$type<'open' | 'dismissed' | 'resolved'>().notNull().default('open'),
+    firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
+    dismissedAt: timestamp('dismissed_at', { withTimezone: true }),
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex('listing_issues_product_key_uq').on(t.productId, t.key),
+    index('listing_issues_status_idx').on(t.status, t.severity),
+    check('listing_issues_severity_chk', sql`${t.severity} in ('high', 'medium', 'low')`),
+    check('listing_issues_status_chk', sql`${t.status} in ('open', 'dismissed', 'resolved')`),
+  ],
+)

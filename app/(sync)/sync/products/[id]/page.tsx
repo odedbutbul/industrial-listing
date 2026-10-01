@@ -8,6 +8,7 @@ import { useDataChanged } from '@/components/sync/hooks'
 import type { ProductDetail } from '@/components/sync/types'
 import { WooLink } from '@/components/sync/WooLink'
 import { ProductHistory } from '@/components/sync/ProductHistory'
+import { QualityAlert } from '@/components/sync/QualityAlert'
 import dynamic from 'next/dynamic'
 
 // הטופס (עורך הטקסט) נטען רק למוצר ידני — דף מוצר eBay לא צריך אותו
@@ -63,6 +64,8 @@ export default function ProductPage() {
           </p>
         </div>
       </div>
+
+      <QualityAlert productId={p.id} />
 
       {mismatch && (
         <div className="ax-alert is-warn" role="status">
