@@ -163,7 +163,7 @@ function Quote() {
               ))}
             </select>
           </Field>
-          <Field id="q-country" label="מדינת הקונה" hint="לפי זה eBay מחשב משלוח ומסנן מודעות ששולחות לשם">
+          <Field id="q-country" label="מדינת הקונה" hint="לחישוב המשלוח בלבד — מוצגים מתחרים לכל יעדי המשלוח">
             <select id="q-country" className="ax-select" value={form.country} onChange={(e) => setForm((f) => ({ ...f, country: e.target.value }))} aria-describedby="q-country-hint">
               {COUNTRIES.map(([k, l]) => (
                 <option key={k} value={k}>
@@ -249,7 +249,7 @@ function Result({
           </span>
         </div>
         <p className="ax-muted" style={{ margin: 0, fontSize: 12.5 }}>
-          ההשוואה על מחיר הפריט בלבד (בלי משלוח), מול מודעות קנייה מיידית. נבדק <span className="ax-num">{dateTime(r.checkedAt)}</span>
+          ההשוואה על מחיר הפריט בלבד (בלי משלוח), מול מודעות קנייה מיידית של מתחרים לכל יעדי המשלוח. נבדק <span className="ax-num">{dateTime(r.checkedAt)}</span>
         </p>
       </div>
 
@@ -290,7 +290,7 @@ function Result({
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '0 clamp(12px,2vw,20px) 20px' }}>
             {shown.map((o) => (
-              <OfferCard key={o.itemId} o={o} out={excluded.has(o.itemId)} onToggle={() => toggle(o.itemId)} />
+              <OfferCard key={o.itemId} o={o} country={r.country} out={excluded.has(o.itemId)} onToggle={() => toggle(o.itemId)} />
             ))}
             {r.offers.length > relevant.length && (
               <button type="button" className="ax-btn is-sm is-ghost" style={{ alignSelf: 'flex-start' }} onClick={() => setShowAll((v) => !v)} aria-expanded={showAll}>
@@ -304,7 +304,7 @@ function Result({
   )
 }
 
-function OfferCard({ o, out, onToggle }: { o: QuoteOffer; out: boolean; onToggle: () => void }) {
+function OfferCard({ o, country, out, onToggle }: { o: QuoteOffer; country: string; out: boolean; onToggle: () => void }) {
   return (
     <div className="ax-mcard" style={{ gap: 8, opacity: out ? 0.6 : 1 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'flex-start' }}>
@@ -345,7 +345,7 @@ function OfferCard({ o, out, onToggle }: { o: QuoteOffer; out: boolean; onToggle
                 + משלוח <span className="ax-num">{money(o.shipping)}</span>
               </>
             ) : (
-              'משלוח לא ידוע'
+              `משלוח ל${countryName(country)}: לא שולח / לא ידוע`
             )}
           </span>
         </span>

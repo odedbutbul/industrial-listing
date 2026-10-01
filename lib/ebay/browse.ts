@@ -72,8 +72,10 @@ export interface BrowseSearchParams {
   excludeSellers?: string[]
   /** רק המוכרים האלה */
   sellers?: string[]
-  /** מיקום הקונה — eBay מחשב לפיו את המשלוח, ומחזיר רק מודעות ששולחות לשם */
+  /** מיקום הקונה — eBay מחשב לפיו את המשלוח. לא מסנן: מודעה שלא שולחת לשם חוזרת בלי מחיר משלוח */
   location?: BuyerLocation
+  /** רק מודעות ששולחות למדינת הקונה (deliveryCountry). ברירת מחדל: לא — מתחרים לכל היעדים (החלטת עודד 01/10/2026) */
+  onlyShipsToLocation?: boolean
   categoryId?: string
   limit?: number
 }
@@ -167,7 +169,7 @@ export async function searchItems(params: BrowseSearchParams): Promise<BrowseSea
   const filters: string[] = []
   if (params.excludeSellers?.length) filters.push(`excludeSellers:{${sellerList(params.excludeSellers)}}`)
   if (params.sellers?.length) filters.push(`sellers:{${sellerList(params.sellers)}}`)
-  if (params.location) filters.push(`deliveryCountry:${params.location.country}`)
+  if (params.location && params.onlyShipsToLocation) filters.push(`deliveryCountry:${params.location.country}`)
   if (filters.length) url.searchParams.set('filter', filters.join(','))
 
   const data = await browseGet<RawSearchResponse>(PATH, url, params.location)
