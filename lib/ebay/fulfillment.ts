@@ -30,14 +30,32 @@ interface RawContact {
   contactAddress?: RawAddress
 }
 
+interface RawCancelRequest {
+  cancelRequestId?: string
+  /** BUYER · SELLER · … */
+  cancelInitiator?: string
+  cancelReason?: string
+  cancelRequestState?: string
+  cancelRequestedDate?: string
+  cancelCompletedDate?: string
+}
+
+interface RawRefund {
+  refundId?: string
+  refundDate?: string
+  refundStatus?: string
+  amount?: Amount
+}
+
 interface RawOrder {
   orderId: string
   creationDate: string
   lastModifiedDate?: string
   orderFulfillmentStatus?: string
   orderPaymentStatus?: string
-  cancelStatus?: { cancelState?: string }
+  cancelStatus?: { cancelState?: string; cancelledDate?: string; cancelRequests?: RawCancelRequest[] }
   pricingSummary?: { total?: Amount }
+  paymentSummary?: { refunds?: RawRefund[] }
   lineItems?: RawLineItem[]
   buyer?: { username?: string; taxAddress?: RawAddress; buyerRegistrationAddress?: RawContact }
   fulfillmentStartInstructions?: { shippingStep?: { shipTo?: RawContact } }[]
@@ -67,6 +85,24 @@ export interface EbayOrderLine {
   currency: string | null
 }
 
+/** ביטול ההזמנה (בקשה אחרונה) — רק אם יש ביטול או בקשה */
+export interface EbayOrderCancel {
+  initiator: 'buyer' | 'seller' | 'ebay' | null
+  reason: string | null
+  state: string
+  requestedAt: Date
+  completedAt: Date | null
+  requests: number
+}
+
+export interface EbayOrderRefund {
+  refundId: string
+  at: Date
+  amount: string | null
+  currency: string | null
+  status: string | null
+}
+
 export interface EbayOrder {
   orderId: string
   createdAt: Date
@@ -78,6 +114,8 @@ export interface EbayOrder {
   currency: string | null
   lines: EbayOrderLine[]
   buyer: EbayBuyer | null
+  cancel: EbayOrderCancel | null
+  refunds: EbayOrderRefund[]
 }
 
 const clean = (v: string | undefined | null) => (v && v.trim() ? v.trim() : null)
@@ -99,9 +137,52 @@ function toBuyer(o: RawOrder): EbayBuyer | null {
   return b.username || b.email ? b : null
 }
 
+const toDate = (v: string | undefined | null) => {
+  const d = v ? new Date(v) : null
+  return d && !Number.isNaN(d.getTime()) ? d : null
+}
+
+export function initiatorOf(v: string | undefined | null): EbayOrderCancel['initiator'] {
+  const s = (v ?? '').toUpperCase()
+  if (s.includes('BUYER')) return 'buyer'
+  if (s.includes('SELLER')) return 'seller'
+  if (s === 'CS' || s.includes('EBAY') || s.includes('CUSTOMER_SERVICE') || s === 'SYSTEM') return 'ebay'
+  return null
+}
+
+function toCancel(o: RawOrder): EbayOrderCancel | null {
+  const reqs = o.cancelStatus?.cancelRequests ?? []
+  const state = o.cancelStatus?.cancelState ?? null
+  if (!reqs.length && (!state || state === 'NONE_REQUESTED')) return null
+  // הבקשה האחרונה קובעת
+  const last = [...reqs].sort((a, b) => (toDate(a.cancelRequestedDate)?.getTime() ?? 0) - (toDate(b.cancelRequestedDate)?.getTime() ?? 0)).at(-1)
+  const requestedAt = toDate(last?.cancelRequestedDate) ?? toDate(o.cancelStatus?.cancelledDate) ?? toDate(o.lastModifiedDate) ?? new Date(o.creationDate)
+  return {
+    initiator: initiatorOf(last?.cancelInitiator),
+    reason: clean(last?.cancelReason),
+    state: clean(last?.cancelRequestState) ?? state ?? 'UNKNOWN',
+    requestedAt,
+    completedAt: toDate(last?.cancelCompletedDate) ?? (state === 'CANCELED' ? toDate(o.cancelStatus?.cancelledDate) : null),
+    requests: reqs.length,
+  }
+}
+
+function toRefunds(o: RawOrder): EbayOrderRefund[] {
+  return (o.paymentSummary?.refunds ?? [])
+    .map((r, i) => ({
+      refundId: clean(r.refundId) ?? `${o.orderId}:${r.refundDate ?? i}`,
+      at: toDate(r.refundDate) ?? toDate(o.lastModifiedDate) ?? new Date(o.creationDate),
+      amount: r.amount?.value ?? null,
+      currency: r.amount?.currency ?? null,
+      status: clean(r.refundStatus),
+    }))
+}
+
 function toOrder(o: RawOrder): EbayOrder {
   return {
     buyer: toBuyer(o),
+    cancel: toCancel(o),
+    refunds: toRefunds(o),
     orderId: o.orderId,
     createdAt: new Date(o.creationDate),
     lastModifiedAt: o.lastModifiedDate ? new Date(o.lastModifiedDate) : null,

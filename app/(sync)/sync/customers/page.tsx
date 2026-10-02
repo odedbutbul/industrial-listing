@@ -6,7 +6,7 @@ import { Suspense, useCallback, useEffect, useState } from 'react'
 import { Globe2, Search, Users, X } from 'lucide-react'
 import type { CountryStat, CustomerRow } from '@/lib/customers/queries'
 import { api } from '@/components/sync/api'
-import { CHANNEL_LABEL, countryName, MARKETING } from '@/components/sync/customers'
+import { BEHAVIOR, CHANNEL_LABEL, countryName, MARKETING } from '@/components/sync/customers'
 import { date, money, num, pct } from '@/components/sync/format'
 import { useDataChanged } from '@/components/sync/hooks'
 import { EmptyState, Kpi, LoadError, Pill, Seg, Spin, useLoad } from '@/components/sync/ui'
@@ -14,13 +14,13 @@ import { EmptyState, Kpi, LoadError, Pill, Seg, Spin, useLoad } from '@/componen
 // מאגר הלקוחות: כל לקוח נוצר מהזמנה (eBay עכשיו, האתר כשקליטת ההזמנות מהחנות תופעל) ומקושר להזמנות שלו.
 // קורא רק מ-Postgres.
 
-type Filter = 'all' | 'repeat' | 'marketing' | 'ebay' | 'woo'
+type Filter = 'all' | 'repeat' | 'marketing' | 'ebay' | 'woo' | 'issues'
 type Sort = 'recent' | 'spent' | 'orders'
 
 interface Page {
   rows: CustomerRow[]
   nextOffset: number | null
-  counts: { total: number; repeat: number; marketing: number; ebay: number; woo: number; countries: number; new30: number }
+  counts: { total: number; repeat: number; marketing: number; ebay: number; woo: number; countries: number; new30: number; issues: number }
   countries: CountryStat[]
 }
 
@@ -36,7 +36,7 @@ function Customers() {
   const router = useRouter()
   const pathname = usePathname()
   const params = useSearchParams()
-  const filter = ((['all', 'repeat', 'marketing', 'ebay', 'woo'] as const).find((f) => f === params.get('filter')) ?? 'all') as Filter
+  const filter = ((['all', 'repeat', 'marketing', 'ebay', 'woo', 'issues'] as const).find((f) => f === params.get('filter')) ?? 'all') as Filter
   const sort = ((['recent', 'spent', 'orders'] as const).find((s) => s === params.get('sort')) ?? 'recent') as Sort
   const country = /^[A-Z]{2}$/.test(params.get('country') ?? '') ? params.get('country')! : ''
   const q = params.get('q') ?? ''
@@ -126,6 +126,7 @@ function Customers() {
             ['marketing', 'מאושרים לדיוור', c?.marketing],
             ['ebay', 'eBay', c?.ebay],
             ['woo', 'האתר', c?.woo],
+            ['issues', 'עם החזרות / קייסים', c?.issues],
           ]}
           value={filter}
           onChange={(v) => setParam('filter', v)}
@@ -163,7 +164,7 @@ function Customers() {
           <section className="ax-card" aria-label="לקוחות">
             <div className="ax-only-desktop">
               <div className="ax-table-wrap">
-                <table className="ax-table" style={{ minWidth: 960 }}>
+                <table className="ax-table" style={{ minWidth: 1100 }}>
                   <thead>
                     <tr>
                       <th>לקוח</th>
@@ -172,6 +173,7 @@ function Customers() {
                       <th>סך קניות</th>
                       <th>הזמנה אחרונה</th>
                       <th>ערוץ</th>
+                      <th>התנהלות</th>
                       <th>דיוור</th>
                     </tr>
                   </thead>
@@ -193,6 +195,9 @@ function Customers() {
                           <Channels r={r} />
                         </td>
                         <td>
+                          <Conduct r={r} />
+                        </td>
+                        <td>
                           <Pill t={MARKETING[r.marketing][1]}>{MARKETING[r.marketing][0]}</Pill>
                         </td>
                       </tr>
@@ -208,6 +213,7 @@ function Customers() {
                   <span className="ax-muted" style={{ fontSize: 12.5 }}>
                     {place(r)} · <span className="ax-num">{num(r.orders)}</span> הזמנות · <span className="ax-num">{money(r.spent)}</span> · אחרונה <span className="ax-num">{date(r.lastOrder)}</span>
                   </span>
+                  <Conduct r={r} />
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                     <Channels r={r} />
                     <Pill t={MARKETING[r.marketing][1]}>{MARKETING[r.marketing][0]}</Pill>
@@ -260,6 +266,32 @@ function NameCell({ r }: { r: CustomerRow }) {
       {(r.email || r.ebayUsername) && (
         <span className="ax-muted ax-ltr" dir="ltr" style={{ fontSize: 12, overflowWrap: 'anywhere', textAlign: 'right' }}>
           {r.email ?? `eBay: ${r.ebayUsername}`}
+        </span>
+      )}
+    </span>
+  )
+}
+
+/** רמת ההתנהלות + מה עומד מאחוריה בקצרה */
+function Conduct({ r }: { r: CustomerRow }) {
+  const k = r.conduct
+  const n = (v: number | null | undefined, one: string, many: string) => (v ? `${v === 1 ? one : `${num(v)} ${many}`}` : null)
+  const parts = [
+    n(k.cases, 'קייס', 'קייסים'),
+    n(k.returns, 'החזרה', 'החזרות'),
+    n(k.inquiries, '"לא קיבלתי"', 'פניות "לא קיבלתי"'),
+    n(k.cancelsBuyer, 'ביטול ביוזמתו', 'ביטולים ביוזמתו'),
+    n(k.refunds, 'החזר כספי', 'החזרים כספיים'),
+    n(k.ebay?.negativeLeft, 'פידבק שלילי שנתן', 'פידבקים שליליים שנתן'),
+  ].filter(Boolean)
+  return (
+    <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
+      <Pill t={BEHAVIOR[r.behavior.level][1]} dot>
+        {BEHAVIOR[r.behavior.level][0]}
+      </Pill>
+      {parts.length > 0 && (
+        <span className="ax-muted" style={{ fontSize: 12 }}>
+          {parts.join(' · ')}
         </span>
       )}
     </span>

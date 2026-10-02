@@ -3,15 +3,15 @@
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { useState } from 'react'
-import { ArrowRight, ExternalLink, Mail, MailX, ShieldAlert, UserRound } from 'lucide-react'
+import { AlertTriangle, ArrowRight, CheckCircle2, ExternalLink, Info, Mail, MailX, RotateCcw, ShieldAlert, ShieldCheck, UserRound, XCircle } from 'lucide-react'
 import type { CustomerDetail } from '@/lib/customers/queries'
 import { api } from '@/components/sync/api'
 import { CardHead } from '@/components/sync/CardHead'
-import { CHANNEL_LABEL, countryName, MARKETING, ORDER_STATE_LABEL } from '@/components/sync/customers'
+import { BEHAVIOR, CASE_KIND, CHANNEL_LABEL, countryName, INITIATOR, MARKETING, ORDER_STATE_LABEL, reasonLabel } from '@/components/sync/customers'
 import { date, dateTime, money, num } from '@/components/sync/format'
 import { Field, LoadError, Modal, Pill, Spin, useLoad, useToast } from '@/components/sync/ui'
 
-// דף לקוח: פרטים, מצב דיוור והזמנות. פעולות: הסכמה ידנית מתועדת, הסרה מדיוור, מחיקת פרטים.
+// דף לקוח: התנהלות (סיכום + פרופיל eBay), פרטים, מצב דיוור, ביטולים / החזרים / קייסים והזמנות. פעולות: הסכמה ידנית מתועדת, הסרה מדיוור, מחיקת פרטים.
 
 const CONSENT_SOURCE: Record<string, string> = { woo_checkout: 'תיבת ההסכמה בקופה', manual: 'סימון ידני' }
 
@@ -48,6 +48,8 @@ export default function CustomerPage() {
 
   const c = data.customer
   const gone = !!c.anonymizedAt
+  const casesByOrder = new Map<string, typeof data.cases>()
+  for (const k of data.cases) if (k.orderId) casesByOrder.set(k.orderId, [...(casesByOrder.get(k.orderId) ?? []), k])
   const title = c.name ?? c.ebayUsername ?? (gone ? 'לקוח שנמחק' : 'ללא שם')
 
   const act = async (body: Record<string, string>, ok: string) => {
@@ -76,6 +78,8 @@ export default function CustomerPage() {
           </p>
         </div>
       </div>
+
+      <Conduct c={c} />
 
       <div className="ax-grid-auto">
         <section className="ax-card" aria-labelledby="details-h">
@@ -171,6 +175,8 @@ export default function CustomerPage() {
         </section>
       </div>
 
+      <Cases cases={data.cases} />
+
       <section className="ax-card" aria-labelledby="orders-h">
         <div className="ax-card-head">
           <h2 id="orders-h" className="ax-h2">
@@ -190,6 +196,13 @@ export default function CustomerPage() {
                     </Link>
                     <Pill t={CHANNEL_LABEL[o.channel][1]}>{CHANNEL_LABEL[o.channel][0]}</Pill>
                     <Pill t={ORDER_STATE_LABEL[o.state]?.[1] ?? 'gray'}>{ORDER_STATE_LABEL[o.state]?.[0] ?? o.state}</Pill>
+                    {(casesByOrder.get(o.orderId) ?? [])
+                      .filter((k) => k.kind !== 'cancellation' || o.state !== 'cancelled')
+                      .map((k) => (
+                        <Pill key={k.id} t={CASE_KIND[k.kind][1]}>
+                          {CASE_KIND[k.kind][0]}
+                        </Pill>
+                      ))}
                   </span>
                   <span className="ax-muted" style={{ fontSize: 13 }}>
                     <span className="ax-num">{dateTime(o.placedAt)}</span> · <span className="ax-num">{money(o.total, o.currency ?? 'USD')}</span>
@@ -267,5 +280,204 @@ export default function CustomerPage() {
         </Modal>
       )}
     </>
+  )
+}
+
+type Detail = NonNullable<CustomerDetail>
+
+const SIGNAL_ICON = { ok: CheckCircle2, warn: AlertTriangle, bad: XCircle, gray: Info } as const
+
+/** סיכום ההתנהלות: רמה, אותות (מה נחשב ולמה), ופרופיל הקונה ב-eBay */
+function Conduct({ c }: { c: Detail['customer'] }) {
+  const b = c.behavior
+  const e = c.conduct.ebay
+  const given = e ? (e.positiveLeft ?? 0) + (e.neutralLeft ?? 0) + (e.negativeLeft ?? 0) : 0
+  return (
+    <section className="ax-card" aria-labelledby="conduct-h">
+      <CardHead id="conduct-h" icon={ShieldCheck} title="התנהלות" text="מחושב מההזמנות, הביטולים, ההחזרות והפרופיל ב-eBay" pill={<Pill t={BEHAVIOR[b.level][1]} dot>{BEHAVIOR[b.level][0]}</Pill>} />
+      {b.signals.length === 0 ? (
+        <p className="ax-note">{b.level === 'new' ? 'הזמנה אחת ועוד אין פרופיל eBay — אין עדיין על מה להסתמך.' : 'בלי ביטולים, החזרות או קייסים.'}</p>
+      ) : (
+        <ul className="ax-rows" style={{ margin: 0, listStyle: 'none' }}>
+          {b.signals.map((x, i) => {
+            const Icon = SIGNAL_ICON[x.tone]
+            return (
+              <li key={i} className="ax-row-btn" style={{ cursor: 'default', minHeight: 0, padding: '8px 14px' }}>
+                <Icon size={17} aria-hidden="true" style={{ flexShrink: 0, color: x.tone === 'gray' ? 'var(--ax-muted)' : `var(--ax-${x.tone})` }} />
+                <span>{x.text}</span>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+      {e ? (
+        <div style={{ borderTop: '1px solid var(--ax-line)' }}>
+          <div className="ax-kv">
+            <span>ציון פידבק ב-eBay</span>
+            <span>
+              <span className="ax-num">{e.feedbackScore === null ? '—' : num(e.feedbackScore)}</span>
+              {c.ebayPositivePct !== null && (
+                <>
+                  {' · '}
+                  <span className="ax-num">{c.ebayPositivePct}%</span> חיובי
+                </>
+              )}
+            </span>
+          </div>
+          <div className="ax-kv">
+            <span>פידבק שנתן למוכרים</span>
+            {e.negativeLeft === null ? (
+              <span className="ax-muted">לא זמין</span>
+            ) : (
+              <span>
+                <span className="ax-num">{num(e.positiveLeft ?? 0)}</span> חיובי · <span className="ax-num">{num(e.neutralLeft ?? 0)}</span> ניטרלי · <span className="ax-num">{num(e.negativeLeft)}</span> שלילי
+                {given > 0 && (
+                  <span className="ax-muted">
+                    {' '}
+                    (<span className="ax-num">{Math.round(((e.negativeLeft ?? 0) / given) * 1000) / 10}%</span> שלילי)
+                  </span>
+                )}
+              </span>
+            )}
+          </div>
+          <div className="ax-kv">
+            <span>חשבון eBay נפתח</span>
+            <span className="ax-num">{date(e.registeredAt)}</span>
+          </div>
+          <div className="ax-kv">
+            <span>עודכן מ-eBay</span>
+            <span className="ax-num">{date(e.fetchedAt)}</span>
+          </div>
+          {c.ebayProfileError && <p className="ax-hint" style={{ margin: 0, padding: '0 20px 14px' }}>חלק מהנתונים לא התקבלו: {c.ebayProfileError}</p>}
+        </div>
+      ) : c.ebayUsername ? (
+        <p className="ax-hint" style={{ margin: 0, padding: '0 20px 16px' }}>
+          הפרופיל ב-eBay (ציון, ותק, פידבק שנתן) עוד לא נמשך — מתעדכן בריצה הבאה של היסטוריית הלקוחות.
+        </p>
+      ) : null}
+    </section>
+  )
+}
+
+/** ביטולים, החזרים כספיים, בקשות החזרה, פניות וקייסים — טבלה במחשב, כרטיסים בטלפון */
+function Cases({ cases }: { cases: Detail['cases'] }) {
+  return (
+    <section className="ax-card" aria-labelledby="cases-h">
+      <CardHead id="cases-h" icon={RotateCcw} title={`ביטולים, החזרים וקייסים (${num(cases.length)})`} text="מ-eBay: ההזמנות (ביטולים והחזרים כספיים) ומרכז ההחזרות והקייסים" />
+      {cases.length === 0 ? (
+        <p className="ax-note">אין ביטולים, החזרים או קייסים.</p>
+      ) : (
+        <>
+          <div className="ax-only-desktop">
+            <div className="ax-table-wrap">
+              <table className="ax-table" style={{ minWidth: 860 }}>
+                <thead>
+                  <tr>
+                    <th>סוג</th>
+                    <th>נפתח</th>
+                    <th>הזמנה / פריט</th>
+                    <th>סיבה</th>
+                    <th>יזם</th>
+                    <th>סכום</th>
+                    <th>מצב</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cases.map((k) => (
+                    <tr key={k.id}>
+                      <td>
+                        <Pill t={CASE_KIND[k.kind][1]}>{CASE_KIND[k.kind][0]}</Pill>
+                      </td>
+                      <td className="ax-num" style={{ whiteSpace: 'nowrap' }}>
+                        {date(k.openedAt)}
+                      </td>
+                      <td style={{ maxWidth: 280 }}>
+                        <CaseTarget k={k} />
+                      </td>
+                      <td>
+                        {reasonLabel(k.reason) ?? <span className="ax-muted">—</span>}
+                        {k.comment && (
+                          <span className="ax-muted" style={{ display: 'block', fontSize: 12.5 }}>
+                            <bdi>“{k.comment}”</bdi>
+                          </span>
+                        )}
+                      </td>
+                      <td>{k.initiator ? INITIATOR[k.initiator] : <span className="ax-muted">—</span>}</td>
+                      <td className="ax-num" style={{ whiteSpace: 'nowrap' }}>
+                        {k.amount !== null ? money(k.amount, k.currency ?? 'USD') : '—'}
+                      </td>
+                      <td>
+                        <CaseState k={k} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div className="ax-only-mobile ax-mcards">
+            {cases.map((k) => (
+              <div key={k.id} className="ax-mcard" style={{ gap: 8 }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Pill t={CASE_KIND[k.kind][1]}>{CASE_KIND[k.kind][0]}</Pill>
+                  <CaseState k={k} />
+                </div>
+                <CaseTarget k={k} />
+                <span className="ax-muted" style={{ fontSize: 12.5 }}>
+                  <span className="ax-num">{date(k.openedAt)}</span>
+                  {reasonLabel(k.reason) ? ` · ${reasonLabel(k.reason)}` : ''}
+                  {k.initiator ? ` · יזם: ${INITIATOR[k.initiator]}` : ''}
+                  {k.amount !== null ? (
+                    <>
+                      {' · '}
+                      <span className="ax-num">{money(k.amount, k.currency ?? 'USD')}</span>
+                    </>
+                  ) : null}
+                </span>
+                {k.comment && (
+                  <span className="ax-muted" style={{ fontSize: 12.5 }}>
+                    <bdi>“{k.comment}”</bdi>
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </section>
+  )
+}
+
+function CaseTarget({ k }: { k: Detail['cases'][number] }) {
+  return (
+    <span style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+      {k.title && <span style={{ overflowWrap: 'anywhere' }}>{k.title}</span>}
+      {k.orderId ? (
+        <Link href={`/sync/orders?q=${encodeURIComponent(k.orderId)}`} className="ax-num ax-ltr" dir="ltr" style={{ fontSize: 12.5, textAlign: 'right' }}>
+          {k.orderId}
+        </Link>
+      ) : k.itemId ? (
+        <span className="ax-num ax-ltr ax-muted" dir="ltr" style={{ fontSize: 12.5, textAlign: 'right' }}>
+          {k.itemId}
+        </span>
+      ) : (
+        <span className="ax-muted">—</span>
+      )}
+    </span>
+  )
+}
+
+function CaseState({ k }: { k: Detail['cases'][number] }) {
+  return (
+    <span style={{ display: 'inline-flex', flexDirection: 'column', gap: 2, alignItems: 'flex-start' }}>
+      <Pill t={k.isOpen ? 'warn' : 'gray'} dot>
+        {k.isOpen ? 'פתוח' : k.closedAt ? `נסגר ${date(k.closedAt)}` : 'נסגר'}
+      </Pill>
+      {k.status && (
+        <span className="ax-muted ax-ltr" dir="ltr" style={{ fontSize: 11.5 }}>
+          {k.status}
+        </span>
+      )}
+    </span>
   )
 }

@@ -1,6 +1,7 @@
 import { eq, sql } from 'drizzle-orm'
 import { db, schema } from '@/lib/db/client'
 import { writeSyncLog } from '@/lib/sync/log'
+import { forgetCaseUsernames } from './cases'
 import { anonUsername } from './upsert'
 
 // פעולות על לקוח ממסך הלקוח. כל פעולה נרשמת ב-sync_log — בלי פרטים אישיים, רק מזהה הלקוח.
@@ -30,6 +31,7 @@ export async function applyCustomerAction(id: string, a: CustomerAction): Promis
       .update(c)
       .set({ name: null, emailEnc: null, phoneEnc: null, city: null, region: null, ebayUsername: row.ebayUsername && !row.ebayUsername.startsWith('anon:') ? anonUsername(row.ebayUsername) : row.ebayUsername, marketingConsent: false, consentNote: null, anonymizedAt: new Date(), updatedAt: sql`now()` })
       .where(eq(c.id, id))
+    await forgetCaseUsernames(db, id)
   } else {
     return { ok: false, error: 'פעולה לא מוכרת', status: 400 }
   }

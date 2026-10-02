@@ -108,6 +108,7 @@ export const JOB_LABEL: Record<string, string> = {
   woo_connection: 'חיבור WooCommerce',
   analytics: 'אנליטיקס (גוגל)',
   leads: 'לידים מהאתר',
+  'customer-history': 'היסטוריית לקוחות מ-eBay',
 }
 
 export const ACTION_LABEL: Record<string, string> = {

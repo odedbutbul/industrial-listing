@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { and, eq, inArray, or, sql } from 'drizzle-orm'
 import { db, schema } from '@/lib/db/client'
 import { getOrdersModifiedBetween, type EbayOrder, type EbayOrderLine } from '@/lib/ebay/fulfillment'
+import { upsertCase } from '@/lib/customers/cases'
 import { upsertCustomer } from '@/lib/customers/upsert'
 import type { ImportProgress } from './import-ebay'
 import { withJobLock } from './lock'
@@ -39,6 +40,8 @@ export interface PollResult {
   unmapped: number
   /** הזמנות שקושרו ללקוח */
   customers: number
+  /** ביטולים והחזרים שנרשמו בפרופיל הלקוח */
+  cases: number
   oversold: { sku: string; available: number }[]
   errors: { orderId: string; error: string }[]
   durationMs: number
@@ -83,6 +86,7 @@ async function runPoll(opts: { from?: Date; to?: Date; onProgress?: (p: ImportPr
     ignoredBeforeImport: 0,
     unmapped: 0,
     customers: 0,
+    cases: 0,
     oversold: [],
     errors: [],
     durationMs: 0,
@@ -153,6 +157,7 @@ async function runPoll(opts: { from?: Date; to?: Date; onProgress?: (p: ImportPr
       ignoredBeforeImport: result.ignoredBeforeImport,
       unmapped: result.unmapped,
       customers: result.customers,
+      cases: result.cases,
       oversold: result.oversold.length,
       errors: result.errors.length,
     },
@@ -196,6 +201,42 @@ async function applyOrder(
       target: [schema.orders.channel, schema.orders.externalOrderId],
       set: { ...header, updatedAt: new Date() },
     })
+
+    // התנהלות הלקוח: ביטול (אחד להזמנה) והחזרים כספיים — לפרופיל הלקוח, לא נוגע במלאי
+    const caseBase = { channel: 'ebay' as const, externalOrderId: o.orderId, customerId, buyerUsername: b?.username ?? null, source: 'fulfillment' as const }
+    if (o.cancel) {
+      const done = o.cancel.completedAt !== null || o.cancelState === 'CANCELED'
+      await upsertCase(tx, {
+        ...caseBase,
+        kind: 'cancellation',
+        externalId: o.orderId,
+        initiator: o.cancel.initiator,
+        status: o.cancel.state,
+        isOpen: !done && /REQUESTED|IN_PROGRESS|PENDING/i.test(o.cancel.state),
+        reason: o.cancel.reason,
+        amount: o.cancelState === 'CANCELED' ? o.total : null,
+        currency: o.currency,
+        openedAt: o.cancel.requestedAt,
+        closedAt: o.cancel.completedAt,
+      })
+      result.cases++
+    }
+    for (const r of o.refunds) {
+      await upsertCase(tx, {
+        ...caseBase,
+        kind: 'refund',
+        externalId: r.refundId,
+        initiator: null,
+        status: r.status,
+        isOpen: r.status === 'PENDING',
+        reason: null,
+        amount: r.amount,
+        currency: r.currency,
+        openedAt: r.at,
+        closedAt: r.status === 'PENDING' ? null : r.at,
+      })
+      result.cases++
+    }
 
     for (const l of o.lines) {
       const m = resolve(l)

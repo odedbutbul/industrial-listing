@@ -23,7 +23,8 @@
     "job:check-prices": "tsx jobs/check-prices.ts",
     "job:quote-check": "tsx jobs/quote-check.ts",
     "job:fetch-feedback": "tsx jobs/fetch-feedback.ts",
-    "job:scan-quality": "tsx jobs/scan-quality.ts"
+    "job:scan-quality": "tsx jobs/scan-quality.ts",
+    "job:customer-history": "tsx jobs/customer-history.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.1",

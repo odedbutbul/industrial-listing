@@ -213,6 +213,17 @@ export const customers = pgTable(
     unsubscribedAt: timestamp('unsubscribed_at', { withTimezone: true }),
     /** אחרי בקשת מחיקה: הפרטים האישיים נמחקו, ההזמנות נשארו */
     anonymizedAt: timestamp('anonymized_at', { withTimezone: true }),
+    // פרופיל הקונה ב-eBay (GetUser + GetFeedback, קריאה בלבד) — ציבורי ב-eBay, לא פרטי קשר
+    ebayFeedbackScore: integer('ebay_feedback_score'),
+    ebayPositivePct: numeric('ebay_positive_pct', { precision: 5, scale: 2 }),
+    ebayRegisteredAt: timestamp('ebay_registered_at', { withTimezone: true }),
+    ebayFeedbackPrivate: boolean('ebay_feedback_private'),
+    /** פידבק שהקונה *נתן* למוכרים (BuyerRoleMetrics) — האות היחיד ל"קונה שמשאיר שליליים" */
+    ebayPositiveLeft: integer('ebay_positive_left'),
+    ebayNeutralLeft: integer('ebay_neutral_left'),
+    ebayNegativeLeft: integer('ebay_negative_left'),
+    ebayProfileFetchedAt: timestamp('ebay_profile_fetched_at', { withTimezone: true }),
+    ebayProfileError: text('ebay_profile_error'),
     ...timestamps,
   },
   (t) => [
@@ -247,6 +258,48 @@ export const orders = pgTable(
     uniqueIndex('orders_channel_external_uq').on(t.channel, t.externalOrderId),
     index('orders_placed_idx').on(t.placedAt),
     index('orders_customer_idx').on(t.customerId),
+  ],
+)
+
+/**
+ * אירוע בהתנהלות של לקוח: ביטול, החזר כספי, בקשת החזרה, פנייה ("לא קיבלתי"), קייס שהוסלם ל-eBay.
+ * מקורות (קריאה בלבד): Fulfillment getOrders (ביטולים + החזרים) ו-Post-Order API (החזרות, פניות, קייסים, ביטולים).
+ * ייחודי לפי (ערוץ, סוג, מזהה) — משיכה חוזרת מעדכנת. ביטול: מזהה = מספר ההזמנה (ביטול אחד להזמנה, שני המקורות מתאחדים).
+ * buyer_username — לקישור ללקוח כשההזמנה עוד לא נקלטה; נמחק במחיקת פרטים.
+ */
+export const customerCases = pgTable(
+  'customer_cases',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    channel: channelEnum('channel').notNull(),
+    kind: text('kind').$type<'cancellation' | 'refund' | 'return' | 'inquiry' | 'case'>().notNull(),
+    externalId: text('external_id').notNull(),
+    externalOrderId: text('external_order_id'),
+    customerId: uuid('customer_id').references(() => customers.id, { onDelete: 'set null' }),
+    buyerUsername: text('buyer_username'),
+    /** מי יזם: buyer · seller · ebay */
+    initiator: text('initiator'),
+    /** הסטטוס כמו שמגיע מהמקור */
+    status: text('status'),
+    isOpen: boolean('is_open').notNull().default(false),
+    /** קוד הסיבה מהמקור (NOT_AS_DESCRIBED, BUYER_ASKED_CANCEL…) */
+    reason: text('reason'),
+    /** הערת הקונה (עד 500 תווים) */
+    comment: text('comment'),
+    amount: numeric('amount', { precision: 12, scale: 2 }),
+    currency: text('currency'),
+    itemId: text('item_id'),
+    openedAt: timestamp('opened_at', { withTimezone: true }).notNull(),
+    closedAt: timestamp('closed_at', { withTimezone: true }),
+    /** fulfillment · post_order */
+    source: text('source').notNull(),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('customer_cases_uq').on(t.channel, t.kind, t.externalId),
+    index('customer_cases_customer_idx').on(t.customerId),
+    index('customer_cases_order_idx').on(t.externalOrderId),
+    check('customer_cases_kind_chk', sql`${t.kind} in ('cancellation', 'refund', 'return', 'inquiry', 'case')`),
   ],
 )
 
