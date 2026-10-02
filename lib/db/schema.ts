@@ -307,6 +307,19 @@ export const customerCases = pgTable(
   ],
 )
 
+/**
+ * קונים שהמוכרת חסמה ב-eBay (Blocked buyer list). eBay לא חושף את הרשימה ב-API — היא מיובאת / מסומנת ידנית.
+ * username באותיות קטנות; מקושר ללקוח לפי customers.ebay_username. שם שעוד אין לו לקוח נשמר — יסומן כשיגיע.
+ * רישום בלבד: שום דבר לא נשלח ל-eBay.
+ */
+export const ebayBlockedBuyers = pgTable('ebay_blocked_buyers', {
+  username: text('username').primaryKey(),
+  note: text('note'),
+  /** import · manual */
+  source: text('source').notNull(),
+  blockedAt: timestamp('blocked_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
 /** כל שורת הזמנה מכל ערוץ נרשמת פעם אחת בדיוק. */
 export const processedOrders = pgTable(
   'processed_orders',

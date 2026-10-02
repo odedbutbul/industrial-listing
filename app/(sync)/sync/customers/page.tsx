@@ -3,25 +3,25 @@
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useCallback, useEffect, useState } from 'react'
-import { Globe2, Search, Users, X } from 'lucide-react'
+import { Ban, Globe2, Search, Users, X } from 'lucide-react'
 import type { CountryStat, CustomerRow } from '@/lib/customers/queries'
 import { api } from '@/components/sync/api'
 import { ConductBadge } from '@/components/sync/ConductBadge'
 import { CHANNEL_LABEL, countryName, MARKETING } from '@/components/sync/customers'
 import { date, money, num, pct } from '@/components/sync/format'
 import { useDataChanged } from '@/components/sync/hooks'
-import { EmptyState, Kpi, LoadError, Pill, Seg, Spin, useLoad } from '@/components/sync/ui'
+import { EmptyState, Field, Kpi, LoadError, Modal, Pill, Seg, Spin, useLoad, useToast } from '@/components/sync/ui'
 
 // מאגר הלקוחות: כל לקוח נוצר מהזמנה (eBay עכשיו, האתר כשקליטת ההזמנות מהחנות תופעל) ומקושר להזמנות שלו.
 // קורא רק מ-Postgres.
 
-type Filter = 'all' | 'repeat' | 'marketing' | 'ebay' | 'woo' | 'issues'
+type Filter = 'all' | 'repeat' | 'marketing' | 'ebay' | 'woo' | 'issues' | 'blocked'
 type Sort = 'recent' | 'spent' | 'orders'
 
 interface Page {
   rows: CustomerRow[]
   nextOffset: number | null
-  counts: { total: number; repeat: number; marketing: number; ebay: number; woo: number; countries: number; new30: number; issues: number }
+  counts: { total: number; repeat: number; marketing: number; ebay: number; woo: number; countries: number; new30: number; issues: number; blocked: number }
   countries: CountryStat[]
 }
 
@@ -37,7 +37,7 @@ function Customers() {
   const router = useRouter()
   const pathname = usePathname()
   const params = useSearchParams()
-  const filter = ((['all', 'repeat', 'marketing', 'ebay', 'woo', 'issues'] as const).find((f) => f === params.get('filter')) ?? 'all') as Filter
+  const filter = ((['all', 'repeat', 'marketing', 'ebay', 'woo', 'issues', 'blocked'] as const).find((f) => f === params.get('filter')) ?? 'all') as Filter
   const sort = ((['recent', 'spent', 'orders'] as const).find((s) => s === params.get('sort')) ?? 'recent') as Sort
   const country = /^[A-Z]{2}$/.test(params.get('country') ?? '') ? params.get('country')! : ''
   const q = params.get('q') ?? ''
@@ -45,6 +45,7 @@ function Customers() {
   const [more, setMore] = useState<CustomerRow[]>([])
   const [nextOffset, setNextOffset] = useState<number | null>(null)
   const [loadingMore, setLoadingMore] = useState(false)
+  const [importing, setImporting] = useState(false)
 
   const setParam = useCallback(
     (key: string, value: string) => {
@@ -99,7 +100,16 @@ function Customers() {
 
   return (
     <>
-      <Head sub={!data ? ' ' : `${num(c!.total)} לקוחות מ-${num(c!.countries)} מדינות · ${num(c!.marketing)} מאושרים לדיוור`} />
+      <Head
+        sub={!data ? ' ' : `${num(c!.total)} לקוחות מ-${num(c!.countries)} מדינות · ${num(c!.marketing)} מאושרים לדיוור`}
+        action={
+          <button type="button" className="ax-btn" onClick={() => setImporting(true)}>
+            <Ban size={16} aria-hidden="true" />
+            ייבוא רשימת חסומים
+          </button>
+        }
+      />
+      {importing && <ImportBlocked onClose={() => setImporting(false)} onDone={reload} />}
 
       {!data ? (
         <div className="ax-kpis">
@@ -128,6 +138,7 @@ function Customers() {
             ['ebay', 'eBay', c?.ebay],
             ['woo', 'האתר', c?.woo],
             ['issues', 'עם החזרות / קייסים', c?.issues],
+            ['blocked', 'חסומים ב-eBay', c?.blocked],
           ]}
           value={filter}
           onChange={(v) => setParam('filter', v)}
@@ -235,14 +246,118 @@ function Customers() {
   )
 }
 
-function Head({ sub }: { sub: string }) {
+function Head({ sub, action }: { sub: string; action?: React.ReactNode }) {
   return (
     <div className="ax-page-head">
       <div>
         <h1 className="ax-h1">לקוחות</h1>
         <p className="ax-sub">{sub}</p>
       </div>
+      {action}
     </div>
+  )
+}
+
+interface ImportResult {
+  added: number
+  already: number
+  matched: number
+  unmatched: string[]
+  invalid: string[]
+}
+
+/** הדבקת רשימת החסומים מ-eBay (Buyer management → Blocked buyers). רישום בלבד — לא נשלח ל-eBay. */
+function ImportBlocked({ onClose, onDone }: { onClose: () => void; onDone: () => Promise<void> }) {
+  const toast = useToast()
+  const [text, setText] = useState('')
+  const [err, setErr] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [res, setRes] = useState<ImportResult | null>(null)
+  const submit = async () => {
+    if (!text.trim()) return setErr('הדבק שמות משתמש')
+    setErr('')
+    setBusy(true)
+    try {
+      const r = await api.post<ImportResult>('/api/sync/customers/blocked', { text })
+      setRes(r)
+      toast(`${num(r.added)} נוספו לרשימת החסומים`)
+      await onDone()
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'הייבוא נכשל')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <Modal
+      title="ייבוא רשימת חסומים מ-eBay"
+      onClose={() => !busy && onClose()}
+      foot={
+        res ? (
+          <button type="button" className="ax-btn is-primary" onClick={onClose}>
+            סגירה
+          </button>
+        ) : (
+          <>
+            <button type="button" className="ax-btn is-ghost" onClick={onClose} disabled={busy}>
+              ביטול
+            </button>
+            <button type="button" className="ax-btn is-primary" onClick={submit} disabled={busy}>
+              {busy && <Spin />}
+              ייבוא
+            </button>
+          </>
+        )
+      }
+    >
+      {res ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }} role="status">
+          <p style={{ margin: 0 }}>
+            נוספו <strong className="ax-num">{num(res.added)}</strong>
+            {res.already ? (
+              <>
+                {' '}· כבר היו ברשימה <span className="ax-num">{num(res.already)}</span>
+              </>
+            ) : null}{' '}
+            · מזוהים כלקוחות במערכת <strong className="ax-num">{num(res.matched)}</strong>
+          </p>
+          {res.unmatched.length > 0 && (
+            <p className="ax-hint" style={{ margin: 0 }}>
+              <span className="ax-num">{num(res.unmatched.length)}</span> שמות עוד לא קנו מאיתנו (או קנו לפני יותר משנתיים). הם נשמרו — אם יופיעו בהזמנה, יסומנו כחסומים.
+            </p>
+          )}
+          {res.invalid.length > 0 && (
+            <p className="ax-hint" style={{ margin: 0 }}>
+              לא נקלטו (לא נראים כמו שם משתמש): <bdi className="ax-ltr">{res.invalid.slice(0, 10).join(', ')}</bdi>
+              {res.invalid.length > 10 ? ` ועוד ${num(res.invalid.length - 10)}` : ''}
+            </p>
+          )}
+        </div>
+      ) : (
+        <>
+          <p style={{ margin: 0, color: 'var(--ax-text2)' }}>
+            ב-eBay:{' '}
+            <bdi dir="ltr" className="ax-ltr">
+              My eBay → Account → Site Preferences → Buyer management → Blocked buyer list
+            </bdi>
+            . מעתיקים את השמות ומדביקים כאן — שם בכל שורה או מופרדים בפסיק. שום דבר לא נשלח ל-eBay.
+          </p>
+          <Field id="blocked-text" label="שמות משתמש ב-eBay" error={err}>
+            <textarea
+              id="blocked-text"
+              className="ax-textarea ax-ltr"
+              dir="ltr"
+              rows={8}
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              placeholder={'buyer_one\nbuyer-two'}
+              aria-invalid={!!err}
+              aria-describedby={err ? 'blocked-text-err' : undefined}
+            />
+          </Field>
+        </>
+      )}
+    </Modal>
   )
 }
 
@@ -287,7 +402,15 @@ function Conduct({ r }: { r: CustomerRow }) {
   ].filter(Boolean)
   return (
     <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
-      <ConductBadge b={r.behavior} />
+      <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 4 }}>
+        <ConductBadge b={r.behavior} />
+        {r.blocked && (
+          <Pill t="bad">
+            <Ban size={12} aria-hidden="true" />
+            חסום ב-eBay
+          </Pill>
+        )}
+      </span>
       {parts.length > 0 && (
         <span className="ax-muted" style={{ fontSize: 12 }}>
           {parts.join(' · ')}

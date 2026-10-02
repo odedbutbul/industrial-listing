@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { useState } from 'react'
-import { AlertTriangle, ArrowRight, CheckCircle2, ExternalLink, Info, Mail, MailX, PenLine, RotateCcw, ShieldAlert, ShieldCheck, UserRound, XCircle } from 'lucide-react'
+import { AlertTriangle, ArrowRight, Ban, CheckCircle2, ExternalLink, Info, Mail, MailX, PenLine, RotateCcw, ShieldAlert, ShieldCheck, UserRound, XCircle } from 'lucide-react'
 import type { CustomerDetail } from '@/lib/customers/queries'
 import { api } from '@/components/sync/api'
 import { CardHead } from '@/components/sync/CardHead'
@@ -141,6 +141,31 @@ export default function CustomerPage() {
                     <ExternalLink size={13} aria-hidden="true" />
                     <span className="ax-sr">(נפתח בלשונית חדשה)</span>
                   </a>
+                </div>
+              )}
+              {c.ebayUsername && (
+                <div className="ax-kv">
+                  <span>חסום ב-eBay</span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                    {c.blocked ? (
+                      <>
+                        <Pill t="bad">
+                          <Ban size={12} aria-hidden="true" />
+                          חסום מאז <span className="ax-num">{date(c.blocked.at)}</span>
+                        </Pill>
+                        <button type="button" className="ax-btn is-sm is-ghost" disabled={busy} onClick={() => act({ action: 'unblock' }, 'הסימון הוסר')}>
+                          הסרת הסימון
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <span className="ax-muted">לא</span>
+                        <button type="button" className="ax-btn is-sm is-ghost" disabled={busy} onClick={() => act({ action: 'block' }, 'סומן כחסום')}>
+                          סימון כחסום
+                        </button>
+                      </>
+                    )}
+                  </span>
                 </div>
               )}
               <div className="ax-kv">
@@ -389,6 +414,15 @@ function Conduct({ c, onEdit }: { c: Detail['customer']; onEdit?: () => void }) 
           </span>
         }
       />
+      {c.blocked && (
+        <div className="ax-alert is-bad" role="note" style={{ margin: '0 20px 12px' }}>
+          <Ban size={16} aria-hidden="true" />
+          <span>
+            חסום ב-eBay (ברשימת החסומים של החשבון) מאז {date(c.blocked.at)}
+            {c.blocked.note ? ` · ${c.blocked.note}` : ''}. הסימון כאן לתיעוד בלבד; החסימה עצמה מנוהלת ב-eBay.
+          </span>
+        </div>
+      )}
       {b.manual?.note && (
         <p className="ax-hint" style={{ margin: 0, padding: '0 20px 12px' }}>
           הנימוק לדירוג הידני: <bdi>{b.manual.note}</bdi>

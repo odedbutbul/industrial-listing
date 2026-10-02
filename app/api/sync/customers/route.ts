@@ -5,7 +5,7 @@ import { customersByCountry, listCustomers, type CustomerFilter } from '@/lib/cu
 
 export const dynamic = 'force-dynamic'
 
-const FILTERS: CustomerFilter[] = ['all', 'repeat', 'marketing', 'ebay', 'woo', 'issues']
+const FILTERS: CustomerFilter[] = ['all', 'repeat', 'marketing', 'ebay', 'woo', 'issues', 'blocked']
 
 export async function GET(req: Request) {
   const sp = new URL(req.url).searchParams

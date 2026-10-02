@@ -7,7 +7,7 @@ import { normalizeEmail } from './upsert'
 // שאילתות מסך הלקוחות. קוראות רק מ-Postgres. מייל וטלפון מפוענחים רק לתשובה למנהל (מאחורי הכניסה).
 // "פעילה" = הזמנה שלא בוטלה ולא הוחזר עליה כסף. סכומים — USD בלבד.
 
-export type CustomerFilter = 'all' | 'repeat' | 'marketing' | 'ebay' | 'woo' | 'issues'
+export type CustomerFilter = 'all' | 'repeat' | 'marketing' | 'ebay' | 'woo' | 'issues' | 'blocked'
 export const CUSTOMERS_PAGE = 100
 
 const q = async <T>(query: ReturnType<typeof sql>) => (await db.execute(query)).rows as T[]
@@ -112,6 +112,8 @@ export interface CustomerRow {
   conduct: BehaviorInput
   /** level = הרמה שמוצגת (ידנית אם נקבעה); auto = מה שהחישוב נותן */
   behavior: Behavior & { auto: BehaviorLevel; manual: { note: string | null; at: string | null } | null }
+  /** ברשימת החסומים ב-eBay (מיובאת / ידנית) */
+  blocked: { at: string; note: string | null } | null
 }
 
 function toRow(r: Record<string, unknown>): CustomerRow {
@@ -142,6 +144,7 @@ function toRow(r: Record<string, unknown>): CustomerRow {
     marketing,
     conduct: behaviorInput(r),
     behavior: withOverride(summarizeBehavior(behaviorInput(r)), r),
+    blocked: r.blocked_at ? { at: iso(r.blocked_at)!, note: (r.blocked_note as string) ?? null } : null,
   }
 }
 
@@ -153,6 +156,7 @@ export async function listCustomers(opts: { q?: string; filter?: CustomerFilter;
   if (f === 'ebay') conds.push(sql`'ebay' = any(s.channels)`)
   if (f === 'woo') conds.push(sql`'woo' = any(s.channels)`)
   if (f === 'issues') conds.push(HAS_ISSUES)
+  if (f === 'blocked') conds.push(sql`bl.username is not null`)
   if (opts.country && /^[A-Z]{2}$/.test(opts.country)) conds.push(sql`c.country_code = ${opts.country}`)
   const term = opts.q?.trim()
   if (term) {
@@ -166,8 +170,9 @@ export async function listCustomers(opts: { q?: string; filter?: CustomerFilter;
   const offset = Math.max(0, opts.offset ?? 0)
 
   const rows = await q<Record<string, unknown>>(sql`
-    select c.*, s.orders, s.orders_all, s.spent, s.first_order, s.last_order, s.channels, k.*
+    select c.*, s.orders, s.orders_all, s.spent, s.first_order, s.last_order, s.channels, k.*, bl.blocked_at, bl.blocked_note
     from customers c left join (${STATS}) s on s.customer_id = c.id left join (${CASES}) k on k.customer_id = c.id
+    left join (select username, blocked_at, note blocked_note from ebay_blocked_buyers) bl on bl.username = lower(c.ebay_username)
     ${where} order by ${order} limit ${CUSTOMERS_PAGE + 1} offset ${offset}`)
 
   const [counts] = await q<Record<string, number>>(sql`
@@ -178,8 +183,10 @@ export async function listCustomers(opts: { q?: string; filter?: CustomerFilter;
       count(*) filter (where 'woo' = any(s.channels))::int woo,
       count(distinct c.country_code)::int countries,
       count(*) filter (where s.first_order > now() - interval '30 days')::int new30,
-      count(*) filter (where ${HAS_ISSUES})::int issues
-    from customers c left join (${STATS}) s on s.customer_id = c.id left join (${CASES}) k on k.customer_id = c.id`)
+      count(*) filter (where ${HAS_ISSUES})::int issues,
+      count(bl.username)::int blocked
+    from customers c left join (${STATS}) s on s.customer_id = c.id left join (${CASES}) k on k.customer_id = c.id
+    left join (select username, blocked_at, note blocked_note from ebay_blocked_buyers) bl on bl.username = lower(c.ebay_username)`)
 
   return {
     rows: rows.slice(0, CUSTOMERS_PAGE).map(toRow),
@@ -210,8 +217,9 @@ export async function customersByCountry(): Promise<CountryStat[]> {
 export async function getCustomer(id: string) {
   if (!/^[0-9a-f-]{36}$/i.test(id)) return null
   const [r] = await q<Record<string, unknown>>(sql`
-    select c.*, s.orders, s.orders_all, s.spent, s.first_order, s.last_order, s.channels, k.*
-    from customers c left join (${STATS}) s on s.customer_id = c.id left join (${CASES}) k on k.customer_id = c.id where c.id = ${id}`)
+    select c.*, s.orders, s.orders_all, s.spent, s.first_order, s.last_order, s.channels, k.*, bl.blocked_at, bl.blocked_note
+    from customers c left join (${STATS}) s on s.customer_id = c.id left join (${CASES}) k on k.customer_id = c.id
+    left join (select username, blocked_at, note blocked_note from ebay_blocked_buyers) bl on bl.username = lower(c.ebay_username) where c.id = ${id}`)
   if (!r) return null
   const orders = await q<Record<string, unknown>>(sql`
     select o.id, o.channel, o.external_order_id, o.state, o.placed_at, o.total, o.currency, o.ship_country,

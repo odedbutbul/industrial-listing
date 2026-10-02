@@ -1,6 +1,7 @@
 import { eq, sql } from 'drizzle-orm'
 import { db, schema } from '@/lib/db/client'
 import { writeSyncLog } from '@/lib/sync/log'
+import { setBlocked } from './blocked'
 import { forgetCaseUsernames } from './cases'
 import { MANUAL_LEVELS } from './queries'
 import { anonUsername } from './upsert'
@@ -16,6 +17,9 @@ export type CustomerAction =
   | { action: 'anonymize' }
   /** דירוג התנהלות ידני; level null = חזרה לחישוב האוטומטי */
   | { action: 'conduct'; level: (typeof MANUAL_LEVELS)[number] | null; note?: string }
+  /** סימון ברשימת החסומים ב-eBay — רישום בלבד, לא נשלח ל-eBay */
+  | { action: 'block'; note?: string }
+  | { action: 'unblock' }
 
 export async function applyCustomerAction(id: string, a: CustomerAction): Promise<{ ok: true } | { ok: false; error: string; status: number }> {
   const row = await db.query.customers.findFirst({ where: eq(c.id, id) })
@@ -37,6 +41,10 @@ export async function applyCustomerAction(id: string, a: CustomerAction): Promis
       if (!note || note.length < 3) return { ok: false, error: 'צריך לכתוב למה הדירוג שונה', status: 400 }
       await db.update(c).set({ conductOverride: a.level, conductNote: note.slice(0, 300), conductSetAt: new Date(), updatedAt: sql`now()` }).where(eq(c.id, id))
     }
+  } else if (a.action === 'block' || a.action === 'unblock') {
+    const u = row.ebayUsername
+    if (!u || u.startsWith('anon:')) return { ok: false, error: 'אין ללקוח שם משתמש ב-eBay', status: 400 }
+    await setBlocked(u, a.action === 'block', a.action === 'block' ? a.note : undefined)
   } else if (a.action === 'unsubscribe') {
     await db.update(c).set({ unsubscribedAt: new Date(), updatedAt: sql`now()` }).where(eq(c.id, id))
   } else if (a.action === 'anonymize') {
