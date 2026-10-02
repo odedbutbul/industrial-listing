@@ -98,8 +98,8 @@ async function run(opts: { days?: number; profiles?: number; skipCases?: boolean
           isNotNull(c.ebayUsername),
           not(sql`${c.ebayUsername} like 'anon:%'`),
           isNull(c.anonymizedAt),
-          // נכשל בלי לקבל נתונים — ניסיון חוזר אחרי יום, לא אחרי 30
-          or(isNull(c.ebayProfileFetchedAt), lt(c.ebayProfileFetchedAt, stale), and(isNull(c.ebayFeedbackScore), isNotNull(c.ebayProfileError), lt(c.ebayProfileFetchedAt, retry))),
+          // נכשל (כולו או חלק) — ניסיון חוזר אחרי יום, לא אחרי 30
+          or(isNull(c.ebayProfileFetchedAt), lt(c.ebayProfileFetchedAt, stale), and(isNotNull(c.ebayProfileError), lt(c.ebayProfileFetchedAt, retry))),
         ),
       )
       .orderBy(sql`${c.ebayProfileFetchedAt} asc nulls first`, asc(c.createdAt))

@@ -47,8 +47,9 @@ const CASES = sql`
     count(*) filter (where k.is_open)::int open
   from customer_cases k where k.customer_id is not null group by k.customer_id`
 
-/** לקוח עם החזרה / פנייה / קייס / ביטול ביוזמתו, או שנתן פידבק שלילי למוכרים */
-const HAS_ISSUES = sql`(coalesce(k.returns,0) + coalesce(k.inquiries,0) + coalesce(k.cases,0) + coalesce(k.cancels_buyer,0) > 0 or coalesce(c.ebay_negative_left,0) > 0)`
+/** לקוח עם החזרה / פנייה / קייס / ביטול ביוזמתו, או שלפחות 1% מהפידבק שנתן למוכרים שלילי (כמו ב-behavior.ts) */
+const HAS_ISSUES = sql`(coalesce(k.returns,0) + coalesce(k.inquiries,0) + coalesce(k.cases,0) + coalesce(k.cancels_buyer,0) > 0
+  or coalesce(c.ebay_negative_left,0) >= 0.01 * nullif(coalesce(c.ebay_positive_left,0) + coalesce(c.ebay_neutral_left,0) + coalesce(c.ebay_negative_left,0), 0))`
 
 const iso = (v: unknown) => (v ? new Date(v as string).toISOString() : null)
 

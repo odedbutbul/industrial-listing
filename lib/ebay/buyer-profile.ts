@@ -1,9 +1,14 @@
+import { FEEDBACK_READ_SCOPE, getAppAccessToken } from './app-token'
+import { getEbayConfig } from './config'
+import { assertEbayRestAllowed } from './guard'
 import { tradingCall } from './trading'
 
-// פרופיל ציבורי של קונה ב-eBay: GetUser (ציון, אחוז חיובי, תאריך הרשמה) + GetFeedback עם UserID
-// (BuyerRoleMetrics — כמה פידבק חיובי / ניטרלי / שלילי הקונה *נתן* למוכרים). שתיהן ב-allowlist של guard.ts.
+// פרופיל ציבורי של קונה ב-eBay:
+// - GetUser (Trading, בלי DetailLevel): ציון, אחוז חיובי, תאריך הרשמה.
+// - Feedback API (REST, טוקן אפליקציה, feedback_type=FEEDBACK_SENT): כמה פידבק הקונה *נתן* למוכרים, וכמה מזה שלילי / ניטרלי.
+//   pagination.total לכל סינון — 3 קריאות GET. נבדק בחשבון 02/10/2026: עובד עם טוקן אפליקציה; עם טוקן החשבון — 403.
+//   (Trading GetFeedback על קונה נכשל — "System error" עם ReturnSummary, ולא מחזיר BuyerRoleMetrics בשום צורה.)
 // מוכר יכול לתת לקונה רק פידבק חיובי, לכן הפידבק שהקונה *קיבל* כמעט תמיד 100% — האות המעניין הוא מה שהוא נותן.
-// שמות השדות לפי תיעוד eBay — לא נבדקו בחשבון. אם GetFeedback על משתמש אחר נדחה, נשמר רק מה שמ-GetUser.
 
 type XmlNode = Record<string, unknown>
 
@@ -41,23 +46,40 @@ export function parseUser(r: XmlNode): Pick<BuyerProfile, 'feedbackScore' | 'pos
   }
 }
 
-export function parseBuyerMetrics(r: XmlNode): Pick<BuyerProfile, 'positiveLeft' | 'neutralLeft' | 'negativeLeft'> {
-  const m = (((r.FeedbackSummary ?? {}) as XmlNode).BuyerRoleMetrics ?? {}) as XmlNode
-  return { positiveLeft: int(m.PositiveFeedbackLeftCount), neutralLeft: int(m.NeutralFeedbackLeftCount), negativeLeft: int(m.NegativeFeedbackLeftCount) }
+/** כמה פידבק המשתמש נתן (FEEDBACK_SENT), לפי סוג. מחזיר את pagination.total */
+async function sentCount(user: string, commentType?: 'NEGATIVE' | 'NEUTRAL'): Promise<number> {
+  const path = '/commerce/feedback/v1/feedback'
+  assertEbayRestAllowed('GET', path)
+  const config = getEbayConfig()
+  const token = await getAppAccessToken(FEEDBACK_READ_SCOPE)
+  const url = new URL(path, config.apiBase)
+  url.searchParams.set('user_id', user)
+  url.searchParams.set('feedback_type', 'FEEDBACK_SENT')
+  url.searchParams.set('limit', '25')
+  if (commentType) url.searchParams.set('filter', `commentType:${commentType}`)
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json', 'X-EBAY-C-MARKETPLACE-ID': 'EBAY_US' }, signal: AbortSignal.timeout(30000) })
+  const d = (await res.json().catch(() => null)) as { pagination?: { total?: number }; errors?: { message?: string; longMessage?: string }[] } | null
+  if (!res.ok) throw new Error(d?.errors?.[0]?.longMessage ?? d?.errors?.[0]?.message ?? `HTTP ${res.status}`)
+  const total = Number(d?.pagination?.total)
+  if (!Number.isFinite(total)) throw new Error('תשובה בלי pagination.total')
+  return total
+}
+
+export async function getSentFeedback(user: string): Promise<Pick<BuyerProfile, 'positiveLeft' | 'neutralLeft' | 'negativeLeft'>> {
+  const [all, neg, neu] = await Promise.all([sentCount(user), sentCount(user, 'NEGATIVE'), sentCount(user, 'NEUTRAL')])
+  return { positiveLeft: Math.max(0, all - neg - neu), neutralLeft: neu, negativeLeft: neg }
 }
 
 export async function getBuyerProfile(username: string): Promise<BuyerProfile & { calls: number }> {
   const id = xml(username.trim())
   // בלי DetailLevel: ReturnAll על משתמש אחר נדחה ("ItemId required for this Detail Level", נבדק 02/10/2026)
   const user = parseUser(await tradingCall('GetUser', `  <UserID>${id}</UserID>`))
-  let metrics: ReturnType<typeof parseBuyerMetrics> = { positiveLeft: null, neutralLeft: null, negativeLeft: null }
+  let metrics: Pick<BuyerProfile, 'positiveLeft' | 'neutralLeft' | 'negativeLeft'> = { positiveLeft: null, neutralLeft: null, negativeLeft: null }
   let feedbackError: string | null = null
   try {
-    metrics = parseBuyerMetrics(
-      await tradingCall('GetFeedback', `  <UserID>${id}</UserID>\n  <DetailLevel>ReturnSummary</DetailLevel>\n  <Pagination><EntriesPerPage>1</EntriesPerPage><PageNumber>1</PageNumber></Pagination>`),
-    )
+    metrics = await getSentFeedback(username.trim())
   } catch (err) {
     feedbackError = err instanceof Error ? err.message : String(err)
   }
-  return { ...user, ...metrics, feedbackError, calls: 2 }
+  return { ...user, ...metrics, feedbackError, calls: 4 }
 }

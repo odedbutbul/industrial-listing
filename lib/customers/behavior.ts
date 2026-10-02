@@ -82,9 +82,12 @@ export function summarizeBehavior(i: BehaviorInput, now = Date.now()): Behavior 
       if (neg >= 3 && share >= 0.05) {
         risk++
         signals.push({ tone: 'bad', text: `נתן ${neg.toLocaleString('en-US')} פידבקים שליליים למוכרים (${Math.round(share * 100)}% מהפידבק שנתן)` })
-      } else if (neg > 0) {
+      } else if (neg > 0 && share >= 0.01) {
         watch++
         signals.push({ tone: 'warn', text: `נתן ${plural(neg, 'פידבק שלילי אחד', 'פידבקים שליליים')} למוכרים מתוך ${given.toLocaleString('en-US')}` })
+      } else if (neg > 0) {
+        // פחות מ-1% — חשבון גדול עם מעט שליליים, לא סימן לבעיה
+        signals.push({ tone: 'gray', text: `נתן ${plural(neg, 'פידבק שלילי אחד', 'פידבקים שליליים')} מתוך ${given.toLocaleString('en-US')} (פחות מ-1%)` })
       } else {
         signals.push({ tone: 'ok', text: `לא נתן אף פידבק שלילי (${given.toLocaleString('en-US')} פידבקים למוכרים)` })
       }
