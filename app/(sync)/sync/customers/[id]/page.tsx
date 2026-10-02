@@ -3,11 +3,12 @@
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { useState } from 'react'
-import { AlertTriangle, ArrowRight, CheckCircle2, ExternalLink, Info, Mail, MailX, RotateCcw, ShieldAlert, ShieldCheck, UserRound, XCircle } from 'lucide-react'
+import { AlertTriangle, ArrowRight, CheckCircle2, ExternalLink, Info, Mail, MailX, PenLine, RotateCcw, ShieldAlert, ShieldCheck, UserRound, XCircle } from 'lucide-react'
 import type { CustomerDetail } from '@/lib/customers/queries'
 import { api } from '@/components/sync/api'
 import { CardHead } from '@/components/sync/CardHead'
-import { BEHAVIOR, CASE_KIND, CHANNEL_LABEL, countryName, INITIATOR, MARKETING, ORDER_STATE_LABEL, reasonLabel } from '@/components/sync/customers'
+import { ConductBadge } from '@/components/sync/ConductBadge'
+import { BEHAVIOR, BEHAVIOR_HELP, CASE_KIND, CHANNEL_LABEL, countryName, INITIATOR, MARKETING, ORDER_STATE_LABEL, reasonLabel } from '@/components/sync/customers'
 import { date, dateTime, money, num } from '@/components/sync/format'
 import { Field, LoadError, Modal, Pill, Spin, useLoad, useToast } from '@/components/sync/ui'
 
@@ -19,7 +20,8 @@ export default function CustomerPage() {
   const { id } = useParams<{ id: string }>()
   const toast = useToast()
   const { data, error, reload } = useLoad(() => api.get<CustomerDetail>(`/api/sync/customers/${id}`), [id])
-  const [dialog, setDialog] = useState<'' | 'consent' | 'anonymize'>('')
+  const [dialog, setDialog] = useState<'' | 'consent' | 'anonymize' | 'conduct'>('')
+  const [level, setLevel] = useState<'' | 'good' | 'ok' | 'watch' | 'risk'>('')
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState('')
   const [noteErr, setNoteErr] = useState('')
@@ -52,7 +54,7 @@ export default function CustomerPage() {
   for (const k of data.cases) if (k.orderId) casesByOrder.set(k.orderId, [...(casesByOrder.get(k.orderId) ?? []), k])
   const title = c.name ?? c.ebayUsername ?? (gone ? 'לקוח שנמחק' : 'ללא שם')
 
-  const act = async (body: Record<string, string>, ok: string) => {
+  const act = async (body: Record<string, unknown>, ok: string) => {
     setBusy(true)
     try {
       await api.post(`/api/sync/customers/${id}`, body)
@@ -79,7 +81,19 @@ export default function CustomerPage() {
         </div>
       </div>
 
-      <Conduct c={c} />
+      <Conduct
+        c={c}
+        onEdit={
+          gone
+            ? undefined
+            : () => {
+                setLevel(c.behavior.manual ? (c.behavior.level as 'good' | 'ok' | 'watch' | 'risk') : '')
+                setNote(c.behavior.manual?.note ?? '')
+                setNoteErr('')
+                setDialog('conduct')
+              }
+        }
+      />
 
       <div className="ax-grid-auto">
         <section className="ax-card" aria-labelledby="details-h">
@@ -223,6 +237,71 @@ export default function CustomerPage() {
         )}
       </section>
 
+      {dialog === 'conduct' && (
+        <Modal
+          title="שינוי ידני של דירוג ההתנהלות"
+          onClose={() => !busy && setDialog('')}
+          foot={
+            <>
+              {c.behavior.manual && (
+                <button type="button" className="ax-btn is-ghost" style={{ marginInlineEnd: 'auto' }} disabled={busy} onClick={() => act({ action: 'conduct', level: null }, 'חזרה לדירוג האוטומטי')}>
+                  חזרה לחישוב האוטומטי
+                </button>
+              )}
+              <button type="button" className="ax-btn is-ghost" onClick={() => setDialog('')} disabled={busy}>
+                ביטול
+              </button>
+              <button
+                type="button"
+                className="ax-btn is-primary"
+                disabled={busy}
+                onClick={() => {
+                  if (!level) return setNoteErr('בחר דירוג')
+                  if (note.trim().length < 3) return setNoteErr('כתוב למה הדירוג שונה')
+                  setNoteErr('')
+                  void act({ action: 'conduct', level, note: note.trim() }, 'הדירוג נשמר')
+                }}
+              >
+                {busy && <Spin />}
+                שמירה
+              </button>
+            </>
+          }
+        >
+          <p style={{ margin: 0, color: 'var(--ax-text2)' }}>
+            לפי החישוב האוטומטי: <strong>{BEHAVIOR[c.behavior.auto][0]}</strong>. הדירוג הידני מחליף אותו בכל המערכת; הסיבות שהמערכת מצאה ממשיכות להופיע.
+          </p>
+          <fieldset style={{ border: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <legend className="ax-label" style={{ marginBottom: 8 }}>
+              דירוג
+            </legend>
+            {(['good', 'ok', 'watch', 'risk'] as const).map((l) => (
+              <label key={l} className="ax-row-btn" style={{ alignItems: 'flex-start', boxShadow: level === l ? 'inset 0 0 0 2px var(--ax-accent)' : 'var(--ax-ring)' }}>
+                <input type="radio" name="conduct-level" value={l} checked={level === l} onChange={() => setLevel(l)} style={{ marginTop: 4 }} />
+                <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
+                  <Pill t={BEHAVIOR[l][1]} dot>
+                    {BEHAVIOR[l][0]}
+                  </Pill>
+                  <span className="ax-hint">{BEHAVIOR_HELP[l]}</span>
+                </span>
+              </label>
+            ))}
+          </fieldset>
+          <Field id="conduct-note" label="למה" error={noteErr}>
+            <input
+              id="conduct-note"
+              className="ax-input"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              maxLength={300}
+              placeholder="למשל: ההחזרה הייתה טעות שלנו בתיאור"
+              aria-invalid={!!noteErr}
+              aria-describedby={noteErr ? 'conduct-note-err' : undefined}
+            />
+          </Field>
+        </Modal>
+      )}
+
       {dialog === 'consent' && (
         <Modal
           title="תיעוד הסכמה לדיוור"
@@ -288,13 +367,33 @@ type Detail = NonNullable<CustomerDetail>
 const SIGNAL_ICON = { ok: CheckCircle2, warn: AlertTriangle, bad: XCircle, gray: Info } as const
 
 /** סיכום ההתנהלות: רמה, אותות (מה נחשב ולמה), ופרופיל הקונה ב-eBay */
-function Conduct({ c }: { c: Detail['customer'] }) {
+function Conduct({ c, onEdit }: { c: Detail['customer']; onEdit?: () => void }) {
   const b = c.behavior
   const e = c.conduct.ebay
   const given = e ? (e.positiveLeft ?? 0) + (e.neutralLeft ?? 0) + (e.negativeLeft ?? 0) : 0
   return (
     <section className="ax-card" aria-labelledby="conduct-h">
-      <CardHead id="conduct-h" icon={ShieldCheck} title="התנהלות" text="מחושב מההזמנות, הביטולים, ההחזרות והפרופיל ב-eBay" pill={<Pill t={BEHAVIOR[b.level][1]} dot>{BEHAVIOR[b.level][0]}</Pill>} />
+      <CardHead
+        id="conduct-h"
+        icon={ShieldCheck}
+        title="התנהלות"
+        text={b.manual ? `נקבע ידנית${b.manual.at ? ` ב-${date(b.manual.at)}` : ''} · לפי החישוב: ${BEHAVIOR[b.auto][0]}` : 'מחושב מההזמנות, הביטולים, ההחזרות והפרופיל ב-eBay'}
+        pill={
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <ConductBadge b={b} />
+            {onEdit && (
+              <button type="button" className="ax-btn is-icon is-sm is-ghost" onClick={onEdit} aria-label="שינוי ידני של הדירוג">
+                <PenLine size={16} aria-hidden="true" />
+              </button>
+            )}
+          </span>
+        }
+      />
+      {b.manual?.note && (
+        <p className="ax-hint" style={{ margin: 0, padding: '0 20px 12px' }}>
+          הנימוק לדירוג הידני: <bdi>{b.manual.note}</bdi>
+        </p>
+      )}
       {b.signals.length === 0 ? (
         <p className="ax-note">{b.level === 'new' ? 'הזמנה אחת ועוד אין פרופיל eBay — אין עדיין על מה להסתמך.' : 'בלי ביטולים, החזרות או קייסים.'}</p>
       ) : (

@@ -6,7 +6,8 @@ import { Suspense, useCallback, useEffect, useState } from 'react'
 import { Globe2, Search, Users, X } from 'lucide-react'
 import type { CountryStat, CustomerRow } from '@/lib/customers/queries'
 import { api } from '@/components/sync/api'
-import { BEHAVIOR, CHANNEL_LABEL, countryName, MARKETING } from '@/components/sync/customers'
+import { ConductBadge } from '@/components/sync/ConductBadge'
+import { CHANNEL_LABEL, countryName, MARKETING } from '@/components/sync/customers'
 import { date, money, num, pct } from '@/components/sync/format'
 import { useDataChanged } from '@/components/sync/hooks'
 import { EmptyState, Kpi, LoadError, Pill, Seg, Spin, useLoad } from '@/components/sync/ui'
@@ -286,9 +287,7 @@ function Conduct({ r }: { r: CustomerRow }) {
   ].filter(Boolean)
   return (
     <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
-      <Pill t={BEHAVIOR[r.behavior.level][1]} dot>
-        {BEHAVIOR[r.behavior.level][0]}
-      </Pill>
+      <ConductBadge b={r.behavior} />
       {parts.length > 0 && (
         <span className="ax-muted" style={{ fontSize: 12 }}>
           {parts.join(' · ')}

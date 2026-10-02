@@ -224,6 +224,10 @@ export const customers = pgTable(
     ebayNegativeLeft: integer('ebay_negative_left'),
     ebayProfileFetchedAt: timestamp('ebay_profile_fetched_at', { withTimezone: true }),
     ebayProfileError: text('ebay_profile_error'),
+    /** דירוג התנהלות שנקבע ידנית — גובר על החישוב (good · ok · watch · risk). null = אוטומטי */
+    conductOverride: text('conduct_override'),
+    conductNote: text('conduct_note'),
+    conductSetAt: timestamp('conduct_set_at', { withTimezone: true }),
     ...timestamps,
   },
   (t) => [

@@ -5,7 +5,7 @@
 //   npm run job:customer-history -- --profiles=0       # בלי פרופילים
 //   npm run job:customer-history -- --no-cases         # רק פרופילים + קישור
 //
-// ביטולים והחזרים כספיים נקלטים גם ב-poll-ebay-orders. להשלמה אחורה שלהם: poll-ebay-orders -- --days=730
+// ביטולים והחזרים כספיים נקלטים גם ב-poll-ebay-orders. להשלמה אחורה שלהם: poll-ebay-orders -- --days=720
 // יוצא עם 0 בהצלחה, 1 בשגיאה, 2 אם ריצה אחרת פעילה.
 
 import { loadEnvConfig } from '@next/env'

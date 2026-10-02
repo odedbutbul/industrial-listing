@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm'
 import { decryptSecret, hashIdentifier } from '@/lib/crypto'
 import { db } from '@/lib/db/client'
-import { summarizeBehavior, type Behavior, type BehaviorInput } from './behavior'
+import { summarizeBehavior, type Behavior, type BehaviorInput, type BehaviorLevel } from './behavior'
 import { normalizeEmail } from './upsert'
 
 // שאילתות מסך הלקוחות. קוראות רק מ-Postgres. מייל וטלפון מפוענחים רק לתשובה למנהל (מאחורי הכניסה).
@@ -83,6 +83,15 @@ function behaviorInput(r: Record<string, unknown>): BehaviorInput {
   }
 }
 
+export const MANUAL_LEVELS = ['good', 'ok', 'watch', 'risk'] as const
+
+/** דירוג ידני גובר על החישוב; האותות של החישוב נשארים להצגה */
+function withOverride(b: Behavior, r: Record<string, unknown>): CustomerRow['behavior'] {
+  const o = r.conduct_override as BehaviorLevel | null
+  const manual = o && (MANUAL_LEVELS as readonly string[]).includes(o)
+  return { ...b, level: manual ? o : b.level, auto: b.level, manual: manual ? { note: (r.conduct_note as string) ?? null, at: iso(r.conduct_set_at) } : null }
+}
+
 export interface CustomerRow {
   id: string
   name: string | null
@@ -101,7 +110,8 @@ export interface CustomerRow {
   marketing: 'eligible' | 'unsubscribed' | 'blocked_ebay' | 'no_consent' | 'anonymized'
   /** ספירות ההתנהלות + הסיכום (רמה ואותות) */
   conduct: BehaviorInput
-  behavior: Behavior
+  /** level = הרמה שמוצגת (ידנית אם נקבעה); auto = מה שהחישוב נותן */
+  behavior: Behavior & { auto: BehaviorLevel; manual: { note: string | null; at: string | null } | null }
 }
 
 function toRow(r: Record<string, unknown>): CustomerRow {
@@ -131,7 +141,7 @@ function toRow(r: Record<string, unknown>): CustomerRow {
     lastOrder: r.last_order ? new Date(r.last_order as string).toISOString() : null,
     marketing,
     conduct: behaviorInput(r),
-    behavior: summarizeBehavior(behaviorInput(r)),
+    behavior: withOverride(summarizeBehavior(behaviorInput(r)), r),
   }
 }
 

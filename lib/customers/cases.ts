@@ -121,6 +121,20 @@ export async function linkCases(ex: Executor = db): Promise<number> {
   return (byOrder.rowCount ?? 0) + (byUser.rowCount ?? 0)
 }
 
+/**
+ * ההזמנה של אירוע שאין לו מספר הזמנה: ההזמנה האחרונה של אותה מודעה שנוצרה עד יום אחרי פתיחת האירוע.
+ * רוב הפריטים הם יחידה אחת, כך שמודעה + תאריך מזהים את ההזמנה.
+ */
+export async function orderByItem(ex: Executor, channel: 'ebay' | 'woo', itemId: string, openedAt: Date): Promise<{ orderId: string; customerId: string | null } | null> {
+  const r = await ex.execute(sql`
+    select o.external_order_id, o.customer_id from processed_orders po
+    join orders o on o.channel = po.channel and o.external_order_id = po.external_order_id
+    where po.channel = ${channel} and po.external_item_id = ${itemId} and o.placed_at <= ${new Date(openedAt.getTime() + 86400_000)}
+    order by o.placed_at desc limit 1`)
+  const row = r.rows[0] as { external_order_id: string; customer_id: string | null } | undefined
+  return row ? { orderId: row.external_order_id, customerId: row.customer_id } : null
+}
+
 /** במחיקת פרטים: שם המשתמש נמחק גם מהאירועים */
 export async function forgetCaseUsernames(ex: Executor, customerId: string) {
   await ex.update(cc).set({ buyerUsername: null, comment: null, updatedAt: sql`now()` }).where(eq(cc.customerId, customerId))

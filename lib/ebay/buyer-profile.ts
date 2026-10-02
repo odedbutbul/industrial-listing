@@ -48,7 +48,8 @@ export function parseBuyerMetrics(r: XmlNode): Pick<BuyerProfile, 'positiveLeft'
 
 export async function getBuyerProfile(username: string): Promise<BuyerProfile & { calls: number }> {
   const id = xml(username.trim())
-  const user = parseUser(await tradingCall('GetUser', `  <UserID>${id}</UserID>\n  <DetailLevel>ReturnAll</DetailLevel>`))
+  // בלי DetailLevel: ReturnAll על משתמש אחר נדחה ("ItemId required for this Detail Level", נבדק 02/10/2026)
+  const user = parseUser(await tradingCall('GetUser', `  <UserID>${id}</UserID>`))
   let metrics: ReturnType<typeof parseBuyerMetrics> = { positiveLeft: null, neutralLeft: null, negativeLeft: null }
   let feedbackError: string | null = null
   try {

@@ -5,7 +5,7 @@ import { getBuyerProfile } from '@/lib/ebay/buyer-profile'
 import { searchPostOrder } from '@/lib/ebay/post-order'
 import { withJobLock } from '@/lib/sync/lock'
 import { writeSyncLog } from '@/lib/sync/log'
-import { linkCases, upsertCase } from './cases'
+import { linkCases, orderByItem, upsertCase } from './cases'
 
 // היסטוריית התנהלות של לקוחות מ-eBay (קריאה בלבד):
 // 1. Post-Order: החזרות, פניות, קייסים וביטולים שנפתחו בטווח → customer_cases
@@ -48,11 +48,24 @@ async function run(opts: { days?: number; profiles?: number; skipCases?: boolean
     r.found = po.cases.length
     for (const e of po.errors) r.errors.push({ step: `post-order:${e.kind}`, error: e.error })
     for (const c of po.cases) {
+      // אין מספר הזמנה (ביטול במזהה הישן, פניות וקייסים) — לפי המודעה והתאריך. ביטול מקבל את מפתח ההזמנה, כדי להתאחד עם מה שהגיע מ-getOrders
+      let orderId = c.orderId
+      let externalId = c.externalId
+      let customerId: string | null = null
+      if (!orderId && c.itemId) {
+        const found = await orderByItem(db, 'ebay', c.itemId, c.openedAt)
+        if (found) {
+          orderId = found.orderId
+          customerId = found.customerId
+          if (c.kind === 'cancellation') externalId = found.orderId
+        }
+      }
       const res = await upsertCase(db, {
         channel: 'ebay',
         kind: c.kind,
-        externalId: c.externalId,
-        externalOrderId: c.orderId,
+        externalId,
+        externalOrderId: orderId,
+        customerId,
         buyerUsername: c.buyerUsername,
         initiator: c.initiator,
         status: c.status,
@@ -76,10 +89,19 @@ async function run(opts: { days?: number; profiles?: number; skipCases?: boolean
   if (limit > 0) {
     const c = schema.customers
     const stale = new Date(Date.now() - PROFILE_MAX_AGE_DAYS * 86400_000)
+    const retry = new Date(Date.now() - 86400_000)
     const due = await db
       .select({ id: c.id, username: c.ebayUsername })
       .from(c)
-      .where(and(isNotNull(c.ebayUsername), not(sql`${c.ebayUsername} like 'anon:%'`), isNull(c.anonymizedAt), or(isNull(c.ebayProfileFetchedAt), lt(c.ebayProfileFetchedAt, stale))))
+      .where(
+        and(
+          isNotNull(c.ebayUsername),
+          not(sql`${c.ebayUsername} like 'anon:%'`),
+          isNull(c.anonymizedAt),
+          // נכשל בלי לקבל נתונים — ניסיון חוזר אחרי יום, לא אחרי 30
+          or(isNull(c.ebayProfileFetchedAt), lt(c.ebayProfileFetchedAt, stale), and(isNull(c.ebayFeedbackScore), isNotNull(c.ebayProfileError), lt(c.ebayProfileFetchedAt, retry))),
+        ),
+      )
       .orderBy(sql`${c.ebayProfileFetchedAt} asc nulls first`, asc(c.createdAt))
       .limit(limit)
     for (const row of due) {

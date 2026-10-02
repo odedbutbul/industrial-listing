@@ -154,19 +154,25 @@ function toInquiry(m: Obj, kind: 'inquiry' | 'case'): PostOrderCase | null {
   }
 }
 
+/** מזהה הזמנה ישן של eBay: itemId-transactionId (Post-Order מחזיר אותו בביטולים — נבדק 02/10/2026) */
+export const LEGACY_ORDER = /^(\d{9,})-(\d+)$/
+
 function toCancellation(m: Obj): PostOrderCase | null {
-  const orderId = str(m, 'legacyOrderId', 'orderId')
+  const raw = str(m, 'orderId', 'legacyOrderId')
   const opened = when(m, 'cancelRequestDate', 'creationDate')
-  if (!orderId || !opened) return null
+  if (!raw || !opened) return null
+  // מזהה ישן: מספר המודעה נשמר, ההזמנה נמצאת לפיו לפני השמירה (history.ts)
+  const legacy = raw.match(LEGACY_ORDER)
+  const orderId = legacy ? null : raw
   const status = str(m, 'cancelState', 'cancelStatus')
   const closedAt = when(m, 'cancelCloseDate')
   const refund = money(m, 'requestRefundAmount', 'refundAmount')
   return {
     kind: 'cancellation',
     // ביטול אחד להזמנה — אותו מפתח כמו ב-Fulfillment, כדי ששני המקורות יתאחדו
-    externalId: orderId,
+    externalId: orderId ?? `legacy:${raw}`,
     orderId,
-    itemId: null,
+    itemId: legacy ? legacy[1] : null,
     buyerUsername: str(m, 'buyerLoginName', 'buyer'),
     initiator: initiatorOf(str(m, 'requestorType', 'cancelInitiator')),
     status,

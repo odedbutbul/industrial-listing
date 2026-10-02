@@ -6,7 +6,8 @@
  * אפשר גם לכתוב את ה-markup ישירות לפי references/design-system.md.
  */
 import { AlertCircle, CheckCircle2, Loader2, X, type LucideIcon } from 'lucide-react'
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 
 /* ------------------------------------------------------------------ תגים */
 
@@ -89,6 +90,93 @@ export function Switch({ on, onChange, children }: { on: boolean; onChange: (v: 
       </span>
       {children}
     </button>
+  )
+}
+
+/* --------------------------------------------------------------- טולטיפ */
+
+/**
+ * טולטיפ נגיש (WCAG 1.4.13): נפתח במעבר עכבר, בפוקוס מקלדת ובהקשה (טלפון); נשאר פתוח כשהעכבר עובר אליו;
+ * נסגר ב-Esc, ביציאת העכבר / הפוקוס, או כשנפתח טולטיפ אחר. הטריגר הוא כפתור עם aria-describedby. מרונדר לשורש .app-ui (fixed) — לא נחתך בטבלה גלולה.
+ */
+export function Tip({ content, label, children }: { content: ReactNode; label: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false)
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
+  const btn = useRef<HTMLButtonElement>(null)
+  const tip = useRef<HTMLDivElement>(null)
+  const timer = useRef<number>(0)
+  const id = useRef(`ax-tip-${Math.random().toString(36).slice(2, 8)}`).current
+
+  const show = () => {
+    window.clearTimeout(timer.current)
+    setOpen(true)
+    // טולטיפ אחד פתוח בכל רגע
+    window.dispatchEvent(new CustomEvent('ax-tip-open', { detail: id }))
+  }
+  const hide = () => {
+    window.clearTimeout(timer.current)
+    timer.current = window.setTimeout(() => setOpen(false), 120)
+  }
+
+  useLayoutEffect(() => {
+    if (!open || !btn.current || !tip.current) return
+    const place = () => {
+      const b = btn.current!.getBoundingClientRect()
+      const t = tip.current!.getBoundingClientRect()
+      const gap = 8
+      const below = b.bottom + gap + t.height <= window.innerHeight - 8 || b.top - gap - t.height < 8
+      const top = below ? b.bottom + gap : b.top - gap - t.height
+      // מיושר לקצה הימני של הטריגר (RTL), ונשאר בתוך המסך
+      const left = Math.min(Math.max(8, b.right - t.width), window.innerWidth - t.width - 8)
+      setPos({ top, left })
+    }
+    place()
+    window.addEventListener('scroll', place, true)
+    window.addEventListener('resize', place)
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('scroll', place, true)
+      window.removeEventListener('resize', place)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+  useEffect(() => {
+    const onOther = (e: Event) => (e as CustomEvent<string>).detail !== id && setOpen(false)
+    window.addEventListener('ax-tip-open', onOther)
+    return () => {
+      window.removeEventListener('ax-tip-open', onOther)
+      window.clearTimeout(timer.current)
+    }
+  }, [id])
+
+  const root = typeof document !== 'undefined' ? (btn.current?.closest('.app-ui') ?? document.body) : null
+  return (
+    <>
+      <button
+        ref={btn}
+        type="button"
+        className="ax-tip-trigger"
+        aria-label={label}
+        aria-describedby={open ? id : undefined}
+        aria-expanded={open}
+        onMouseEnter={show}
+        onMouseLeave={hide}
+        onFocus={show}
+        onBlur={hide}
+        onClick={show}
+      >
+        {children}
+      </button>
+      {open &&
+        root &&
+        createPortal(
+          <div ref={tip} id={id} role="tooltip" className="ax-tip" style={pos ? { top: pos.top, left: pos.left } : { top: -9999, left: -9999 }} onMouseEnter={show} onMouseLeave={hide}>
+            {content}
+          </div>,
+          root,
+        )}
+    </>
   )
 }
 
