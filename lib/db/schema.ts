@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import type { ShippingCosts } from '@/lib/ebay/trading'
+import type { ReturnPolicySummary, ShippingCosts } from '@/lib/ebay/trading'
 import {
   bigint,
   bigserial,
@@ -103,6 +103,8 @@ export const products = pgTable('products', {
   /** מחירי משלוח מ-eBay: ארה"ב + שאר העולם + כל השירותים (ShippingDetails) */
   shippingCosts: jsonb('shipping_costs').$type<ShippingCosts | null>(),
   shippingCostsFetchedAt: timestamp('shipping_costs_fetched_at', { withTimezone: true }),
+  /** מדיניות החזרות מ-eBay (ReturnPolicy + שם ה-Business Policy). נקרא באותה ריצה של מחירי המשלוח */
+  returnPolicy: jsonb('return_policy').$type<ReturnPolicySummary | null>(),
   location: text('location'),
   country: text('country'),
   ebayListingStartedAt: timestamp('ebay_listing_started_at', { withTimezone: true }),
@@ -774,4 +776,32 @@ export const listingIssues = pgTable(
     check('listing_issues_severity_chk', sql`${t.severity} in ('high', 'medium', 'low')`),
     check('listing_issues_status_chk', sql`${t.status} in ('open', 'dismissed', 'resolved')`),
   ],
+)
+
+/**
+ * קריאת תווית המחסן מתמונות המוצר (Gemini, קריאה בלבד). שורה אחת לכל מוצר.
+ * images_key = מזהי התמונות שנשלחו — אם התמונות לא השתנו, לא קוראים שוב (לא משלמים פעמיים).
+ * labels: מה שנקרא מכל תווית — מיקום, מספר (סוף ה-SKU), כמות, משקל ומידות.
+ */
+export const labelReads = pgTable(
+  'label_reads',
+  {
+    productId: uuid('product_id')
+      .primaryKey()
+      .references(() => products.id, { onDelete: 'cascade' }),
+    imagesKey: text('images_key').notNull(),
+    /** מיקומי התמונות שנשלחו (1 = הראשונה במודעה) */
+    positions: jsonb('positions').$type<number[]>().notNull(),
+    labels: jsonb('labels')
+      .$type<{ position: number; location: string | null; number: string | null; qty: string | null; weight: string | null; dims: string | null; date: string | null }[]>()
+      .notNull()
+      .default([]),
+    model: text('model').notNull(),
+    inputTokens: integer('input_tokens').notNull().default(0),
+    outputTokens: integer('output_tokens').notNull().default(0),
+    costUsd: numeric('cost_usd', { precision: 10, scale: 6 }).notNull().default('0'),
+    error: text('error'),
+    readAt: timestamp('read_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('label_reads_read_at_idx').on(t.readAt)],
 )

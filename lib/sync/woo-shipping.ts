@@ -2,15 +2,15 @@ import { randomUUID } from 'node:crypto'
 import { and, eq, isNotNull, max } from 'drizzle-orm'
 import { db, schema } from '@/lib/db/client'
 import { WooApiError, wooGet, wooRequest } from '@/lib/woo/client'
-import { shippingMeta } from '@/lib/woo/products'
+import { returnsMeta, shippingMeta } from '@/lib/woo/products'
 import type { ImportProgress } from './import-ebay'
 import { withJobLock } from './lock'
 import { writeSyncLog } from './log'
 
-// מחיר המוצר ומחירי המשלוח (מ-eBay, דרך products.price / products.shipping_costs) → מוצרים שכבר בחנות.
+// מחיר המוצר, מחירי המשלוח ומדיניות ההחזרות (מ-eBay, דרך products.price / shipping_costs / return_policy) → מוצרים שכבר בחנות.
 // ידני מהמסך: תצוגה מקדימה (קריאה בלבד מהחנות) → אישור → עדכון. אוטומטי: כל בוקר אחרי משיכת המחירים מ-eBay
 // (החלטת עודד 30/09/2026) — `npm run job:woo-shipping -- --apply`.
-// נשלחים רק מה שהשתנה: `regular_price` ו/או שדות ה-meta של המשלוח (`_ship_*`, `_sync_shipping`).
+// נשלחים רק מה שהשתנה: `regular_price` ו/או שדות ה-meta של המשלוח (`_ship_*`, `_sync_shipping`) ושל ההחזרות (`_sync_returns`).
 // מלאי, תיאור, תמונות וקטגוריות לא נשלחים. כל שינוי מחיר בחנות נרשם בלוג (מה היה ← מה נשלח).
 
 export const WOO_SHIPPING_JOB = 'woo_shipping'
@@ -32,13 +32,15 @@ export interface ShippingSyncItem {
   price: { current: string; next: string } | null
   /** האם המשלוח משתנה */
   shipping: boolean
+  /** האם מדיניות ההחזרות משתנה */
+  returns: boolean
 }
 
 export interface ShippingSyncPlan {
   items: ShippingSyncItem[]
   counts: Record<ShippingSyncStatus, number>
-  /** כמה מוצרים יקבלו מחיר חדש / משלוח חדש (מתוך "update") */
-  changes: { price: number; shipping: number }
+  /** כמה מוצרים יקבלו מחיר חדש / משלוח חדש / מדיניות החזרות חדשה (מתוך "update") */
+  changes: { price: number; shipping: number; returns: number }
   /** מתי נמשכו לאחרונה המחירים מ-eBay (הכי מאוחר) */
   lastEbayFetch: string | null
 }
@@ -98,6 +100,7 @@ async function plan(onProgress?: (p: ImportProgress) => void) {
       sku: schema.channelMappings.sku,
       wooProductId: schema.channelMappings.wooProductId,
       shippingCosts: schema.products.shippingCosts,
+      returnPolicy: schema.products.returnPolicy,
       price: schema.products.price,
     })
     .from(schema.products)
@@ -115,9 +118,11 @@ async function plan(onProgress?: (p: ImportProgress) => void) {
     const have = store.get(r.wooProductId!)
     const current = have && (have.meta.has('_ship_us') || have.meta.has('_ship_intl')) ? { us: have.meta.get('_ship_us') ?? '', intl: have.meta.get('_ship_intl') ?? '' } : null
     const shipping = !!have && meta.length > 0 && !meta.every((m) => sameMeta(have.meta.get(m.key), m.value))
+    const ret = returnsMeta(r.returnPolicy)
+    const returns = !!have && ret.length > 0 && !ret.every((m) => sameMeta(have.meta.get(m.key), m.value))
     const sendPrice = have ? priceToSend(r.price, have.price) : null
-    // "no_data" = אין מחירי משלוח מ-eBay ואין מחיר לעדכן
-    const status: ShippingSyncStatus = !have ? 'missing' : shipping || sendPrice !== null ? 'update' : !meta.length ? 'no_data' : 'same'
+    // "no_data" = אין מחירי משלוח ואין מדיניות החזרות מ-eBay, ואין מחיר לעדכן
+    const status: ShippingSyncStatus = !have ? 'missing' : shipping || returns || sendPrice !== null ? 'update' : !meta.length && !ret.length ? 'no_data' : 'same'
     items.push({
       productId: r.productId,
       title: r.title,
@@ -128,19 +133,20 @@ async function plan(onProgress?: (p: ImportProgress) => void) {
       next,
       price: sendPrice !== null ? { current: have!.price, next: sendPrice } : null,
       shipping,
-      meta: shipping ? meta : [],
+      returns,
+      meta: [...(shipping ? meta : []), ...(returns ? ret : [])],
       sendPrice,
     })
   }
   const counts = { update: 0, same: 0, no_data: 0, missing: 0 }
   for (const i of items) counts[i.status]++
-  const changes = { price: items.filter((i) => i.price).length, shipping: items.filter((i) => i.shipping).length }
+  const changes = { price: items.filter((i) => i.price).length, shipping: items.filter((i) => i.shipping).length, returns: items.filter((i) => i.returns).length }
   const [{ at }] = await db.select({ at: max(schema.products.shippingCostsFetchedAt) }).from(schema.products)
   return { items, counts, changes, lastEbayFetch: at ? new Date(at).toISOString() : null }
 }
 
 const strip = (items: (ShippingSyncItem & { meta?: unknown; sendPrice?: unknown })[]): ShippingSyncItem[] =>
-  items.map((i) => ({ productId: i.productId, title: i.title, sku: i.sku, wooProductId: i.wooProductId, status: i.status, current: i.current, next: i.next, price: i.price, shipping: i.shipping }))
+  items.map((i) => ({ productId: i.productId, title: i.title, sku: i.sku, wooProductId: i.wooProductId, status: i.status, current: i.current, next: i.next, price: i.price, shipping: i.shipping, returns: i.returns }))
 
 export async function previewWooShipping(onProgress?: (p: ImportProgress) => void): Promise<ShippingSyncPlan> {
   const p = await plan(onProgress)
@@ -182,7 +188,7 @@ export async function pushWooShipping(onProgress?: (p: ImportProgress) => void):
         } else {
           const error = res?.error?.message ?? 'החנות לא אישרה את העדכון'
           failed.push({ productId: c.productId, sku: c.sku, error })
-          await writeSyncLog({ runId, job: WOO_SHIPPING_JOB, channel: 'woo', action: 'update_price_shipping', productId: c.productId, success: false, error, details: { sku: c.sku, wooProductId: c.wooProductId, price: c.price, shipping: c.shipping } })
+          await writeSyncLog({ runId, job: WOO_SHIPPING_JOB, channel: 'woo', action: 'update_price_shipping', productId: c.productId, success: false, error, details: { sku: c.sku, wooProductId: c.wooProductId, price: c.price, shipping: c.shipping, returns: c.returns } })
         }
       }
       onProgress?.({ phase: 'writing', done: Math.min(i + WRITE_BATCH, todo.length), total: todo.length })
@@ -196,7 +202,7 @@ export async function pushWooShipping(onProgress?: (p: ImportProgress) => void):
       action: 'run',
       success: failed.length === 0,
       error: failed.length ? `${failed.length} מוצרים לא עודכנו` : null,
-      details: { planned: todo.length, updated, failed: failed.length, prices: p.changes.price, shipping: p.changes.shipping, same: p.counts.same, noData: p.counts.no_data, missing: p.counts.missing },
+      details: { planned: todo.length, updated, failed: failed.length, prices: p.changes.price, shipping: p.changes.shipping, returns: p.changes.returns, same: p.counts.same, noData: p.counts.no_data, missing: p.counts.missing },
       durationMs: Date.now() - started,
     })
     return { runId, items: strip(p.items), counts: p.counts, changes: p.changes, lastEbayFetch: p.lastEbayFetch, updated, failed }

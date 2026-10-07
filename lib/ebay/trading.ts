@@ -215,12 +215,75 @@ export function parseShippingCosts(item: XmlNode): ShippingCosts | null {
   }
 }
 
+// ── מדיניות החזרות (ReturnPolicy + SellerReturnProfile) ─────────────────────
+
+export interface ReturnTerms {
+  /** null = לא צוין במודעה */
+  accepted: boolean | null
+  /** Days_30 → 30 */
+  withinDays: number | null
+  /** Buyer · Seller */
+  shippingPaidBy: string | null
+  /** MoneyBack · MoneyBackOrReplacement · MoneyBackOrExchange … */
+  refund: string | null
+}
+
+export interface ReturnPolicySummary extends ReturnTerms {
+  /** החזרות מחו״ל — null כשהמודעה לא מגדירה מדיניות נפרדת לחו״ל */
+  international: ReturnTerms | null
+  /** טקסט חופשי של המוכר (רק בחלק מהאתרים / מודעות ישנות) */
+  description: string | null
+  /** שם מדיניות ההחזרות (Business Policy), אם יש */
+  policyName: string | null
+  policyId: string | null
+}
+
+function days(v: unknown): number | null {
+  const m = /(\d+)/.exec(String(v ?? ''))
+  return m ? Number(m[1]) : null
+}
+
+function acceptedFlag(v: unknown): boolean | null {
+  const s = String(v ?? '')
+  if (s === 'ReturnsAccepted') return true
+  if (s === 'ReturnsNotAccepted') return false
+  return null
+}
+
+/** ReturnPolicy של מודעה → סיכום. null = אין מדיניות החזרות בתשובה. */
+export function parseReturnPolicy(item: XmlNode): ReturnPolicySummary | null {
+  const r = item.ReturnPolicy as XmlNode | undefined
+  const profile = ((item.SellerProfiles as XmlNode | undefined)?.SellerReturnProfile ?? {}) as XmlNode
+  if (!r && !profile.ReturnProfileName) return null
+  const d = r ?? {}
+  const intlAccepted = acceptedFlag(d.InternationalReturnsAcceptedOption)
+  const hasIntl = intlAccepted !== null || d.InternationalReturnsWithinOption !== undefined
+  return {
+    accepted: acceptedFlag(d.ReturnsAcceptedOption),
+    withinDays: days(d.ReturnsWithinOption ?? d.ReturnsWithin),
+    shippingPaidBy: str(d.ShippingCostPaidByOption),
+    refund: str(d.RefundOption),
+    international: hasIntl
+      ? {
+          accepted: intlAccepted,
+          withinDays: days(d.InternationalReturnsWithinOption),
+          shippingPaidBy: str(d.InternationalShippingCostPaidByOption),
+          refund: str(d.InternationalRefundOption),
+        }
+      : null,
+    description: str(d.Description),
+    policyName: str(profile.ReturnProfileName),
+    policyId: str(profile.ReturnProfileID),
+  }
+}
+
 // ── GetSellerList: מחירי משלוח לכל המודעות הפעילות ─────────────────────────────
 
 export interface SellerListItem {
   itemId: string
   sku: string | null
   shippingCosts: ShippingCosts | null
+  returnPolicy: ReturnPolicySummary | null
   /** מחיר המודעה עכשיו (SellingStatus.CurrentPrice). במכירה פומבית זו ההצעה הגבוהה — לכן גם listingType */
   price: string | null
   currency: string | null
@@ -237,7 +300,7 @@ export interface SellerListShippingPage {
 /**
  * מודעות שמסתיימות מעכשיו ועד 119 יום (eBay מגביל ל-120) — זה כל המודעות הפעילות:
  * מודעת GTC מתחדשת כל 30 יום, אז מועד הסיום שלה תמיד בחלון.
- * OutputSelector מצמצם את התשובה ל-ItemID, SKU, מחיר, סוג מודעה ופרטי המשלוח (בלי תיאורים).
+ * OutputSelector מצמצם את התשובה ל-ItemID, SKU, מחיר, סוג מודעה, פרטי המשלוח ומדיניות ההחזרות (בלי תיאורים).
  */
 export async function getSellerListShippingPage(page: number, perPage = 200, now = new Date()): Promise<SellerListShippingPage> {
   const to = new Date(now.getTime() + 119 * 86400_000)
@@ -250,6 +313,7 @@ export async function getSellerListShippingPage(page: number, perPage = 200, now
   <OutputSelector>ItemArray.Item.ItemID</OutputSelector>
   <OutputSelector>ItemArray.Item.SKU</OutputSelector>
   <OutputSelector>ItemArray.Item.ShippingDetails</OutputSelector>
+  <OutputSelector>ItemArray.Item.ReturnPolicy</OutputSelector>
   <OutputSelector>ItemArray.Item.SellerProfiles</OutputSelector>
   <OutputSelector>ItemArray.Item.SellingStatus</OutputSelector>
   <OutputSelector>ItemArray.Item.ListingType</OutputSelector>
@@ -262,7 +326,7 @@ export async function getSellerListShippingPage(page: number, perPage = 200, now
     totalEntries: int(pagination.TotalNumberOfEntries) ?? rawItems.length,
     items: rawItems.map((i) => {
       const { amount, currency } = money(((i.SellingStatus ?? {}) as XmlNode).CurrentPrice)
-      return { itemId: String(i.ItemID), sku: str(i.SKU), shippingCosts: parseShippingCosts(i), price: amount, currency, listingType: str(i.ListingType) }
+      return { itemId: String(i.ItemID), sku: str(i.SKU), shippingCosts: parseShippingCosts(i), returnPolicy: parseReturnPolicy(i), price: amount, currency, listingType: str(i.ListingType) }
     }),
   }
 }
@@ -307,6 +371,8 @@ export interface EbayItemDetail {
   } | null
   /** מחירי משלוח לארה"ב ולשאר העולם (ShippingDetails) */
   shippingCosts: ShippingCosts | null
+  /** מדיניות החזרות (ReturnPolicy + SellerReturnProfile) */
+  returnPolicy: ReturnPolicySummary | null
   location: string | null
   country: string | null
   listingStartedAt: string | null
@@ -403,6 +469,7 @@ export async function getItem(itemId: string): Promise<EbayItemDetail> {
       }
     })(),
     shippingCosts: parseShippingCosts(item),
+    returnPolicy: parseReturnPolicy(item),
     location: str(item.Location),
     country: str(item.Country),
     listingStartedAt: str((item.ListingDetails as XmlNode | undefined)?.StartTime),

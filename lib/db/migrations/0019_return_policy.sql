@@ -1,0 +1,1 @@
+ALTER TABLE "products" ADD COLUMN "return_policy" jsonb;

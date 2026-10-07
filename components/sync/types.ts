@@ -60,6 +60,20 @@ export interface ShippingCosts {
   policyName: string | null
 }
 
+export interface ReturnTerms {
+  accepted: boolean | null
+  withinDays: number | null
+  shippingPaidBy: string | null
+  refund: string | null
+}
+
+export interface ReturnPolicySummary extends ReturnTerms {
+  international: ReturnTerms | null
+  description: string | null
+  policyName: string | null
+  policyId: string | null
+}
+
 export interface LedgerEntry {
   id: number
   delta: number
@@ -115,6 +129,7 @@ export interface ProductDetail {
     } | null
     shippingCosts: ShippingCosts | null
     shippingCostsFetchedAt: string | null
+    returnPolicy: ReturnPolicySummary | null
     location: string | null
     country: string | null
     ebayListingStartedAt: string | null
@@ -261,12 +276,13 @@ export interface ShippingSyncItem {
   /** מחיר המוצר: בחנות → במערכת. null = לא משתנה */
   price: { current: string; next: string } | null
   shipping: boolean
+  returns: boolean
 }
 
 export interface ShippingSyncPlan {
   items: ShippingSyncItem[]
   counts: Record<ShippingSyncItem['status'], number>
-  changes: { price: number; shipping: number }
+  changes: { price: number; shipping: number; returns: number }
   lastEbayFetch: string | null
 }
 

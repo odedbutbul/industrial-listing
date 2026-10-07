@@ -176,11 +176,11 @@ export function ShippingToStoreDialog({ onClose }: { onClose: () => void }) {
             ) : (
               <>
                 <Row label="יתעדכנו" value={num(shown.counts.update)} strong />
-                {shown.counts.update > 0 && <Row label="מתוכם: מחיר חדש · משלוח חדש" value={`${num(shown.changes.price)} · ${num(shown.changes.shipping)}`} />}
+                {shown.counts.update > 0 && <Row label="מתוכם: מחיר חדש · משלוח חדש · החזרות" value={`${num(shown.changes.price)} · ${num(shown.changes.shipping)} · ${num(shown.changes.returns)}`} />}
               </>
             )}
             {shown.counts.same > 0 && !result && <Row label="כבר מעודכנים" value={num(shown.counts.same)} />}
-            {shown.counts.no_data > 0 && <Row label="אין מחירי משלוח מ-eBay והמחיר זהה (לא ישתנו)" value={num(shown.counts.no_data)} tone="warn" />}
+            {shown.counts.no_data > 0 && <Row label="אין משלוח והחזרות מ-eBay והמחיר זהה (לא ישתנו)" value={num(shown.counts.no_data)} tone="warn" />}
             {shown.counts.missing > 0 && <Row label="לא נמצאו בחנות" value={num(shown.counts.missing)} tone="warn" />}
           </div>
           {listed.length > 0 && <ItemList items={listed} failed={result?.failed} done={!!result} />}

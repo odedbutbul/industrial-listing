@@ -1,4 +1,4 @@
-import type { ShippingCosts, ShippingOption } from '@/lib/ebay/trading'
+import type { ReturnPolicySummary, ShippingCosts, ShippingOption } from '@/lib/ebay/trading'
 import { wooGet, wooRequest } from './client'
 import { cleanDescription, ebayLargeImage } from './clean-description'
 import { CATEGORY_TREE, categorize } from './categorize'
@@ -47,6 +47,7 @@ export interface SourceProduct {
   itemSpecifics: Record<string, string[]> | null
   ebayListingStartedAt: Date | null
   shippingCosts: ShippingCosts | null
+  returnPolicy: ReturnPolicySummary | null
   sku: string
   ebayItemId: string | null
   available: number
@@ -82,6 +83,15 @@ export function shippingMeta(c: ShippingCosts | null): Meta[] {
   ]
 }
 
+/**
+ * מדיניות ההחזרות מ-eBay כ-meta של המוצר (`_sync_returns`, JSON), כדי שעמוד המוצר באתר יציג אותה.
+ * בלי מדיניות — אין שדה (ה-theme מציג אז רק את הטקסט הכללי מהאדמין).
+ */
+export function returnsMeta(r: ReturnPolicySummary | null): Meta[] {
+  if (!r) return []
+  return [{ key: '_sync_returns', value: JSON.stringify(r) }]
+}
+
 export function buildWooProduct(p: SourceProduct, ctx: BuildContext) {
   const images = p.images.map(ebayLargeImage)
   const meta: Meta[] = [
@@ -93,7 +103,7 @@ export function buildWooProduct(p: SourceProduct, ctx: BuildContext) {
   ]
   if (p.mpn) meta.push({ key: '_mpn', value: p.mpn }, { key: '_mpn_norm', value: mpnNorm(p.mpn) })
   if (p.conditionDescription) meta.push({ key: '_condition_notes', value: p.conditionDescription })
-  meta.push(...shippingMeta(p.shippingCosts))
+  meta.push(...shippingMeta(p.shippingCosts), ...returnsMeta(p.returnPolicy))
 
   const attributes: { id?: number; name?: string; options: string[]; visible: boolean; variation: false }[] = []
   const condLabel = p.conditionId ? CONDITION_LABELS[p.conditionId] ?? p.condition : p.condition

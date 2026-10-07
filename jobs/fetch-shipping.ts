@@ -1,7 +1,7 @@
-// מחירי משלוח מ-eBay (ארה"ב + שאר העולם) ומחיר המודעה לכל המוצרים — קריאה בלבד מול eBay.
+// מחירי משלוח מ-eBay (ארה"ב + שאר העולם), מדיניות החזרות ומחיר המודעה לכל המוצרים — קריאה בלבד מול eBay.
 //
 //   npm run job:fetch-shipping -- --dry-run     # קורא ומסכם בלי לכתוב ל-DB (~34 קריאות ל-6,600 מודעות)
-//   npm run job:fetch-shipping                  # שומר ב-products.shipping_costs + products.price (רק מחיר שהשתנה, במודעת מחיר קבוע)
+//   npm run job:fetch-shipping                  # שומר ב-products.shipping_costs + products.return_policy + products.price (רק מחיר שהשתנה, במודעת מחיר קבוע)
 //   npm run job:fetch-shipping -- --max-pages=1
 //
 // יוצא עם קוד 0 בהצלחה, 1 בשגיאה, 2 אם ריצה אחרת כבר פעילה.

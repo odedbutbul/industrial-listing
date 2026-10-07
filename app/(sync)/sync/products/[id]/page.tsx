@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation'
 import { api } from '@/components/sync/api'
 import { ago, dateTime, money, num, shipPrice, shipIsMoney, stockStatus, WOO_NOT_LINKED } from '@/components/sync/format'
 import { useDataChanged } from '@/components/sync/hooks'
-import type { ProductDetail } from '@/components/sync/types'
+import type { ProductDetail, ReturnTerms } from '@/components/sync/types'
 import { WooLink } from '@/components/sync/WooLink'
 import { ProductHistory } from '@/components/sync/ProductHistory'
 import { QualityAlert } from '@/components/sync/QualityAlert'
@@ -156,6 +156,7 @@ export default function ProductPage() {
       </div>
 
       <ShippingCard p={p} />
+      <ReturnPolicyCard p={p} />
 
       <FullDetails p={p} />
 
@@ -260,6 +261,68 @@ function FullDetails({ p }: { p: ProductDetail['product'] }) {
         )}
       </div>
     </>
+  )
+}
+
+const PAID_BY: Record<string, string> = { Buyer: 'הקונה', Seller: 'המוכר' }
+const REFUND: Record<string, string> = {
+  MoneyBack: 'החזר כספי',
+  MoneyBackOrReplacement: 'החזר כספי או החלפה',
+  MoneyBackOrExchange: 'החזר כספי או החלפה',
+  MoneyBackOrStoreCredit: 'החזר כספי או זיכוי',
+}
+
+function returnsLine(t: ReturnTerms): string {
+  if (t.accepted === false) return 'לא מקבלים החזרות'
+  if (t.accepted === null) return 'לא צוין'
+  return t.withinDays !== null ? `מקבלים החזרות · ${t.withinDays} יום` : 'מקבלים החזרות'
+}
+
+/** מדיניות ההחזרות של המודעה ב-eBay (ReturnPolicy + שם ה-Business Policy) */
+function ReturnPolicyCard({ p }: { p: ProductDetail['product'] }) {
+  const r = p.returnPolicy
+  if (!r)
+    return (
+      <div className="ax-alert tone-gray">
+        <Info size={18} aria-hidden="true" />
+        <span>מדיניות ההחזרות של המודעה עוד לא נקראה מ-eBay. היא תיקרא בריצת מחירי המשלוח הבאה.</span>
+      </div>
+    )
+  const rows: { label: string; value: string; ltr?: boolean }[] = [
+    { label: 'החזרות', value: returnsLine(r) },
+    ...(r.accepted && r.shippingPaidBy ? [{ label: 'משלוח ההחזרה על', value: PAID_BY[r.shippingPaidBy] ?? r.shippingPaidBy }] : []),
+    ...(r.accepted && r.refund ? [{ label: 'סוג ההחזר', value: REFUND[r.refund] ?? r.refund }] : []),
+    ...(r.international
+      ? [
+          { label: 'החזרות מחו״ל', value: returnsLine(r.international) },
+          ...(r.international.accepted && r.international.shippingPaidBy
+            ? [{ label: 'משלוח ההחזרה מחו״ל על', value: PAID_BY[r.international.shippingPaidBy] ?? r.international.shippingPaidBy }]
+            : []),
+        ]
+      : []),
+    ...(r.policyName ? [{ label: 'שם המדיניות', value: r.policyName, ltr: true }] : []),
+  ]
+  return (
+    <div className="ax-card">
+      <div className="ax-card-head">
+        <h2 className="ax-h2">מדיניות החזרות</h2>
+        <span className="ax-muted" style={{ fontSize: 12.5 }}>
+          מ-eBay · <span className="ax-num">{dateTime(p.shippingCostsFetchedAt)}</span>
+        </span>
+      </div>
+      {rows.map((row) => (
+        <div key={row.label} className="ax-kv">
+          <span>{row.label}</span>
+          <span className={row.ltr ? 'ax-ltr' : undefined}>{row.value}</span>
+        </div>
+      ))}
+      {r.description && (
+        <div className="ax-kv">
+          <span>תיאור המוכר</span>
+          <span className="ax-ltr" style={{ textAlign: 'end', whiteSpace: 'pre-line' }}>{r.description}</span>
+        </div>
+      )}
+    </div>
   )
 }
 

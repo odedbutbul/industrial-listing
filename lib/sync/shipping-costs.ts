@@ -1,13 +1,13 @@
 import { randomUUID } from 'node:crypto'
 import { eq, inArray } from 'drizzle-orm'
 import { db, schema } from '@/lib/db/client'
-import { getSellerListShippingPage, type SellerListItem, type ShippingCosts } from '@/lib/ebay/trading'
+import { getSellerListShippingPage, type ReturnPolicySummary, type SellerListItem, type ShippingCosts } from '@/lib/ebay/trading'
 import type { ImportProgress } from './import-ebay'
 import { withJobLock } from './lock'
 import { writeSyncLog } from './log'
 
-// מחירי משלוח ומחיר המודעה מ-eBay לכל המוצרים — קריאה בלבד (GetSellerList, 200 מודעות לקריאה, ~34 קריאות ל-6,600 מודעות).
-// נשמר ב-products.shipping_costs וב-products.price (מחיר רק במודעת מחיר קבוע, ורק כשהשתנה — כל שינוי נרשם בלוג).
+// מחירי משלוח, מדיניות החזרות ומחיר המודעה מ-eBay לכל המוצרים — קריאה בלבד (GetSellerList, 200 מודעות לקריאה, ~34 קריאות ל-6,600 מודעות).
+// נשמר ב-products.shipping_costs, products.return_policy וב-products.price (מחיר רק במודעת מחיר קבוע, ורק כשהשתנה — כל שינוי נרשם בלוג).
 // לא נוגע במלאי ולא בחנות. העדכון לחנות: lib/sync/woo-shipping.ts.
 //   dryRun: קורא מ-eBay ומסכם, בלי לכתוב ל-DB.
 
@@ -28,10 +28,22 @@ export interface ShippingRunResult {
   priceChanges: { itemId: string; sku: string | null; from: string | null; to: string }[]
   /** כמה מוצרים לפי סוג המחיר */
   summary: { usFixed: number; usFree: number; usCalculated: number; usNone: number; intlFixed: number; intlFree: number; intlCalculated: number; intlGlobalShipping: number; intlNone: number }
+  /** מדיניות החזרות: כמה מקבלות החזרות, כמה לא, כמה בלי מדיניות בתשובה; ופילוח לפי מספר ימים ולפי שם מדיניות */
+  returns: { accepted: number; notAccepted: number; none: number; byDays: Record<string, number>; byPolicy: Record<string, number> }
   /** דוגמאות מהתשובה — לבדיקה ב-dry-run */
   samples: SellerListItem[]
   errors: { page: number; error: string }[]
   durationMs: number
+}
+
+function tallyReturns(r: ShippingRunResult['returns'], p: ReturnPolicySummary | null) {
+  if (!p || p.accepted === null) r.none++
+  else if (p.accepted) {
+    r.accepted++
+    const key = p.withinDays === null ? '?' : String(p.withinDays)
+    r.byDays[key] = (r.byDays[key] ?? 0) + 1
+  } else r.notAccepted++
+  if (p?.policyName) r.byPolicy[p.policyName] = (r.byPolicy[p.policyName] ?? 0) + 1
 }
 
 function tally(summary: ShippingRunResult['summary'], c: ShippingCosts | null) {
@@ -74,6 +86,7 @@ export async function fetchShippingCosts(opts: { dryRun?: boolean; maxPages?: nu
       priceChanged: 0,
       priceChanges: [],
       summary: { usFixed: 0, usFree: 0, usCalculated: 0, usNone: 0, intlFixed: 0, intlFree: 0, intlCalculated: 0, intlGlobalShipping: 0, intlNone: 0 },
+      returns: { accepted: 0, notAccepted: 0, none: 0, byDays: {}, byPolicy: {} },
       samples: [],
       errors: [],
       durationMs: 0,
@@ -109,7 +122,7 @@ export async function fetchShippingCosts(opts: { dryRun?: boolean; maxPages?: nu
         : []
       const byItem = new Map(mappings.map((m) => [m.itemId, m]))
 
-      const writes: { productId: string; costs: ShippingCosts | null; price: string | null; oldPrice: string | null; itemId: string; sku: string | null }[] = []
+      const writes: { productId: string; costs: ShippingCosts | null; returnPolicy: ReturnPolicySummary | null; price: string | null; oldPrice: string | null; itemId: string; sku: string | null }[] = []
       for (const i of items) {
         const m = byItem.get(i.itemId)
         if (!m) {
@@ -117,12 +130,13 @@ export async function fetchShippingCosts(opts: { dryRun?: boolean; maxPages?: nu
           continue
         }
         tally(result.summary, i.shippingCosts)
+        tallyReturns(result.returns, i.returnPolicy)
         const price = priceUpdate(i, m.price)
         if (price !== null) {
           result.priceChanged++
           if (result.priceChanges.length < 20) result.priceChanges.push({ itemId: i.itemId, sku: i.sku, from: m.price, to: price })
         }
-        writes.push({ productId: m.productId, costs: i.shippingCosts, price, oldPrice: m.price, itemId: i.itemId, sku: i.sku })
+        writes.push({ productId: m.productId, costs: i.shippingCosts, returnPolicy: i.returnPolicy, price, oldPrice: m.price, itemId: i.itemId, sku: i.sku })
       }
       if (!dryRun && writes.length) {
         const at = new Date()
@@ -130,7 +144,7 @@ export async function fetchShippingCosts(opts: { dryRun?: boolean; maxPages?: nu
           for (const w of writes)
             await tx
               .update(schema.products)
-              .set({ shippingCosts: w.costs, shippingCostsFetchedAt: at, ...(w.price !== null ? { price: w.price, updatedAt: at } : {}) })
+              .set({ shippingCosts: w.costs, returnPolicy: w.returnPolicy, shippingCostsFetchedAt: at, ...(w.price !== null ? { price: w.price, updatedAt: at } : {}) })
               .where(eq(schema.products.id, w.productId))
         })
         await writeSyncLog(
@@ -153,7 +167,7 @@ export async function fetchShippingCosts(opts: { dryRun?: boolean; maxPages?: nu
         success: result.errors.length === 0,
         error: result.errors.length ? `${result.errors.length} דפים לא נקראו` : undefined,
         durationMs: result.durationMs,
-        details: { pagesRead: result.pagesRead, totalOnEbay: result.totalOnEbay, updated: result.updated, priceChanged: result.priceChanged, notInSystem: result.notInSystem, ebayCalls: result.ebayCalls, ...result.summary },
+        details: { pagesRead: result.pagesRead, totalOnEbay: result.totalOnEbay, updated: result.updated, priceChanged: result.priceChanged, notInSystem: result.notInSystem, ebayCalls: result.ebayCalls, ...result.summary, returns: result.returns },
       })
     return result
   })

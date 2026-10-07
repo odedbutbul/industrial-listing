@@ -127,6 +127,20 @@
       "when": 1790953830314,
       "tag": "0017_blocked_buyers",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1790953987966,
+      "tag": "0018_label_reads",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1791359212917,
+      "tag": "0019_return_policy",
+      "breakpoints": true
     }
   ]
 }

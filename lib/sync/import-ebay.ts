@@ -327,6 +327,7 @@ export async function enrichProductDetails(opts: { limit: number; concurrency?: 
               itemSpecifics: d.itemSpecifics,
               shipping: d.shipping,
               shippingCosts: d.shippingCosts,
+              returnPolicy: d.returnPolicy,
               shippingCostsFetchedAt: new Date(),
               location: d.location,
               country: d.country,
