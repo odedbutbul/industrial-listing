@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm'
 import { db, schema } from '@/lib/db/client'
-import { getActiveListingsPage, getItem, type ActiveListingSummary } from '@/lib/ebay/trading'
+import { getActiveListingsPage, getItem, type ActiveListingSummary, type EbayItemDetail } from '@/lib/ebay/trading'
 import { withJobLock } from './lock'
 import { writeSyncLog } from './log'
 
@@ -282,6 +282,34 @@ export interface EnrichResult {
   durationMs: number
 }
 
+/** השדות שנכתבים למוצר מתשובת GetItem — משותף לייבוא הפרטים ולבדיקה החוזרת של בדיקת המודעות */
+export function productDetailsUpdate(d: EbayItemDetail) {
+  return {
+    title: d.title,
+    description: d.description,
+    condition: d.condition,
+    price: d.price,
+    currency: d.currency ?? 'USD',
+    images: d.images,
+    brand: d.brand,
+    mpn: d.mpn,
+    ebayCategoryId: d.categoryId,
+    ebayCategoryName: d.categoryName,
+    subtitle: d.subtitle,
+    conditionId: d.conditionId,
+    conditionDescription: d.conditionDescription,
+    itemSpecifics: d.itemSpecifics,
+    shipping: d.shipping,
+    shippingCosts: d.shippingCosts,
+    returnPolicy: d.returnPolicy,
+    shippingCostsFetchedAt: new Date(),
+    location: d.location,
+    country: d.country,
+    ebayListingStartedAt: d.listingStartedAt ? new Date(d.listingStartedAt) : null,
+    detailsFetchedAt: new Date(),
+  }
+}
+
 /**
  * GetItem למוצרים שעוד אין להם פרטים מלאים (תיאור, כל התמונות, מותג, קטגוריה).
  * `limit` שומר על מכסת הקריאות היומית של eBay — המכסה משותפת לכל מה שמשתמש באותו App ID.
@@ -308,33 +336,7 @@ export async function enrichProductDetails(opts: { limit: number; concurrency?: 
         const r = rows[next++]
         try {
           const d = await getItem(r.itemId!)
-          await db
-            .update(schema.products)
-            .set({
-              title: d.title,
-              description: d.description,
-              condition: d.condition,
-              price: d.price,
-              currency: d.currency ?? 'USD',
-              images: d.images,
-              brand: d.brand,
-              mpn: d.mpn,
-              ebayCategoryId: d.categoryId,
-              ebayCategoryName: d.categoryName,
-              subtitle: d.subtitle,
-              conditionId: d.conditionId,
-              conditionDescription: d.conditionDescription,
-              itemSpecifics: d.itemSpecifics,
-              shipping: d.shipping,
-              shippingCosts: d.shippingCosts,
-              returnPolicy: d.returnPolicy,
-              shippingCostsFetchedAt: new Date(),
-              location: d.location,
-              country: d.country,
-              ebayListingStartedAt: d.listingStartedAt ? new Date(d.listingStartedAt) : null,
-              detailsFetchedAt: new Date(),
-            })
-            .where(eq(schema.products.id, r.productId))
+          await db.update(schema.products).set(productDetailsUpdate(d)).where(eq(schema.products.id, r.productId))
           result.enriched++
         } catch (err) {
           const error = err instanceof Error ? err.message : String(err)

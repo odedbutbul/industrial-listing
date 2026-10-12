@@ -2,6 +2,7 @@ import type { Tone } from './ui'
 
 /** שמות הבדיקות של בדיקת המודעות (lib/quality/checks.ts) — בסדר ההצגה */
 export const CHECK_LABEL = {
+  label_mismatch: 'תווית של מוצר אחר',
   title_content: 'כותרת לא תואמת לתוכן',
   shared_image: 'תמונות משותפות',
   desc_mismatch: 'תיאור של מוצר אחר',

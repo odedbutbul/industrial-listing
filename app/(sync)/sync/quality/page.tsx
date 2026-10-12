@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useState } from 'react'
-import { Check, ExternalLink, RotateCcw, ScanSearch } from 'lucide-react'
+import { Check, CircleCheckBig, ExternalLink, RotateCcw, ScanSearch } from 'lucide-react'
 import { api } from '@/components/sync/api'
 import { ago, date, num } from '@/components/sync/format'
 import { useDataChanged } from '@/components/sync/hooks'
@@ -28,7 +28,7 @@ interface IssueRow {
   check: Check
   severity: 'high' | 'medium' | 'low'
   message: string
-  details: { related?: Related[]; positions?: number[]; imageUrls?: string[]; expected?: string; found?: string; field?: string; descStart?: string }
+  details: { related?: Related[]; positions?: number[]; imageUrls?: string[]; expected?: string; found?: string; field?: string; descStart?: string; labels?: { position: number; number: string | null; location: string | null }[] }
   status: 'open' | 'dismissed' | 'resolved'
   firstSeenAt: string
   dismissedAt: string | null
@@ -43,6 +43,7 @@ interface IssueList {
   rows: IssueRow[]
   nextOffset: number | null
   counts: Record<Check, number> & { open: number; high: number; products: number; dismissed: number; resolved: number }
+  labels: { read: number; withLabel: number; errors: number; costUsd: number; lastReadAt: string | null }
   lastScan: { scannedAt: string; products: number; found: number; created: number; resolved: number; durationMs: number } | null
 }
 
@@ -129,6 +130,26 @@ function Quality() {
     }
   }
 
+  const markFixed = async (r: IssueRow) => {
+    setSaving(r.id)
+    try {
+      const res = await api.post<{ status: 'resolved' } | { status: 'still_open'; message: string } | { status: 'ebay_error'; error: string }>(`/api/sync/quality/${r.id}`, { action: 'fixed' })
+      if (res.status === 'resolved') {
+        setDone((d) => ({ ...d, [r.id]: true }))
+        toast('נבדק מול eBay: תוקן. הממצא עבר ל"תוקנו"')
+      } else if (res.status === 'still_open') {
+        toast(`נבדק מול eBay ועדיין לא תוקן: ${res.message}. אם זה תקין — "בדקתי, זה בסדר"`, 'bad')
+        await reload()
+      } else {
+        toast(`לא הצלחנו לקרוא את המודעה מ-eBay: ${res.error}. נסה שוב בעוד כמה דקות`, 'bad')
+      }
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'הבדיקה נכשלה', 'bad')
+    } finally {
+      setSaving(null)
+    }
+  }
+
   const rows = data ? [...data.rows, ...more].filter((r) => !done[r.id]) : null
   const c = data?.counts
   const scanned = data?.lastScan
@@ -192,7 +213,7 @@ function Quality() {
           {rows!.length === 0 ? (
             <div className="ax-card">
               <p className="ax-note">
-                {filter === 'dismissed' ? 'אף ממצא לא סומן כתקין.' : filter === 'resolved' ? 'עוד אין ממצאים שתוקנו. אחרי תיקון ב-eBay, ייבוא הפרטים מחדש וסריקה — הממצא יעבור לכאן.' : 'אין ממצאים פתוחים בסינון הזה.'}
+                {filter === 'dismissed' ? 'אף ממצא לא סומן כתקין.' : filter === 'resolved' ? 'עוד אין ממצאים שתוקנו. אחרי תיקון ב-eBay לוחצים "תיקנתי ב-eBay" (או מחכים לבדיקה היומית) — והממצא יעבור לכאן.' : 'אין ממצאים פתוחים בסינון הזה.'}
               </p>
             </div>
           ) : (
@@ -219,7 +240,7 @@ function Quality() {
                             <IssueCell r={r} />
                           </td>
                           <td style={{ verticalAlign: 'top', whiteSpace: 'nowrap' }}>
-                            <Actions r={r} busy={saving === r.id} onStatus={setStatus} stack />
+                            <Actions r={r} busy={saving === r.id} onStatus={setStatus} onFixed={markFixed} stack />
                           </td>
                         </tr>
                       ))}
@@ -233,7 +254,7 @@ function Quality() {
                   <div key={r.id} className="ax-mcard" style={{ gap: 12 }}>
                     <ProductCell r={r} />
                     <IssueCell r={r} />
-                    <Actions r={r} busy={saving === r.id} onStatus={setStatus} />
+                    <Actions r={r} busy={saving === r.id} onStatus={setStatus} onFixed={markFixed} />
                   </div>
                 ))}
               </div>
@@ -246,7 +267,17 @@ function Quality() {
             </button>
           )}
           <p className="ax-muted" style={{ margin: 0, fontSize: 12.5 }}>
-            הסריקה קוראת רק את הנתונים שכבר במערכת ולא משנה דבר ב-eBay. את התיקון עושים במודעה ב-eBay; אחרי ייבוא הפרטים מחדש וסריקה, הממצא יעבור ל&quot;תוקנו&quot;.
+            {data.labels.read > 0 ? (
+              <>
+                תוויות מחסן: נקראו <span className="ax-num">{num(data.labels.read)}</span> מתוך <span className="ax-num">{num(scanned.products)}</span> מודעות, נמצאה תווית ב-<span className="ax-num">{num(data.labels.withLabel)}</span> · עלות עד כה <span className="ax-num ax-ltr">${data.labels.costUsd.toFixed(2)}</span>
+                {data.labels.lastReadAt ? ` · נקרא ${ago(data.labels.lastReadAt)}` : ''}.{' '}
+              </>
+            ) : (
+              <>תוויות המחסן עוד לא נקראו. </>
+            )}
+            <span id="fixed-hint">
+              את התיקון עושים במודעה ב-eBay. &quot;תיקנתי ב-eBay&quot; קורא את המודעה מחדש מ-eBay ובודק שוב — הממצא יורד רק אם הבעיה באמת נעלמה. בנוסף, פעם ביום כל המודעות עם ממצא פתוח נבדקות מחדש מול eBay, ומה שתוקן יורד לבד. המערכת רק קוראת מ-eBay ולא משנה שם דבר.
+            </span>
           </p>
         </>
       )}
@@ -299,6 +330,22 @@ function IssueCell({ r }: { r: IssueRow }) {
         </div>
       )}
 
+      {d.labels && d.labels.length > 0 && (
+        <span className="ax-muted" style={{ fontSize: 12.5 }}>
+          {d.labels.map((l) => (
+            <span key={l.position} style={{ display: 'block' }}>
+              תמונה <span className="ax-num">{l.position}</span>: מספר <span className="ax-num ax-ltr">{l.number}</span>
+              {l.location && (
+                <>
+                  {' '}
+                  · מיקום <span className="ax-num ax-ltr">{l.location}</span>
+                </>
+              )}
+            </span>
+          ))}
+        </span>
+      )}
+
       {d.imageUrls && d.imageUrls.length > 0 && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }} aria-label="התמונות המשותפות">
           {d.imageUrls.slice(0, 6).map((u, i) => (
@@ -336,7 +383,7 @@ function IssueCell({ r }: { r: IssueRow }) {
   )
 }
 
-function Actions({ r, busy, onStatus, stack }: { r: IssueRow; busy: boolean; onStatus: (r: IssueRow, a: 'dismiss' | 'reopen') => void; stack?: boolean }) {
+function Actions({ r, busy, onStatus, onFixed, stack }: { r: IssueRow; busy: boolean; onStatus: (r: IssueRow, a: 'dismiss' | 'reopen') => void; onFixed: (r: IssueRow) => void; stack?: boolean }) {
   return (
     <div style={{ display: 'flex', flexDirection: stack ? 'column' : 'row', alignItems: stack ? 'stretch' : 'center', flexWrap: 'wrap', gap: 8 }}>
       {r.ebayItemId && (
@@ -344,6 +391,12 @@ function Actions({ r, busy, onStatus, stack }: { r: IssueRow; busy: boolean; onS
           <ExternalLink size={16} aria-hidden="true" />
           ב-eBay<span className="ax-sr"> (נפתח בחלון חדש)</span>
         </a>
+      )}
+      {r.status === 'open' && r.ebayItemId && (
+        <button type="button" className="ax-btn is-sm" onClick={() => onFixed(r)} disabled={busy} aria-describedby="fixed-hint">
+          {busy ? <Spin /> : <CircleCheckBig size={16} aria-hidden="true" />}
+          תיקנתי ב-eBay
+        </button>
       )}
       {r.status === 'open' && (
         <button type="button" className="ax-btn is-sm" onClick={() => onStatus(r, 'dismiss')} disabled={busy}>

@@ -2,7 +2,7 @@ import { and, eq, inArray, sql } from 'drizzle-orm'
 import { db, schema } from '@/lib/db/client'
 import { withJobLock } from '@/lib/sync/lock'
 import { writeSyncLog } from '@/lib/sync/log'
-import { runQualityChecks, type QualityIssue } from './checks'
+import { labelImages, runQualityChecks, type QualityIssue } from './checks'
 
 // סריקת איכות המודעות: קוראת את המוצרים מה-DB (בלי קריאה ל-eBay), מריצה את הכללים ומעדכנת listing_issues.
 // ממצא שנמצא שוב — מתעדכן (וסטטוס "בסדר" נשמר). ממצא פתוח שלא נמצא הפעם — "תוקן".
@@ -35,12 +35,16 @@ export async function scanListingQuality(): Promise<QualityScanResult> {
           itemSpecifics: schema.products.itemSpecifics,
           images: schema.products.images,
           sku: schema.channelMappings.sku,
+          labels: schema.labelReads.labels,
+          labelsKey: schema.labelReads.imagesKey,
         })
         .from(schema.products)
         .leftJoin(schema.channelMappings, eq(schema.channelMappings.productId, schema.products.id))
+        .leftJoin(schema.labelReads, eq(schema.labelReads.productId, schema.products.id))
         .where(and(eq(schema.products.source, 'ebay'), eq(schema.products.archived, false)))
 
-      const issues = runQualityChecks(rows)
+      // תווית שנקראה מתמונות שהוחלפו מאז (תוקן ב-eBay) לא נבדקת — עד שתיקרא שוב
+      const issues = runQualityChecks(rows.map(({ labelsKey, ...p }) => ({ ...p, labels: labelsKey && labelsKey === labelImages(p.images).key ? p.labels : null })))
       const r = await db.transaction(async (tx) => {
         const existing = await tx.select({ id: I.id, productId: I.productId, key: I.key, status: I.status }).from(I)
         const byKey = new Map(existing.map((e) => [`${e.productId}|${e.key}`, e]))

@@ -7,7 +7,7 @@ const I = schema.listingIssues
 const P = schema.products
 const M = schema.channelMappings
 
-export const ISSUE_CHECKS: IssueCheck[] = ['title_content', 'shared_image', 'desc_mismatch', 'mpn_near_miss', 'specifics_other', 'brand_conflict']
+export const ISSUE_CHECKS: IssueCheck[] = ['label_mismatch', 'title_content', 'shared_image', 'desc_mismatch', 'mpn_near_miss', 'specifics_other', 'brand_conflict']
 export type QualityFilter = 'open' | 'dismissed' | 'resolved' | IssueCheck
 export const QUALITY_FILTERS: QualityFilter[] = ['open', ...ISSUE_CHECKS, 'dismissed', 'resolved']
 
@@ -72,8 +72,19 @@ export async function listIssues(opts: { filter: QualityFilter; offset?: number;
     .groupBy(I.check)
   const counts = Object.fromEntries(ISSUE_CHECKS.map((k) => [k, perCheck.find((x) => x.check === k)?.n ?? 0])) as Record<IssueCheck, number>
 
+  const [lr] = await db
+    .select({
+      read: sql<number>`count(*) filter (where ${schema.labelReads.imagesKey} <> '')::int`,
+      withLabel: sql<number>`count(*) filter (where jsonb_array_length(${schema.labelReads.labels}) > 0)::int`,
+      errors: sql<number>`count(*) filter (where ${schema.labelReads.error} is not null)::int`,
+      costUsd: sql<string>`coalesce(sum(${schema.labelReads.costUsd}), 0)::text`,
+      lastReadAt: sql<string | null>`max(${schema.labelReads.readAt})::text`,
+    })
+    .from(schema.labelReads)
+
   return {
     rows: rows.slice(0, limit),
+    labels: { ...lr, costUsd: Number(lr.costUsd) },
     nextOffset: rows.length > limit ? offset + limit : null,
     counts: { open: c.open, high: c.high, products: c.products, dismissed: c.dismissed, resolved: c.resolved, ...counts },
     lastScan: await getLastScan(),

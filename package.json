@@ -24,6 +24,8 @@
     "job:quote-check": "tsx jobs/quote-check.ts",
     "job:fetch-feedback": "tsx jobs/fetch-feedback.ts",
     "job:scan-quality": "tsx jobs/scan-quality.ts",
+    "job:recheck-quality": "tsx jobs/recheck-quality.ts",
+    "job:read-labels": "tsx jobs/read-labels.ts",
     "job:customer-history": "tsx jobs/customer-history.ts"
   },
   "dependencies": {

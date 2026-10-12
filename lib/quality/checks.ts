@@ -8,12 +8,13 @@
 //  specifics_other   המותג וגם הדגם בפרטי המוצר לא מופיעים בכותרת ולא בתיאור
 //  mpn_near_miss     הדגם בפרטים כמעט זהה לדגם בכותרת (X20BB81 מול "X20 BB 80")
 //  brand_conflict    הכותרת מזכירה מותג מוכר אחר, והמותג שבפרטים לא מופיע בה
+//  label_mismatch    המספר על תווית המחסן בתמונות (נקרא ע"י Gemini, lib/quality/labels.ts) לא מופיע ב-SKU
 //
 // כותרת זהה בכמה מוצרים אינה ממצא: אצל vizvik16 כל יחידה פיזית היא מודעה נפרדת (SKU רץ, אותה כותרת).
 
 import { containsBrand, dropRev, htmlToText, isMeaningful, modelTokens, nearMiss, splitParts, squash } from './text'
 
-export type IssueCheck = 'shared_image' | 'title_content' | 'desc_mismatch' | 'specifics_other' | 'mpn_near_miss' | 'brand_conflict'
+export type IssueCheck = 'label_mismatch' | 'shared_image' | 'title_content' | 'desc_mismatch' | 'specifics_other' | 'mpn_near_miss' | 'brand_conflict'
 export type IssueSeverity = 'high' | 'medium' | 'low'
 
 export interface QualityProduct {
@@ -25,6 +26,8 @@ export interface QualityProduct {
   itemSpecifics: Record<string, string[]> | null
   images: string[]
   sku: string | null
+  /** תוויות המחסן שנקראו מהתמונות. null/undefined = עוד לא נקרא */
+  labels?: { position: number; number: string | null; location: string | null }[] | null
 }
 
 export interface RelatedProduct {
@@ -51,12 +54,22 @@ export interface QualityIssue {
     field?: string
     /** תחילת התיאור — כדי לראות במסך על איזה מוצר הוא מדבר */
     descStart?: string
+    /** מה שנקרא מהתוויות */
+    labels?: { position: number; number: string | null; location: string | null }[]
   }
 }
 
 /** מזהה התמונה ב-eBay מתוך הכתובת: .../z/<id>/$_57.JPG או .../images/g/<id>/s-l140.jpg */
 export function ebayImageId(url: string): string | null {
   return url.match(/\/z\/([^/]+)\//)?.[1] ?? url.match(/\/images\/g\/([^/]+)\//)?.[1] ?? null
+}
+
+/** התמונות שנשלחות לקריאת התווית: 3 האחרונות (מיקום 1 = הראשונה במודעה) + מפתח יציב של התמונות */
+export function labelImages(images: string[]): { positions: number[]; urls: string[]; key: string } {
+  const start = Math.max(0, images.length - 3)
+  const urls = images.slice(start)
+  const positions = urls.map((_, i) => start + i + 1)
+  return { positions, urls, key: urls.map((u) => ebayImageId(u) ?? u).join('|') }
 }
 
 function specific(p: QualityProduct, ...names: string[]): string | null {
@@ -95,6 +108,18 @@ function prepare(p: QualityProduct): Prepared {
     models: modelTokens(p.title),
     imageIds: p.images.map(ebayImageId).filter((x): x is string => !!x),
   }
+}
+
+/**
+ * המספרים שבסוף כל חלק של ה-SKU: "SE C4 08 02 24055*, C3 01 02 25136" → 24055, 25136.
+ * אות בסוף נשמטת ("16105A" → 16105) — על התווית מודפסות רק ספרות.
+ */
+export function skuNumbers(sku: string | null): string[] {
+  if (!sku) return []
+  return sku
+    .split(/[,;/]/)
+    .map((part) => part.match(/(\d{3,7})[A-Z]?\*?\s*$/i)?.[1] ?? null)
+    .filter((n): n is string => !!n)
 }
 
 const rel = (x: Prepared): RelatedProduct => ({ id: x.p.id, title: x.p.title, sku: x.p.sku })
@@ -178,6 +203,34 @@ export function runQualityChecks(products: QualityProduct[]): QualityIssue[] {
         related: otherList.map(rel),
         positions,
         imageUrls: positions.map((n) => x.p.images.find((u) => ebayImageId(u) === x.imageIds[n - 1]) ?? '').filter(Boolean),
+      },
+    })
+  }
+
+  // ── תווית המחסן מול ה-SKU ──
+  for (const x of all) {
+    const read = (x.p.labels ?? []).filter((l) => l.number && /\d{3,}/.test(l.number))
+    const own = skuNumbers(x.p.sku)
+    if (!read.length || !own.length) continue
+    const foreign = read.filter((l) => !own.includes(l.number!.replace(/\D/g, '')))
+    if (!foreign.length) continue
+    const someMatch = foreign.length < read.length
+    const nums = foreign.map((l) => l.number!.replace(/\D/g, ''))
+    issues.push({
+      productId: x.p.id,
+      check: 'label_mismatch',
+      severity: someMatch ? 'medium' : 'high',
+      key: `label_mismatch:${nums.sort().join(',')}`,
+      message: someMatch
+        ? `באחת התוויות בתמונות כתוב ${nums.join(', ')}, וזה לא ב-SKU (${own.join(', ')})`
+        : `התווית בתמונות היא של ${nums.length === 1 ? `מק"ט ${nums[0]}` : `מק"טים ${nums.join(', ')}`}, וה-SKU של המודעה הוא ${own.join(', ')}`,
+      details: {
+        expected: own.join(', '),
+        found: nums.join(', '),
+        field: 'Label',
+        labels: foreign,
+        positions: foreign.map((l) => l.position),
+        imageUrls: foreign.map((l) => x.p.images[l.position - 1]).filter(Boolean),
       },
     })
   }
