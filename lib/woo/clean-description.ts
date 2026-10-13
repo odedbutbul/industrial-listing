@@ -114,7 +114,22 @@ function toLines(html: string): Line[] {
   }
   flush()
   // תגיות inline ריקות שנשארו מפיצול שורות
-  return lines.map((l) => ({ ...l, html: l.html.replace(/<(strong|em)>\s*<\/\1>/g, '').trim() })).filter((l) => textOf(l.html))
+  const cleaned = lines.map((l) => ({ ...l, html: l.html.replace(/<(strong|em)>\s*<\/\1>/g, '').trim() })).filter((l) => textOf(l.html))
+  return cleaned.flatMap(splitInlineHeading)
+}
+
+/**
+ * "<strong>Shipping and Handling:</strong> We offer…" באותה פסקה → כותרת בשורה משלה + הטקסט.
+ * בלי זה בלוק מדיניות שהכותרת שלו צמודה לטקסט לא מזוהה ולא נמחק. כך גם התיאורים שכבר בחנות (נמדד 13/10).
+ */
+function splitInlineHeading(l: Line): Line[] {
+  if (l.kind !== 'p') return [l]
+  const m = l.html.match(/^<strong>([^<]{1,58}:)\s*<\/strong>\s*(\S[\s\S]*)$/)
+  if (!m || !textOf(m[2])) return [l]
+  return [
+    { kind: 'p', html: `<strong>${m[1].trim()}</strong>` },
+    { kind: 'p', html: m[2].trim() },
+  ]
 }
 
 /** שורה שהיא כותרת: תגית h, או טקסט קצר שמסתיים בנקודתיים */
