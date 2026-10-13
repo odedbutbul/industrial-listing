@@ -30,3 +30,27 @@ export const CONTENT_FIELD_LABEL = {
   condition_notes: 'הערות מצב',
   ebay_category: 'קטגוריית eBay',
 } as const
+
+type ContentField = keyof typeof CONTENT_FIELD_LABEL
+
+/** תוצאת עדכון התוכן בחנות למוצר אחד (StoreContentResult ב-lib/sync/woo-content.ts) */
+export interface StoreResult {
+  status: 'updated' | 'same' | 'kept_edits' | 'missing' | 'failed'
+  updated: ContentField[]
+  keptStoreEdits: ContentField[]
+  error?: string
+}
+
+/** מה קרה באתר — לסוף ההודעה. bad = משהו לא עודכן */
+export function storeNote(store: StoreResult[]): { text: string; bad: boolean } {
+  if (!store.length) return { text: '', bad: false }
+  const labels = (fs: ContentField[]) => Array.from(new Set(fs)).map((f) => CONTENT_FIELD_LABEL[f]).join(', ')
+  const parts: string[] = []
+  const updated = store.flatMap((s) => (s.status === 'updated' ? s.updated : []))
+  const kept = store.flatMap((s) => s.keptStoreEdits)
+  const failed = store.filter((s) => s.status === 'failed' || s.status === 'missing')
+  if (updated.length) parts.push(`עודכן גם באתר: ${labels(updated)}`)
+  if (kept.length) parts.push(`באתר לא נדרס מה שנערך ידנית בחנות: ${labels(kept)}`)
+  if (failed.length) parts.push(`העדכון באתר נכשל: ${failed[0].error ?? 'שגיאה'} — יתבצע שוב בבדיקה היומית`)
+  return { text: parts.length ? ' · ' + parts.join(' · ') : '', bad: failed.length > 0 || kept.length > 0 }
+}

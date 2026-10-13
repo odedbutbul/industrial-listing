@@ -8,7 +8,7 @@ import { api } from '@/components/sync/api'
 import { ago, date, num } from '@/components/sync/format'
 import { useDataChanged } from '@/components/sync/hooks'
 import { ZoomThumb } from '@/components/sync/Lightbox'
-import { CHECK_LABEL, CONTENT_FIELD_LABEL, SEVERITY } from '@/components/sync/quality'
+import { CHECK_LABEL, SEVERITY, storeNote, type StoreResult } from '@/components/sync/quality'
 import { EmptyState, Kpi, LoadError, Pill, Seg, Spin, useLoad, useToast } from '@/components/sync/ui'
 
 type Check = keyof typeof CHECK_LABEL
@@ -47,30 +47,7 @@ interface IssueList {
   lastScan: { scannedAt: string; products: number; found: number; created: number; resolved: number; durationMs: number } | null
 }
 
-type ContentField = keyof typeof CONTENT_FIELD_LABEL
-
-interface StoreResult {
-  status: 'updated' | 'same' | 'kept_edits' | 'missing' | 'failed'
-  updated: ContentField[]
-  keptStoreEdits: ContentField[]
-  error?: string
-}
-
 type MarkFixedResponse = ({ status: 'resolved' } | { status: 'still_open'; message: string } | { status: 'ebay_error'; error: string }) & { store?: StoreResult[] }
-
-/** מה קרה באתר — לסוף ההודעה. bad = משהו לא עודכן */
-function storeNote(store: StoreResult[]): { text: string; bad: boolean } {
-  if (!store.length) return { text: '', bad: false }
-  const labels = (fs: ContentField[]) => Array.from(new Set(fs)).map((f) => CONTENT_FIELD_LABEL[f]).join(', ')
-  const parts: string[] = []
-  const updated = store.flatMap((s) => (s.status === 'updated' ? s.updated : []))
-  const kept = store.flatMap((s) => s.keptStoreEdits)
-  const failed = store.filter((s) => s.status === 'failed' || s.status === 'missing')
-  if (updated.length) parts.push(`עודכן גם באתר: ${labels(updated)}`)
-  if (kept.length) parts.push(`באתר לא נדרס מה שנערך ידנית בחנות: ${labels(kept)}`)
-  if (failed.length) parts.push(`העדכון באתר נכשל: ${failed[0].error ?? 'שגיאה'} — יתבצע שוב בבדיקה היומית`)
-  return { text: parts.length ? ' · ' + parts.join(' · ') : '', bad: failed.length > 0 || kept.length > 0 }
-}
 
 interface ScanResult {
   products: number

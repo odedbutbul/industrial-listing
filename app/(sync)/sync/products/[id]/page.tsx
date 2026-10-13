@@ -16,8 +16,46 @@ import dynamic from 'next/dynamic'
 const ManualProductScreen = dynamic(() => import('@/components/sync/ManualProductScreen').then((m) => m.ManualProductScreen), {
   loading: () => <div className="ax-skel" style={{ height: 420 }} />,
 })
-import { LoadError, Pill, useLoad } from '@/components/sync/ui'
-import { AlertTriangle, ArrowRight, ExternalLink, Info } from 'lucide-react'
+import { LoadError, Pill, Spin, useLoad, useToast } from '@/components/sync/ui'
+import { storeNote, type StoreResult } from '@/components/sync/quality'
+import { announceDataChanged } from '@/components/sync/api'
+import { AlertTriangle, ArrowRight, ExternalLink, Info, RefreshCw } from 'lucide-react'
+import { useState } from 'react'
+
+interface RefreshResponse {
+  ebayError?: string
+  changed: boolean
+  store: StoreResult[]
+  openIssues: number
+}
+
+/** "עדכון מ-eBay ולאתר": קורא את המודעה מחדש מ-eBay, מעדכן את המערכת ואת המוצר באתר (אם הוא שם) */
+function RefreshButton({ id, inStore }: { id: string; inStore: boolean }) {
+  const toast = useToast()
+  const [busy, setBusy] = useState(false)
+  const run = async () => {
+    setBusy(true)
+    try {
+      const r = await api.post<RefreshResponse>(`/api/sync/products/${id}/refresh`)
+      if (r.ebayError) return toast(`לא הצלחנו לקרוא את המודעה מ-eBay: ${r.ebayError}. נסה שוב בעוד כמה דקות`, 'bad')
+      const site = storeNote(r.store)
+      const head = !r.changed ? 'נקרא מ-eBay: אין שינוי מאז הפעם הקודמת' : inStore ? 'נקרא מ-eBay ועודכן במערכת' : 'נקרא מ-eBay ועודכן במערכת (המוצר לא באתר)'
+      const issues = r.openIssues ? ` · עדיין ${r.openIssues} ${r.openIssues === 1 ? 'ממצא פתוח' : 'ממצאים פתוחים'} בבדיקת המודעות` : ''
+      toast(head + site.text + issues, site.bad ? 'bad' : 'ok')
+      announceDataChanged()
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'העדכון נכשל', 'bad')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <button type="button" className="ax-btn" onClick={run} disabled={busy} aria-describedby="refresh-hint">
+      {busy ? <Spin /> : <RefreshCw size={18} aria-hidden="true" />}
+      {inStore ? 'עדכון מ-eBay ולאתר' : 'עדכון מ-eBay'}
+    </button>
+  )
+}
 
 export default function ProductPage() {
   const { id } = useParams<{ id: string }>()
@@ -58,12 +96,20 @@ export default function ProductPage() {
     <>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         {back}
-        <div>
-          <h1 className="ax-h1">{p.title}</h1>
-          <p className="ax-sub">
-            {num(available)} במלאי{m?.lastSyncedAt ? ` · נבדק מול eBay ${ago(m.lastSyncedAt)}` : ''}
-          </p>
+        <div className="ax-page-head">
+          <div>
+            <h1 className="ax-h1">{p.title}</h1>
+            <p className="ax-sub">
+              {num(available)} במלאי{m?.lastSyncedAt ? ` · נבדק מול eBay ${ago(m.lastSyncedAt)}` : ''}
+            </p>
+          </div>
+          {m?.ebayItemId && <RefreshButton id={p.id} inStore={!!m.wooProductId} />}
         </div>
+        {m?.ebayItemId && (
+          <p id="refresh-hint" className="ax-muted" style={{ margin: 0, fontSize: 12.5 }}>
+            תיקנת את המודעה ב-eBay? הכפתור קורא אותה מחדש מ-eBay (בלי לשנות שם כלום), מעדכן את המערכת{m.wooProductId ? ' ואת המוצר באתר — רק מה שהשתנה: שם, תיאור, תמונות, מאפיינים, מותג וקטגוריות. מחיר ומלאי לא משתנים כאן' : ''}.
+          </p>
+        )}
       </div>
 
       <QualityAlert productId={p.id} />

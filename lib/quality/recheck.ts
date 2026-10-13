@@ -3,7 +3,7 @@ import { and, eq, inArray, isNotNull } from 'drizzle-orm'
 import { db, schema } from '@/lib/db/client'
 import { getItem } from '@/lib/ebay/trading'
 import { productDetailsUpdate } from '@/lib/sync/import-ebay'
-import { syncStoreContent, type StoreContentResult } from '@/lib/sync/woo-content'
+import { contentSignature, syncStoreContent, type StoreContentResult } from '@/lib/sync/woo-content'
 import { loadSources } from '@/lib/sync/woo-products'
 import { JobLockedError, withJobLock } from '@/lib/sync/lock'
 import { writeSyncLog } from '@/lib/sync/log'
@@ -116,6 +116,44 @@ export async function markIssueFixed(issueId: string): Promise<MarkFixedResult |
     details: { issueId, resolved, refreshed: refresh.refreshed, errors: refresh.errors.length, ebayCalls: ids.length, storeUpdated: refresh.store.filter((r) => r.status === 'updated').length },
   })
   return still ? { status: 'still_open', message: still.message, store: refresh.store } : { status: 'resolved', store: refresh.store }
+}
+
+export interface RefreshProductResult {
+  /** eBay החזיר שגיאה — שום דבר לא עודכן */
+  ebayError?: string
+  /** התוכן במערכת השתנה מול מה שהיה (כותרת, תיאור, תמונות…) */
+  changed: boolean
+  store: StoreContentResult[]
+  /** ממצאים פתוחים של המוצר אחרי הסריקה */
+  openIssues: number
+}
+
+/**
+ * "עדכון מ-eBay ולאתר" בדף המוצר: קורא את המודעה מ-eBay (GetItem, קריאה בלבד), מעדכן את המערכת,
+ * ואם המוצר בחנות — מעדכן שם את מה שהשתנה. אחר כך סריקה, כדי שממצאים שתוקנו ירדו.
+ */
+export async function refreshProduct(productId: string): Promise<RefreshProductResult> {
+  const runId = randomUUID()
+  const started = Date.now()
+  const [before] = await loadSources([productId])
+  const refresh = await refreshFromEbay([productId], runId)
+  const err = refresh.errors.find((e) => e.productId === productId)
+  if (err) return { ebayError: err.error, changed: false, store: refresh.store, openIssues: 0 }
+  const [after] = await loadSources([productId])
+  await scanWhenFree()
+  const open = await db.select({ id: I.id }).from(I).where(and(eq(I.productId, productId), eq(I.status, 'open')))
+  const changed = !!before && !!after && contentSignature(before) !== contentSignature(after)
+  await writeSyncLog({
+    job: RECHECK_JOB,
+    runId,
+    channel: 'ebay',
+    action: 'refresh_product',
+    success: true,
+    productId,
+    durationMs: Date.now() - started,
+    details: { changed, storeUpdated: refresh.store.filter((r) => r.status === 'updated').length, openIssues: open.length, ebayCalls: 1 },
+  })
+  return { changed, store: refresh.store, openIssues: open.length }
 }
 
 export interface RecheckResult {
