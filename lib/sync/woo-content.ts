@@ -1,5 +1,6 @@
 import { CONTENT_FIELD_LABEL } from '@/components/sync/quality'
 import { ebayImageId } from '@/lib/quality/checks'
+import { cleanDescription } from '@/lib/woo/clean-description'
 import { WooApiError, wooGet, wooRequest } from '@/lib/woo/client'
 import { missingWooEnv } from '@/lib/woo/config'
 import { brandKey, buildWooProduct, ensureBrands, ensureCategories, ensureConditionAttribute, loadBrands, type BuildContext } from '@/lib/woo/products'
@@ -110,7 +111,9 @@ function storeValue(f: ContentField, w: WooProductState, conditionId: number): s
     case 'name':
       return text(w.name)
     case 'description':
-      return htmlText(w.description)
+      // גם מה שבחנות עובר את אותו ניקוי: בחלק מהמוצרים בחנות עדיין יש בלוקי Shipping / Returns או תבנית eBay גולמית,
+      // וזה לא "עריכה ידנית" שצריך לשמור עליה (נמדד 13/10)
+      return htmlText(cleanDescription(w.description, w.name).html)
     case 'image': {
       // מוצרים שנוצרו לפני שנשמר _sync_main_image — אין דרך לדעת אם התמונה הוחלפה בחנות; נחשב כלא נערך
       const m = w.meta_data.find((x) => x.key === '_sync_main_image')
