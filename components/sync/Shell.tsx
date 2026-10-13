@@ -21,7 +21,7 @@ const NAV = [
   { href: '/sync/customers', label: 'לקוחות', icon: Users },
   { href: '/sync/leads', label: 'לידים', icon: Inbox },
   { href: '/sync/products', label: 'מוצרים', icon: Package },
-  { href: '/sync/pricing', label: 'מחירים', icon: Scale },
+  { href: '/sync/pricing', label: 'השוואת מחירים', icon: Scale },
   { href: '/sync/quality', label: 'בדיקת מודעות', icon: ScanSearch },
   { href: '/sync/reviews', label: 'ביקורות', icon: Star },
   { href: '/sync/insights', label: 'תובנות', icon: Lightbulb },

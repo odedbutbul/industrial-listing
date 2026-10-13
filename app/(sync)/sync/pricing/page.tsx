@@ -3,8 +3,8 @@
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Suspense, useCallback, useState } from 'react'
-import { Calculator, Check, ExternalLink, RefreshCw, RotateCcw, Scale, Store, X } from 'lucide-react'
-import type { OfferRow, PricePage, PriceRow, PriceFilter } from '@/lib/pricing/queries'
+import { ArrowDown, ArrowUp, Calculator, Check, ChevronDown, ExternalLink, RefreshCw, RotateCcw, Scale, Sparkles, Store, X } from 'lucide-react'
+import type { DiffEffect, OfferComparisonView, OfferRow, PricePage, PriceRow, PriceFilter } from '@/lib/pricing/queries'
 import { CONDITION_LABEL, POSITION_LABEL, type ConditionGroup, type Position } from '@/lib/pricing/match'
 import { api } from '@/components/sync/api'
 import { date, dateTime, money, num } from '@/components/sync/format'
@@ -28,6 +28,22 @@ const MATCH_LABEL: Record<OfferRow['matchLevel'], [string, Tone]> = {
   exact: ['התאמה מלאה', 'ok'],
   likely: ['התאמה סבירה', 'blue'],
   weak: ['התאמה חלשה', 'gray'],
+}
+
+type Ai = NonNullable<OfferComparisonView['ai']>
+
+const SAME_LABEL: Record<Ai['sameProduct'], [string, Tone]> = {
+  same: ['אותו מוצר', 'ok'],
+  variant: ['גרסה אחרת', 'warn'],
+  different: ['מוצר אחר', 'bad'],
+  unsure: ['לא ברור אם זהה', 'gray'],
+}
+
+const JUSTIFIED_LABEL: Record<Ai['justified'], [string, Tone]> = {
+  yes: ['הפער מוסבר', 'ok'],
+  partly: ['הפער מוסבר חלקית', 'blue'],
+  no: ['הפער לא מוסבר', 'warn'],
+  unclear: ['לא ברור', 'gray'],
 }
 
 const COUNTRY_NAME: Record<string, string> = { US: 'ארה״ב', CA: 'קנדה', GB: 'בריטניה', AU: 'אוסטרליה', DE: 'גרמניה', FR: 'צרפת', IT: 'איטליה', ES: 'ספרד', NL: 'הולנד', JP: 'יפן', IL: 'ישראל' }
@@ -220,7 +236,7 @@ function Head({ sub }: { sub: string }) {
   return (
     <div className="ax-page-head">
       <div>
-        <h1 className="ax-h1">מחירים מול מתחרים</h1>
+        <h1 className="ax-h1">השוואת מחירים</h1>
         <p className="ax-sub">{sub}</p>
       </div>
       <Link href="/sync/pricing/quote" className="ax-btn is-primary">
@@ -277,6 +293,16 @@ function Market({ r }: { r: PriceRow }) {
       {r.cheapestSeller && (
         <span className="ax-muted" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
           הזול: <SellerLink seller={r.cheapestSeller} />
+        </span>
+      )}
+      {r.cheapestWhy && (
+        <span style={{ fontSize: 12, display: 'inline-flex', gap: 4, alignItems: 'center' }}>
+          <Sparkles size={13} aria-hidden="true" style={{ color: 'var(--ax-accent-text)', flexShrink: 0 }} />
+          <span>
+            <span className="ax-sr">למה הפער: </span>
+            {r.cheapestSame === 'different' ? 'כנראה מוצר אחר — ' : r.cheapestSame === 'variant' ? 'גרסה אחרת — ' : ''}
+            {r.cheapestWhy}
+          </span>
         </span>
       )}
     </span>
@@ -365,17 +391,34 @@ function whyOut(o: OfferRow, group: string): string {
 function OffersDialog({ row, onClose, onChanged }: { row: PriceRow; onClose: () => void; onChanged: () => Promise<void> }) {
   const toast = useToast()
   const [showAll, setShowAll] = useState(false)
-  const [busy, setBusy] = useState<number | 'check' | null>(null)
+  /** d:<id> החלטה · c:<id> השוואה מעמיקה · all · check */
+  const [busy, setBusy] = useState<string | null>(null)
   const { data, error, reload } = useLoad(() => api.get<{ offers: OfferRow[] }>(`/api/sync/pricing/${row.checkId}`), [row.checkId])
 
   const decide = async (o: OfferRow, match: boolean | null) => {
-    setBusy(o.id)
+    setBusy(`d:${o.id}`)
     try {
       await api.post(`/api/sync/pricing/offers/${o.id}`, { match })
       await Promise.all([reload(), onChanged()])
       toast(match === true ? 'סומן כאותו מוצר — נכנס להשוואה' : match === false ? 'סומן כמוצר אחר — הוצא מההשוואה' : 'חזר לסיווג האוטומטי')
     } catch (e) {
       toast(e instanceof Error ? e.message : 'השמירה נכשלה', 'bad')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const deepCompare = async (body: { offerIds: number[] } | { checkId: string }, key: string) => {
+    setBusy(key)
+    try {
+      const r = await api.post<{ compared: number; errors: number; aiNote: string | null }>('/api/sync/pricing/compare', body)
+      await Promise.all([reload(), onChanged()])
+      toast(
+        r.aiNote ? `הושוו ${num(r.compared)} מודעות · ${r.aiNote}` : r.errors ? `הושוו ${num(r.compared)} מודעות · ${num(r.errors)} נכשלו` : `הושוו ${num(r.compared)} מודעות`,
+        r.errors || r.aiNote ? 'bad' : 'ok',
+      )
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'ההשוואה נכשלה', 'bad')
     } finally {
       setBusy(null)
     }
@@ -398,6 +441,7 @@ function OffersDialog({ row, onClose, onChanged }: { row: PriceRow; onClose: () 
   const relevant = offers.filter((o) => o.compared || o.matchLevel !== 'weak' || o.manualMatch !== null)
   const shown = showAll ? offers : relevant
   const hidden = offers.length - relevant.length
+  const comparedCount = offers.filter((o) => o.compared).length
 
   return (
     <Modal
@@ -435,9 +479,28 @@ function OffersDialog({ row, onClose, onChanged }: { row: PriceRow; onClose: () 
           <p className="ax-note">eBay לא מצא אף מודעה אחרת עם מספר החלק הזה.</p>
         ) : (
           <>
+            {comparedCount > 0 && (
+              <div className="ax-inner" style={{ padding: '12px 14px', display: 'flex', gap: 12, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+                <span className="ax-muted" style={{ fontSize: 13, flex: '1 1 260px' }}>
+                  השוואה מעמיקה קוראת את המודעה המלאה ב-eBay ומסבירה מה שונה מהמודעה שלנו ולמה יש פער מחיר.
+                </span>
+                <button type="button" className="ax-btn is-sm" onClick={() => deepCompare({ checkId: row.checkId }, 'all')} disabled={busy !== null}>
+                  {busy === 'all' ? <Spin /> : <Sparkles size={15} aria-hidden="true" />}
+                  {busy === 'all' ? 'משווה… (עד דקה)' : `השוואה מעמיקה ל-${num(Math.min(comparedCount, 12))} המודעות שבהשוואה`}
+                </button>
+              </div>
+            )}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {shown.map((o) => (
-                <Offer key={o.id} o={o} group={row.conditionGroup} busy={busy === o.id} disabled={busy !== null} onDecide={(m) => decide(o, m)} />
+                <Offer
+                  key={o.id}
+                  o={o}
+                  group={row.conditionGroup}
+                  busy={busy === `d:${o.id}` || busy === `c:${o.id}`}
+                  disabled={busy !== null}
+                  onDecide={(m) => decide(o, m)}
+                  onCompare={() => deepCompare({ offerIds: [o.id] }, `c:${o.id}`)}
+                />
               ))}
             </div>
             {hidden > 0 && (
@@ -452,7 +515,21 @@ function OffersDialog({ row, onClose, onChanged }: { row: PriceRow; onClose: () 
   )
 }
 
-function Offer({ o, group, busy, disabled, onDecide }: { o: OfferRow; group: string; busy: boolean; disabled: boolean; onDecide: (m: boolean | null) => void }) {
+function Offer({
+  o,
+  group,
+  busy,
+  disabled,
+  onDecide,
+  onCompare,
+}: {
+  o: OfferRow
+  group: string
+  busy: boolean
+  disabled: boolean
+  onDecide: (m: boolean | null) => void
+  onCompare: () => void
+}) {
   const total = o.price != null && o.shipping != null ? Number(o.price) + Number(o.shipping) : null
   return (
     <div className="ax-mcard" style={{ gap: 8 }}>
@@ -506,6 +583,10 @@ function Offer({ o, group, busy, disabled, onDecide }: { o: OfferRow; group: str
         </span>
         <span style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap' }}>
           {busy && <Spin />}
+          <button type="button" className="ax-btn is-sm" disabled={disabled} onClick={onCompare}>
+            <Sparkles size={15} aria-hidden="true" />
+            {o.comparison ? 'השוואה מחדש' : 'השוואה מעמיקה'}
+          </button>
           <button type="button" className="ax-btn is-sm" aria-pressed={o.manualMatch === true} disabled={disabled || o.manualMatch === true} onClick={() => onDecide(true)}>
             <Check size={15} aria-hidden="true" />
             אותו מוצר
@@ -521,6 +602,97 @@ function Offer({ o, group, busy, disabled, onDecide }: { o: OfferRow; group: str
           )}
         </span>
       </div>
+      {o.comparison && <ComparisonView c={o.comparison} manualMatch={o.manualMatch} />}
+    </div>
+  )
+}
+
+const EFFECT_PILL: Record<Exclude<DiffEffect, 'neutral'>, [string, Tone, typeof ArrowDown]> = {
+  lower: ['מוזיל אצלם', 'blue', ArrowDown],
+  higher: ['מייקר אצלם', 'warn', ArrowUp],
+}
+
+/** תוצאת ההשוואה המעמיקה: האם זה אותו מוצר, למה יש פער, ומה שונה */
+function ComparisonView({ c, manualMatch }: { c: OfferComparisonView; manualMatch: boolean | null }) {
+  const [open, setOpen] = useState(false)
+  const ai = c.ai
+  // ההבדלים של Gemini (בעברית, כולל מה שנמצא בתיאור); בלי Gemini — של הכללים
+  const diffs = ai?.differences?.length ? ai.differences.map((d) => ({ label: d.aspect, ours: d.ours, theirs: d.theirs, effect: d.effect })) : c.diffs
+  const id = `cmp-${c.comparedAt}`
+  if (c.error)
+    return (
+      <div className="ax-alert is-bad" role="alert" style={{ fontSize: 13 }}>
+        ההשוואה המעמיקה נכשלה: {c.error}
+      </div>
+    )
+  return (
+    <div className="ax-inner" style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+        <Sparkles size={15} aria-hidden="true" style={{ color: 'var(--ax-accent-text)' }} />
+        {ai && <Pill t={SAME_LABEL[ai.sameProduct]?.[1] ?? 'gray'}>{SAME_LABEL[ai.sameProduct]?.[0] ?? ai.sameProduct}</Pill>}
+        {ai && <Pill t={JUSTIFIED_LABEL[ai.justified]?.[1] ?? 'gray'}>{JUSTIFIED_LABEL[ai.justified]?.[0] ?? ai.justified}</Pill>}
+        {c.gapPct != null && (
+          <span className="ax-muted" style={{ fontSize: 12.5 }}>
+            מחיר פריט {signedPct(c.gapPct)} מאיתנו
+          </span>
+        )}
+        <span className="ax-muted" style={{ fontSize: 12, marginInlineStart: 'auto' }}>
+          {c.trigger === 'auto' ? 'הושווה אוטומטית' : 'הושווה'} <span className="ax-num">{date(c.comparedAt)}</span>
+        </span>
+      </div>
+      {ai ? (
+        <>
+          <strong style={{ fontSize: 14 }}>{ai.headline}</strong>
+          <p style={{ margin: 0, fontSize: 13.5 }}>{ai.explanation}</p>
+          {ai.sameProduct !== 'same' && ai.sameProductReason && (
+            <p className="ax-muted" style={{ margin: 0, fontSize: 13 }}>
+              {ai.sameProductReason}
+              {(ai.sameProduct === 'different' || ai.sameProduct === 'variant') && manualMatch === null && ' — אם זה נכון, אפשר לסמן "לא אותו מוצר" כדי להוציא אותה מההשוואה.'}
+            </p>
+          )}
+        </>
+      ) : (
+        <p className="ax-muted" style={{ margin: 0, fontSize: 13 }}>
+          {c.aiError ?? 'אין הסבר'} {diffs.length ? '' : '· לא נמצאו הבדלים לפי הכללים'}
+        </p>
+      )}
+      {diffs.length > 0 && (
+        <>
+          <button type="button" className="ax-btn is-sm is-ghost" style={{ alignSelf: 'flex-start' }} aria-expanded={open} aria-controls={id} onClick={() => setOpen((v) => !v)}>
+            <ChevronDown size={15} aria-hidden="true" style={{ transform: open ? 'rotate(180deg)' : undefined }} />
+            {open ? 'להסתיר את ההבדלים' : `פירוט ההבדלים (${num(diffs.length)})`}
+          </button>
+          {open && (
+            <div id={id} className="ax-rows">
+              {diffs.map((d, i) => {
+                const pill = d.effect !== 'neutral' ? EFFECT_PILL[d.effect] : null
+                const Icon = pill?.[2]
+                return (
+                  <div key={i} style={{ padding: '8px 0', borderBottom: '1px solid var(--ax-line)', display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <span style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <strong style={{ fontSize: 13 }}>
+                        <bdi>{d.label}</bdi>
+                      </strong>
+                      {pill && Icon && (
+                        <Pill t={pill[1]}>
+                          <Icon size={12} aria-hidden="true" />
+                          {pill[0]}
+                        </Pill>
+                      )}
+                    </span>
+                    <span style={{ fontSize: 13, overflowWrap: 'anywhere' }}>
+                      <span className="ax-muted">שלנו:</span> <bdi>{d.ours}</bdi>
+                    </span>
+                    <span style={{ fontSize: 13, overflowWrap: 'anywhere' }}>
+                      <span className="ax-muted">שלהם:</span> <bdi>{d.theirs}</bdi>
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </>
+      )}
     </div>
   )
 }

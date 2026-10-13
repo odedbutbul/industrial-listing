@@ -37,6 +37,9 @@ export type PriceRow = {
   error: string | null
   /** המתחרה הזול בהשוואה */
   cheapestSeller: string | null
+  /** ההסבר של ההשוואה המעמיקה למודעה הזולה (אם הושוותה) */
+  cheapestWhy: string | null
+  cheapestSame: string | null
 }
 
 export type SellerStat = {
@@ -73,10 +76,16 @@ export async function listPrices(opts: { filter: PriceFilter; country?: string }
              l.compare_count as "compareCount", l.total_results as "totalResults", l.min_price as "minPrice", l.median_price as "medianPrice",
              l.max_price as "maxPrice", l.vs_median_pct as "vsMedianPct", l.vs_min_pct as "vsMinPct", l.position, l.basis, l.error,
              (select o.seller from competitor_offers o where o.check_id = l.id and o.compared
-               order by (o.price + case when l.basis = 'total' then coalesce(o.shipping, 0) else 0 end) asc limit 1) as "cheapestSeller"
+               order by (o.price + case when l.basis = 'total' then coalesce(o.shipping, 0) else 0 end) asc limit 1) as "cheapestSeller",
+             cw.ai->>'headline' as "cheapestWhy", cw.ai->>'sameProduct' as "cheapestSame"
       from latest l
       join products p on p.id = l.product_id
       join channel_mappings m on m.product_id = l.product_id
+      left join lateral (
+        select c.ai from competitor_offers o
+        join offer_comparisons c on c.product_id = o.product_id and c.ebay_item_id = o.ebay_item_id
+        where o.check_id = l.id and o.compared and c.ai is not null
+        order by (o.price + case when l.basis = 'total' then coalesce(o.shipping, 0) else 0 end) asc limit 1) cw on true
       where l.country = ${country}
       order by
         case when l.position in ('most_expensive','above_median') then 0 when l.position = 'at_median' then 1
@@ -129,16 +138,40 @@ export type OfferRow = {
   matchLevel: 'exact' | 'likely' | 'weak'
   compared: boolean
   manualMatch: boolean | null
+  comparison: OfferComparisonView | null
+}
+
+export type DiffEffect = 'lower' | 'higher' | 'neutral'
+
+export type OfferComparisonView = {
+  comparedAt: string
+  trigger: 'auto' | 'manual'
+  gapPct: string | null
+  diffs: { key: string; label: string; ours: string; theirs: string; effect: DiffEffect }[]
+  ai: {
+    sameProduct: 'same' | 'variant' | 'different' | 'unsure'
+    sameProductReason: string
+    headline: string
+    explanation: string
+    justified: 'yes' | 'partly' | 'no' | 'unclear'
+    differences: { aspect: string; ours: string; theirs: string; effect: DiffEffect }[]
+  } | null
+  aiError: string | null
+  error: string | null
 }
 
 export async function listOffers(checkId: string): Promise<OfferRow[]> {
   return (
     await db.execute<OfferRow>(sql`
-      select id, title, seller, seller_feedback_score as "sellerFeedbackScore", price, shipping, currency, condition,
-             condition_group as "conditionGroup", url, country, match_level as "matchLevel", compared, manual_match as "manualMatch"
-      from competitor_offers
-      where check_id = ${checkId}
-      order by compared desc, case match_level when 'exact' then 0 when 'likely' then 1 else 2 end,
-               price + coalesce(shipping, 0) asc nulls last`)
+      select o.id, o.title, o.seller, o.seller_feedback_score as "sellerFeedbackScore", o.price, o.shipping, o.currency, o.condition,
+             o.condition_group as "conditionGroup", o.url, o.country, o.match_level as "matchLevel", o.compared, o.manual_match as "manualMatch",
+             case when c.id is null then null else json_build_object(
+               'comparedAt', c.compared_at, 'trigger', c.trigger, 'gapPct', c.gap_pct, 'diffs', c.diffs, 'ai', c.ai,
+               'aiError', c.ai_error, 'error', c.error) end as comparison
+      from competitor_offers o
+      left join offer_comparisons c on c.product_id = o.product_id and c.ebay_item_id = o.ebay_item_id
+      where o.check_id = ${checkId}
+      order by o.compared desc, case o.match_level when 'exact' then 0 when 'likely' then 1 else 2 end,
+               o.price + coalesce(o.shipping, 0) asc nulls last`)
   ).rows.map((r) => ({ ...r, id: Number(r.id) }))
 }

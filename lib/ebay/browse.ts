@@ -261,3 +261,128 @@ export async function searchCompetitors(params: { q: string; excludeSellers?: st
   })
   return { total: base.total, items, calls: 2 }
 }
+
+const ITEM_BY_ID_PATH = '/buy/browse/v1/item/'
+
+/** פרטי מודעה מלאים — להשוואה מעמיקה בין המודעה שלנו למודעת מתחרה (getItem, GET בלבד) */
+export interface BrowseItemDetails {
+  itemId: string
+  title: string
+  subtitle: string | null
+  price: string | null
+  currency: string | null
+  condition: string | null
+  conditionId: string | null
+  /** הערות המוכר על המצב (Condition description) */
+  conditionDescription: string | null
+  /** טבלת המפרט (Item specifics) */
+  specifics: Record<string, string>
+  brand: string | null
+  mpn: string | null
+  /** התיאור כטקסט (בלי HTML), מקוצר */
+  description: string | null
+  returnsAccepted: boolean | null
+  /** ימים להחזרה */
+  returnDays: number | null
+  returnShippingPayer: string | null
+  /** כמה יחידות זמינות במודעה / נמכרו */
+  available: number | null
+  sold: number | null
+  /** כמה יחידות בחבילה (Lot) — null = יחידה אחת */
+  lotSize: number | null
+  country: string | null
+  city: string | null
+  seller: string | null
+  sellerFeedbackScore: number | null
+  sellerFeedbackPct: string | null
+  topRated: boolean
+  imageCount: number
+  listedAt: string | null
+}
+
+interface RawItemDetails {
+  itemId: string
+  title?: string
+  subtitle?: string
+  price?: Amount
+  condition?: string
+  conditionId?: string
+  conditionDescription?: string
+  conditionDescriptions?: { name?: string; values?: { content?: string }[] }[]
+  localizedAspects?: { name?: string; value?: string }[]
+  brand?: string
+  mpn?: string
+  description?: string
+  shortDescription?: string
+  returnTerms?: { returnsAccepted?: boolean; returnPeriod?: { value?: number; unit?: string }; returnShippingCostPayer?: string }
+  estimatedAvailabilities?: { estimatedAvailableQuantity?: number; estimatedSoldQuantity?: number }[]
+  lotSize?: number
+  itemLocation?: { country?: string; city?: string }
+  seller?: { username?: string; feedbackScore?: number; feedbackPercentage?: string }
+  topRatedBuyingExperience?: boolean
+  image?: { imageUrl?: string }
+  additionalImages?: { imageUrl?: string }[]
+  itemCreationDate?: string
+}
+
+/** HTML של תיאור → טקסט רציף, מקוצר */
+export function htmlToText(html: string | null | undefined, max = 2500): string | null {
+  if (!html) return null
+  const text = html
+    .replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ')
+    .replace(/<br\s*\/?>|<\/(p|div|li|tr|h\d)>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\s*\n\s*/g, '\n')
+    .trim()
+  if (!text) return null
+  return text.length > max ? `${text.slice(0, max)}…` : text
+}
+
+/** מודעה אחת לפי item_id של Browse (v1|…|0). שוק ארה"ב, דולרים */
+export async function getItemDetails(itemId: string): Promise<BrowseItemDetails> {
+  const url = new URL(ITEM_BY_ID_PATH + encodeURIComponent(itemId), getEbayConfig().apiBase)
+  const r = await browseGet<RawItemDetails>(ITEM_BY_ID_PATH, url, { country: 'US' })
+  const specifics: Record<string, string> = {}
+  for (const a of r.localizedAspects ?? []) if (a.name && a.value) specifics[a.name] = a.value
+  const notes = [r.conditionDescription, ...(r.conditionDescriptions ?? []).map((d) => [d.name, ...(d.values ?? []).map((v) => v.content)].filter(Boolean).join(': '))]
+    .filter((s): s is string => !!s && !!s.trim())
+    .join('\n')
+  const avail = r.estimatedAvailabilities?.[0]
+  const days = r.returnTerms?.returnPeriod?.value
+  const price = usd(r.price)
+  return {
+    itemId: r.itemId,
+    title: r.title ?? '',
+    subtitle: r.subtitle ?? null,
+    price: price.value,
+    currency: price.currency,
+    condition: r.condition ?? null,
+    conditionId: r.conditionId ?? null,
+    conditionDescription: notes || null,
+    specifics,
+    brand: r.brand ?? specifics.Brand ?? null,
+    mpn: r.mpn ?? specifics.MPN ?? null,
+    description: htmlToText(r.description) ?? r.shortDescription ?? null,
+    returnsAccepted: r.returnTerms?.returnsAccepted ?? null,
+    returnDays: r.returnTerms?.returnsAccepted && days != null ? (r.returnTerms.returnPeriod?.unit === 'MONTH' ? days * 30 : days) : null,
+    returnShippingPayer: r.returnTerms?.returnShippingCostPayer ?? null,
+    available: avail?.estimatedAvailableQuantity ?? null,
+    sold: avail?.estimatedSoldQuantity ?? null,
+    lotSize: r.lotSize && r.lotSize > 1 ? r.lotSize : null,
+    country: r.itemLocation?.country ?? null,
+    city: r.itemLocation?.city ?? null,
+    seller: r.seller?.username ?? null,
+    sellerFeedbackScore: r.seller?.feedbackScore ?? null,
+    sellerFeedbackPct: r.seller?.feedbackPercentage ?? null,
+    topRated: !!r.topRatedBuyingExperience,
+    imageCount: (r.image?.imageUrl ? 1 : 0) + (r.additionalImages?.length ?? 0),
+    listedAt: r.itemCreationDate ?? null,
+  }
+}

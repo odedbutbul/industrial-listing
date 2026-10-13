@@ -683,6 +683,40 @@ export const competitorOffers = pgTable(
   ],
 )
 
+/**
+ * השוואה מעמיקה: המודעה שלנו מול מודעת מתחרה אחת — מה שונה ולמה יש פער מחיר.
+ * פרטי המתחרה מ-Browse getItem (GET), הבדלים לפי כללים, והסבר של Gemini (טקסט בלבד, בלי תמונות).
+ * שורה אחת לכל מוצר × מודעה; השוואה חוזרת מעדכנת אותה.
+ */
+export const offerComparisons = pgTable(
+  'offer_comparisons',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    productId: uuid('product_id')
+      .notNull()
+      .references(() => products.id, { onDelete: 'cascade' }),
+    ebayItemId: text('ebay_item_id').notNull(),
+    /** auto = בריצה היומית (פער גדול) · manual = מהמסך */
+    trigger: text('trigger').$type<'auto' | 'manual'>().notNull(),
+    ourPrice: numeric('our_price', { precision: 12, scale: 2 }),
+    theirPrice: numeric('their_price', { precision: 12, scale: 2 }),
+    /** (שלהם − שלנו) / שלנו, מחיר פריט */
+    gapPct: numeric('gap_pct', { precision: 8, scale: 2 }),
+    /** פרטי המודעה של המתחרה כפי שנקראו (BrowseItemDetails) */
+    theirs: jsonb('theirs'),
+    /** ההבדלים לפי הכללים: [{ key, label, ours, theirs, effect }] */
+    diffs: jsonb('diffs').notNull().default([]),
+    /** ההסבר של Gemini: { sameProduct, headline, explanation, justified, differences[] } */
+    ai: jsonb('ai'),
+    aiModel: text('ai_model'),
+    aiCostUsd: numeric('ai_cost_usd', { precision: 10, scale: 6 }),
+    aiError: text('ai_error'),
+    error: text('error'),
+    comparedAt: timestamp('compared_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('offer_comparisons_product_item_uq').on(t.productId, t.ebayItemId), index('offer_comparisons_compared_at_idx').on(t.comparedAt)],
+)
+
 // ── ביקורות מ-eBay (פידבק שהמוכרת קיבלה, GetFeedback — קריאה בלבד) ─────────────
 
 /**

@@ -6,6 +6,7 @@
 //   npm run job:check-prices -- --skus=ABC123,XYZ9     # מוצרים מסוימים
 //   npm run job:check-prices -- --countries=US,AU,GB   # מדינות הקונה (ברירת מחדל US) — מחיר כולל משלוח עד אליו
 //   npm run job:check-prices -- --json                 # פלט מלא (כולל כל המודעות)
+//   --no-compare · --compare-gap=30 · --compare-max=60  # השוואה מעמיקה אחרי הבדיקה: מודעות עם פער ≥ 30% (ברירת מחדל: פועל)
 //
 // קריאה אחת ל-eBay לכל מוצר × מדינה (חיפוש); המשלוח שלנו נלקח מהמערכת, ורק אם אין — קריאה שנייה.
 // ריצה של יותר מ-30 בדיקות מדפיסה סיכום בלבד (הפירוט במסך /sync/pricing). יוצא עם קוד 0 בהצלחה, 1 בשגיאה, 2 אם ריצה אחרת כבר פעילה.
@@ -81,6 +82,21 @@ async function main() {
       if (r.skipped.length) console.log(`\nדולגו ${r.skipped.length}: ${r.skipped.map((s) => `${s.sku} (${s.reason})`).join(', ')}`)
     }
     process.exitCode = r.errors || r.rateLimited ? 1 : 0
+
+    // השוואה מעמיקה למודעות עם פער גדול (החלטת עודד 13/10/2026). כשל כאן לא מכשיל את בדיקת המחירים.
+    if (!r.dryRun && !r.rateLimited && !args.includes('--no-compare')) {
+      const { compareOffers, autoCompareCandidates } = await import('@/lib/pricing/compare')
+      const ids = await autoCompareCandidates({ minGapPct: Number(arg('compare-gap')) || 30, maxOffers: Number(arg('compare-max')) || 60 })
+      if (ids.length) {
+        const c = await compareOffers(ids, { trigger: 'auto', runId: r.runId }).catch((e) => {
+          console.error('[check-prices] השוואה מעמיקה נכשלה:', e instanceof Error ? e.message : e)
+          return null
+        })
+        if (c) console.log(`\nהשוואה מעמיקה (פער ≥ ${Number(arg('compare-gap')) || 30}%): ${c.compared}/${ids.length} מודעות · ${c.ebayCalls} קריאות eBay · Gemini $${c.aiCostUsd.toFixed(4)}${c.aiSkipped ? ' (Gemini לא מוגדר — כללים בלבד)' : ''}${c.stoppedByBudget ? ' · נעצר בתקרה' : ''} · ${c.errors} שגיאות`)
+      } else {
+        console.log('\nהשוואה מעמיקה: אין מודעות חדשות עם פער גדול')
+      }
+    }
   } catch (err) {
     if (err instanceof JobLockedError) {
       console.error(err.message)
