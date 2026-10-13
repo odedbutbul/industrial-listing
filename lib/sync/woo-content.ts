@@ -322,7 +322,7 @@ export async function auditStoreContent(limit = 50) {
   }
   const ctx: BuildContext = { conditionAttributeId: attrs.find((a) => a.slug === 'pa_condition')?.id ?? 0, brandIds, categoryIds }
   const perField = Object.fromEntries(FIELDS.map((f) => [f, { same: 0, differs: 0, unknown: 0 }])) as Record<ContentField, { same: number; differs: number; unknown: number }>
-  const examples: { sku: string; wooProductId: number; field: ContentField; system: string; store: string }[] = []
+  const examples: { sku: string; wooProductId: number; field: ContentField; at: number; lengths: [number, number]; system: string; store: string }[] = []
   let missing = 0
   for (let i = 0; i < sources.length; i += 50) {
     const chunk = sources.slice(i, i + 50)
@@ -341,7 +341,14 @@ export async function auditStoreContent(limit = 50) {
         else if (inStore === fieldValues(f, p, s, ctx.conditionAttributeId)) perField[f].same++
         else {
           perField[f].differs++
-          if (examples.filter((e) => e.field === f).length < 3) examples.push({ sku: s.sku, wooProductId: w.id, field: f, system: fieldValues(f, p, s, ctx.conditionAttributeId).slice(0, 160), store: inStore.slice(0, 160) })
+          if (examples.filter((e) => e.field === f).length < 4) {
+            // סביב ההבדל הראשון, כדי לראות מה שונה
+            const sys = fieldValues(f, p, s, ctx.conditionAttributeId)
+            let at = 0
+            while (at < sys.length && sys[at] === inStore[at]) at++
+            const from = Math.max(0, at - 60)
+            examples.push({ sku: s.sku, wooProductId: w.id, field: f, at, lengths: [sys.length, inStore.length], system: sys.slice(from, from + 200), store: inStore.slice(from, from + 200) })
+          }
         }
       }
     }
