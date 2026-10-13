@@ -59,22 +59,39 @@ const META_FIELDS: [ContentField, string[]][] = [
   ['ebay_category', ['_sync_ebay_category']],
 ]
 
+// השוואה לפי תוכן ולא לפי עיצוב: החנות שומרת & כ-&amp;, התיאור נשמר בחלוקת פסקאות אחרת,
+// והגלריה יכולה להצביע על אותה תמונה בגודל אחר ($_57 / $_1). נמדד מול החנות 13/10 על 500 מוצרים.
+const decode = (t: string) =>
+  t.replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#0?39;|&apos;/g, "'").replace(/&#8211;/g, '–').replace(/&#8217;/g, '’').replace(/&amp;/g, '&')
+const text = (t: string) => decode(t).replace(/\s+/g, ' ').trim()
+const htmlText = (h: string) => text(h.replace(/<[^>]*>/g, ' '))
+
+function galleryKey(v: string): string {
+  try {
+    const urls = JSON.parse(v) as unknown
+    return Array.isArray(urls) ? JSON.stringify(urls.map((u) => ebayImageId(String(u)) ?? String(u))) : text(v)
+  } catch {
+    return text(v)
+  }
+}
+
 const sortedIds = (xs: { id: number }[] | undefined) => JSON.stringify((xs ?? []).map((x) => x.id).sort((a, b) => a - b))
 
 function attrsKey(attrs: { id?: number; name?: string; options: string[] }[], conditionId: number): string {
-  const m = attrs.map((a) => [a.id && a.id === conditionId ? '__condition' : (a.name ?? '').trim().toLowerCase(), a.options.map((o) => o.trim()).sort()] as const)
+  const m = attrs.map((a) => [a.id && a.id === conditionId ? '__condition' : text(a.name ?? '').toLowerCase(), a.options.map(text).sort()] as const)
   return JSON.stringify(m.sort((a, b) => a[0].localeCompare(b[0])))
 }
 
-const metaOf = (metas: { key: string; value: unknown }[], keys: string[]) => JSON.stringify(keys.map((k) => String(metas.find((x) => x.key === k)?.value ?? '')))
+const metaOf = (metas: { key: string; value: unknown }[], keys: string[]) =>
+  JSON.stringify(keys.map((k) => String(metas.find((x) => x.key === k)?.value ?? '')).map((v, i) => (keys[i] === '_sync_gallery' ? galleryKey(v) : text(v))))
 
 /** הערך של כל שדה — בתשלום שהמערכת בונה, ובמוצר כפי שהוא בחנות */
 function fieldValues(f: ContentField, p: Payload, s: SourceRow, conditionId: number): string {
   switch (f) {
     case 'name':
-      return p.name.trim()
+      return text(p.name)
     case 'description':
-      return p.description.trim()
+      return htmlText(p.description)
     case 'image':
       return (s.images[0] && (ebayImageId(s.images[0]) ?? s.images[0])) || ''
     case 'attributes':
@@ -91,9 +108,9 @@ function fieldValues(f: ContentField, p: Payload, s: SourceRow, conditionId: num
 function storeValue(f: ContentField, w: WooProductState, conditionId: number): string | null {
   switch (f) {
     case 'name':
-      return w.name.trim()
+      return text(w.name)
     case 'description':
-      return w.description.trim()
+      return htmlText(w.description)
     case 'image': {
       // מוצרים שנוצרו לפני שנשמר _sync_main_image — אין דרך לדעת אם התמונה הוחלפה בחנות; נחשב כלא נערך
       const m = w.meta_data.find((x) => x.key === '_sync_main_image')
