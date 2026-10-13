@@ -1,4 +1,5 @@
 import type { ReturnPolicySummary, ShippingCosts, ShippingOption } from '@/lib/ebay/trading'
+import { ebayImageId } from '@/lib/quality/checks'
 import { wooGet, wooRequest } from './client'
 import { cleanDescription, ebayLargeImage } from './clean-description'
 import { CATEGORY_TREE, categorize } from './categorize'
@@ -100,6 +101,8 @@ export function buildWooProduct(p: SourceProduct, ctx: BuildContext) {
     { key: '_sync_ebay_category', value: [p.ebayCategoryId, p.ebayCategoryName].filter(Boolean).join(' | ') },
     { key: '_sync_listed_at', value: p.ebayListingStartedAt?.toISOString() ?? '' },
     { key: '_sync_gallery', value: JSON.stringify(images.slice(1)) },
+    // מזהה התמונה הראשית ב-eBay — כדי לדעת בעדכון תוכן אם התמונה בחנות הוחלפה ידנית (lib/sync/woo-content.ts)
+    { key: '_sync_main_image', value: p.images[0] ? ebayImageId(p.images[0]) ?? p.images[0] : '' },
   ]
   if (p.mpn) meta.push({ key: '_mpn', value: p.mpn }, { key: '_mpn_norm', value: mpnNorm(p.mpn) })
   if (p.conditionDescription) meta.push({ key: '_condition_notes', value: p.conditionDescription })

@@ -8,7 +8,7 @@ import { api } from '@/components/sync/api'
 import { ago, date, num } from '@/components/sync/format'
 import { useDataChanged } from '@/components/sync/hooks'
 import { ZoomThumb } from '@/components/sync/Lightbox'
-import { CHECK_LABEL, SEVERITY } from '@/components/sync/quality'
+import { CHECK_LABEL, CONTENT_FIELD_LABEL, SEVERITY } from '@/components/sync/quality'
 import { EmptyState, Kpi, LoadError, Pill, Seg, Spin, useLoad, useToast } from '@/components/sync/ui'
 
 type Check = keyof typeof CHECK_LABEL
@@ -45,6 +45,31 @@ interface IssueList {
   counts: Record<Check, number> & { open: number; high: number; products: number; dismissed: number; resolved: number }
   labels: { read: number; withLabel: number; errors: number; costUsd: number; lastReadAt: string | null }
   lastScan: { scannedAt: string; products: number; found: number; created: number; resolved: number; durationMs: number } | null
+}
+
+type ContentField = keyof typeof CONTENT_FIELD_LABEL
+
+interface StoreResult {
+  status: 'updated' | 'same' | 'kept_edits' | 'missing' | 'failed'
+  updated: ContentField[]
+  keptStoreEdits: ContentField[]
+  error?: string
+}
+
+type MarkFixedResponse = ({ status: 'resolved' } | { status: 'still_open'; message: string } | { status: 'ebay_error'; error: string }) & { store?: StoreResult[] }
+
+/** מה קרה באתר — לסוף ההודעה. bad = משהו לא עודכן */
+function storeNote(store: StoreResult[]): { text: string; bad: boolean } {
+  if (!store.length) return { text: '', bad: false }
+  const labels = (fs: ContentField[]) => Array.from(new Set(fs)).map((f) => CONTENT_FIELD_LABEL[f]).join(', ')
+  const parts: string[] = []
+  const updated = store.flatMap((s) => (s.status === 'updated' ? s.updated : []))
+  const kept = store.flatMap((s) => s.keptStoreEdits)
+  const failed = store.filter((s) => s.status === 'failed' || s.status === 'missing')
+  if (updated.length) parts.push(`עודכן גם באתר: ${labels(updated)}`)
+  if (kept.length) parts.push(`באתר לא נדרס מה שנערך ידנית בחנות: ${labels(kept)}`)
+  if (failed.length) parts.push(`העדכון באתר נכשל: ${failed[0].error ?? 'שגיאה'} — יתבצע שוב בבדיקה היומית`)
+  return { text: parts.length ? ' · ' + parts.join(' · ') : '', bad: failed.length > 0 || kept.length > 0 }
 }
 
 interface ScanResult {
@@ -133,12 +158,13 @@ function Quality() {
   const markFixed = async (r: IssueRow) => {
     setSaving(r.id)
     try {
-      const res = await api.post<{ status: 'resolved' } | { status: 'still_open'; message: string } | { status: 'ebay_error'; error: string }>(`/api/sync/quality/${r.id}`, { action: 'fixed' })
+      const res = await api.post<MarkFixedResponse>(`/api/sync/quality/${r.id}`, { action: 'fixed' })
+      const site = storeNote(res.store ?? [])
       if (res.status === 'resolved') {
         setDone((d) => ({ ...d, [r.id]: true }))
-        toast('נבדק מול eBay: תוקן. הממצא עבר ל"תוקנו"')
+        toast(`נבדק מול eBay: תוקן. הממצא עבר ל"תוקנו"${site.text}`, site.bad ? 'bad' : 'ok')
       } else if (res.status === 'still_open') {
-        toast(`נבדק מול eBay ועדיין לא תוקן: ${res.message}. אם זה תקין — "בדקתי, זה בסדר"`, 'bad')
+        toast(`נבדק מול eBay ועדיין לא תוקן: ${res.message}. אם זה תקין — "בדקתי, זה בסדר"${site.text}`, 'bad')
         await reload()
       } else {
         toast(`לא הצלחנו לקרוא את המודעה מ-eBay: ${res.error}. נסה שוב בעוד כמה דקות`, 'bad')
@@ -276,7 +302,7 @@ function Quality() {
               <>תוויות המחסן עוד לא נקראו. </>
             )}
             <span id="fixed-hint">
-              את התיקון עושים במודעה ב-eBay. &quot;תיקנתי ב-eBay&quot; קורא את המודעה מחדש מ-eBay ובודק שוב — הממצא יורד רק אם הבעיה באמת נעלמה. בנוסף, פעם ביום כל המודעות עם ממצא פתוח נבדקות מחדש מול eBay, ומה שתוקן יורד לבד. המערכת רק קוראת מ-eBay ולא משנה שם דבר.
+              את התיקון עושים במודעה ב-eBay. &quot;תיקנתי ב-eBay&quot; קורא את המודעה מחדש מ-eBay ובודק שוב — הממצא יורד רק אם הבעיה באמת נעלמה. בנוסף, פעם ביום כל המודעות עם ממצא פתוח נבדקות מחדש מול eBay, ומה שתוקן יורד לבד. מוצר שכבר באתר מתעדכן גם שם (שם, תיאור, תמונות, מאפיינים, מותג וקטגוריות — לא מחיר ומלאי), חוץ משדות שנערכו ידנית בחנות. המערכת רק קוראת מ-eBay ולא משנה שם דבר.
             </span>
           </p>
         </>

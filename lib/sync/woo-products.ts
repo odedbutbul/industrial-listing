@@ -52,7 +52,8 @@ export interface WooPushResult extends WooPlan {
   brandsCreated: string[]
 }
 
-async function loadSources(ids: string[]) {
+/** המוצרים כפי שהם במערכת, בצורה ש-buildWooProduct מקבל (+ קישור לחנות, ארכיון, סנכרון) */
+export async function loadSources(ids: string[]) {
   const rows = await db
     .select({
       id: products.id,

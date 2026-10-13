@@ -3,11 +3,14 @@ import { and, eq, inArray, isNotNull } from 'drizzle-orm'
 import { db, schema } from '@/lib/db/client'
 import { getItem } from '@/lib/ebay/trading'
 import { productDetailsUpdate } from '@/lib/sync/import-ebay'
+import { syncStoreContent, type StoreContentResult } from '@/lib/sync/woo-content'
+import { loadSources } from '@/lib/sync/woo-products'
 import { JobLockedError, withJobLock } from '@/lib/sync/lock'
 import { writeSyncLog } from '@/lib/sync/log'
 import { scanListingQuality, type QualityScanResult } from './scan'
 
 // בדיקה חוזרת של ממצאים מול eBay: GetItem (קריאה בלבד) למוצרים שיש להם ממצא פתוח → עדכון הפרטים במערכת → סריקה.
+// מוצר שכבר בחנות ושהתוכן שלו השתנה ב-eBay — מתעדכן גם בחנות (lib/sync/woo-content.ts).
 // הסריקה עצמה קובעת: ממצא שלא נמצא עוד עובר ל"תוקנו", ממצא שעדיין קיים נשאר פתוח.
 //  - markIssueFixed: כפתור "תיקנתי" על ממצא אחד (המוצר + המוצרים הקשורים אליו)
 //  - recheckOpenIssues: הריצה היומית (jobs/recheck-quality.ts) על כל הממצאים הפתוחים
@@ -20,11 +23,14 @@ const M = schema.channelMappings
 interface RefreshResult {
   refreshed: number
   errors: { productId: string; itemId: string; error: string }[]
+  /** עדכון התוכן בחנות למוצרים שהשתנו ב-eBay */
+  store: StoreContentResult[]
 }
 
 async function refreshFromEbay(productIds: string[], runId: string, concurrency = 3): Promise<RefreshResult> {
-  const out: RefreshResult = { refreshed: 0, errors: [] }
+  const out: RefreshResult = { refreshed: 0, errors: [], store: [] }
   if (!productIds.length) return out
+  const before = new Map((await loadSources(productIds)).map((s) => [s.id, s]))
   const rows = await db
     .select({ productId: M.productId, itemId: M.ebayItemId })
     .from(M)
@@ -45,6 +51,14 @@ async function refreshFromEbay(productIds: string[], runId: string, concurrency 
     }
   }
   await Promise.all(Array.from({ length: Math.min(concurrency, rows.length) }, worker))
+
+  // מה שהשתנה ב-eBay ונמצא בחנות → גם לחנות. כשל בחנות לא מבטל את הבדיקה; הוא נרשם ב-sync_log ומדווח
+  const inStore = Array.from(before.values()).filter((s) => s.wooProductId)
+  if (inStore.length) {
+    const after = new Map((await loadSources(inStore.map((s) => s.id))).map((s) => [s.id, s]))
+    const pairs = inStore.filter((b) => after.has(b.id)).map((b) => ({ before: b, after: after.get(b.id)! }))
+    out.store = await syncStoreContent(pairs, runId)
+  }
   return out
 }
 
@@ -60,10 +74,11 @@ async function scanWhenFree(): Promise<QualityScanResult> {
   }
 }
 
-export type MarkFixedResult =
+export type MarkFixedResult = (
   | { status: 'resolved' }
   | { status: 'still_open'; message: string }
   | { status: 'ebay_error'; error: string }
+) & { store?: StoreContentResult[] }
 
 /**
  * "תיקנתי ב-eBay": קורא מחדש מ-eBay את המוצר (ואת המוצרים הקשורים לממצא — למשל מי שחולק איתו תמונות),
@@ -80,7 +95,7 @@ export async function markIssueFixed(issueId: string): Promise<MarkFixedResult |
   const refresh = await refreshFromEbay(ids, runId)
   if (refresh.errors.some((e) => e.productId === issue.productId)) {
     const error = refresh.errors.find((e) => e.productId === issue.productId)!.error
-    return { status: 'ebay_error', error }
+    return { status: 'ebay_error', error, store: refresh.store }
   }
   await scanWhenFree()
   // אותה בדיקה על אותו מוצר עדיין פתוחה (גם אם בנוסח אחר — למשל מספר אחר על התווית) = לא תוקן
@@ -98,9 +113,9 @@ export async function markIssueFixed(issueId: string): Promise<MarkFixedResult |
     success: true,
     productId: issue.productId,
     durationMs: Date.now() - started,
-    details: { issueId, resolved, refreshed: refresh.refreshed, errors: refresh.errors.length, ebayCalls: ids.length },
+    details: { issueId, resolved, refreshed: refresh.refreshed, errors: refresh.errors.length, ebayCalls: ids.length, storeUpdated: refresh.store.filter((r) => r.status === 'updated').length },
   })
-  return still ? { status: 'still_open', message: still.message } : { status: 'resolved' }
+  return still ? { status: 'still_open', message: still.message, store: refresh.store } : { status: 'resolved', store: refresh.store }
 }
 
 export interface RecheckResult {
@@ -108,6 +123,7 @@ export interface RecheckResult {
   products: number
   refreshed: number
   errors: number
+  store: { updated: number; keptEdits: number; failed: number }
   scan: QualityScanResult
   durationMs: number
 }
@@ -120,17 +136,25 @@ export async function recheckOpenIssues(opts: { limit?: number } = {}): Promise<
     const open = await db.selectDistinct({ productId: I.productId }).from(I).where(eq(I.status, 'open'))
     const ids = open.map((r) => r.productId).slice(0, Math.max(0, Math.min(opts.limit ?? 1000, 1000)))
     const refresh = await refreshFromEbay(ids, runId)
+    // עדכונים לחנות שנכשלו בפעם הקודמת (גם של מוצרים שכבר אין להם ממצא פתוח)
+    const retried = await syncStoreContent([], runId)
+    refresh.store.push(...retried)
     const scan = await scanWhenFree()
-    const result: RecheckResult = { runId, products: ids.length, refreshed: refresh.refreshed, errors: refresh.errors.length, scan, durationMs: Date.now() - started }
+    const store = {
+      updated: refresh.store.filter((r) => r.status === 'updated').length,
+      keptEdits: refresh.store.filter((r) => r.keptStoreEdits.length).length,
+      failed: refresh.store.filter((r) => r.status === 'failed' || r.status === 'missing').length,
+    }
+    const result: RecheckResult = { runId, products: ids.length, refreshed: refresh.refreshed, errors: refresh.errors.length, store, scan, durationMs: Date.now() - started }
     await writeSyncLog({
       job: RECHECK_JOB,
       runId,
       channel: 'ebay',
       action: 'run',
-      success: refresh.errors.length === 0,
-      error: refresh.errors.length ? `${refresh.errors.length} מודעות לא נקראו מ-eBay` : undefined,
+      success: refresh.errors.length === 0 && store.failed === 0,
+      error: refresh.errors.length || store.failed ? [refresh.errors.length && `${refresh.errors.length} מודעות לא נקראו מ-eBay`, store.failed && `${store.failed} מוצרים לא עודכנו בחנות`].filter(Boolean).join(' · ') : undefined,
       durationMs: result.durationMs,
-      details: { products: ids.length, refreshed: refresh.refreshed, errors: refresh.errors.length, ebayCalls: ids.length, resolved: scan.resolved, reopened: scan.reopened, created: scan.created },
+      details: { products: ids.length, refreshed: refresh.refreshed, errors: refresh.errors.length, ebayCalls: ids.length, resolved: scan.resolved, reopened: scan.reopened, created: scan.created, store },
     })
     return result
   })

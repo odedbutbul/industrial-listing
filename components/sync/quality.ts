@@ -16,3 +16,17 @@ export const SEVERITY: Record<'high' | 'medium' | 'low', [string, Tone]> = {
   medium: ['לבדוק', 'warn'],
   low: ['כנראה כפילות', 'gray'],
 }
+
+/** שדות התוכן שמתעדכנים באתר אחרי שינוי ב-eBay (lib/sync/woo-content.ts) */
+export const CONTENT_FIELD_LABEL = {
+  name: 'שם',
+  description: 'תיאור',
+  image: 'תמונה ראשית',
+  gallery: 'גלריה',
+  attributes: 'מאפיינים',
+  brands: 'מותג',
+  categories: 'קטגוריות',
+  mpn: 'MPN',
+  condition_notes: 'הערות מצב',
+  ebay_category: 'קטגוריית eBay',
+} as const
