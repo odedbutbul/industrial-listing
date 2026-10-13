@@ -47,6 +47,7 @@ export async function listIssues(opts: { filter: QualityFilter; offset?: number;
       image: sql<string | null>`${P.images}->>0`,
       sku: M.sku,
       ebayItemId: M.ebayItemId,
+      wooProductId: M.wooProductId,
     })
     .from(I)
     .innerJoin(P, eq(P.id, I.productId))

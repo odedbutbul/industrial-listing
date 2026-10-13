@@ -37,6 +37,8 @@ interface IssueRow {
   image: string | null
   sku: string | null
   ebayItemId: string | null
+  /** המוצר באתר — "תיקנתי" מעדכן גם שם */
+  wooProductId: number | null
 }
 
 interface IssueList {
@@ -303,6 +305,11 @@ function ProductCell({ r }: { r: IssueRow }) {
             מק״ט <span className="ax-num ax-ltr">{r.sku}</span>
           </span>
         )}
+        {r.wooProductId ? (
+          <span>
+            <Pill t="ok">באתר</Pill>
+          </span>
+        ) : null}
       </div>
     </div>
   )
@@ -398,7 +405,7 @@ function Actions({ r, busy, onStatus, onFixed, stack }: { r: IssueRow; busy: boo
       {r.status === 'open' && r.ebayItemId && (
         <button type="button" className="ax-btn is-sm" onClick={() => onFixed(r)} disabled={busy} aria-describedby="fixed-hint">
           {busy ? <Spin /> : <CircleCheckBig size={16} aria-hidden="true" />}
-          תיקנתי ב-eBay
+          {r.wooProductId ? 'תיקנתי ב-eBay · עדכון האתר' : 'תיקנתי ב-eBay'}
         </button>
       )}
       {r.status === 'open' && (
