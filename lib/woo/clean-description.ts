@@ -119,13 +119,15 @@ function toLines(html: string): Line[] {
 }
 
 /**
- * "<strong>Shipping and Handling:</strong> We offer…" באותה פסקה → כותרת בשורה משלה + הטקסט.
+ * "<strong>Shipping and Handling:</strong> We offer…" באותה פסקה → כותרת בשורה משלה + הטקסט (רק כותרות מדיניות).
  * בלי זה בלוק מדיניות שהכותרת שלו צמודה לטקסט לא מזוהה ולא נמחק. כך גם התיאורים שכבר בחנות (נמדד 13/10).
  */
 function splitInlineHeading(l: Line): Line[] {
   if (l.kind !== 'p') return [l]
   const m = l.html.match(/^<strong>([^<]{1,58}:)\s*<\/strong>\s*(\S[\s\S]*)$/)
   if (!m || !textOf(m[2])) return [l]
+  // רק כותרות של בלוק מדיניות. "Condition: Used" / "Model: X" נשארות שורה אחת (כמו בתיאורים שבחנות)
+  if (!POLICY_HEADING.test(headingKey({ kind: 'p', html: m[1] }))) return [l]
   return [
     { kind: 'p', html: `<strong>${m[1].trim()}</strong>` },
     { kind: 'p', html: m[2].trim() },
