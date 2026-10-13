@@ -633,7 +633,7 @@ function ComparisonView({ c, manualMatch }: { c: OfferComparisonView; manualMatc
         {ai && <Pill t={JUSTIFIED_LABEL[ai.justified]?.[1] ?? 'gray'}>{JUSTIFIED_LABEL[ai.justified]?.[0] ?? ai.justified}</Pill>}
         {c.gapPct != null && (
           <span className="ax-muted" style={{ fontSize: 12.5 }}>
-            מחיר פריט {signedPct(c.gapPct)} מאיתנו
+            {c.diffs.some((d) => d.key === 'lot') ? 'מחיר ליחידה' : 'מחיר פריט'} {signedPct(c.gapPct)} מאיתנו
           </span>
         )}
         <span className="ax-muted" style={{ fontSize: 12, marginInlineStart: 'auto' }}>

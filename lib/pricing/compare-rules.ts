@@ -72,8 +72,8 @@ export function lotUnits(s: Pick<ListingSide, 'title' | 'lotSize'>): number {
   if (s.lotSize && s.lotSize > 1) return s.lotSize
   const t = s.title
   const m =
-    /\blot of (\d{1,3})\b/i.exec(t) ??
-    /\b(\d{1,3})\s*(?:pcs|pieces|units)\b/i.exec(t) ??
+    /\blot of (\d{1,5})\b/i.exec(t) ??
+    /\b(\d{1,5})\s*(?:pcs|pieces|units)\b/i.exec(t) ??
     /\((\d{1,3})\s*x?\)/i.exec(t) ??
     /\bqty[:\s]*(\d{1,3})\b/i.exec(t) ??
     /(?:^|\s)x\s?(\d{1,2})\b/i.exec(t) ??
@@ -148,8 +148,8 @@ export function compareListings(ours: ListingSide, theirs: ListingSide, now = ne
   const ou = lotUnits(ours)
   const tu = lotUnits(theirs)
   if (ou !== tu) {
-    const per = theirs.price != null && tu > 1 ? ` (${money(theirs.price / tu)} ליחידה)` : ''
-    diffs.push({ key: 'lot', label: 'יחידות במחיר', ours: String(ou), theirs: `${tu}${per}`, effect: tu > ou ? 'higher' : 'lower' })
+    const per = (price: number | null, u: number) => (price != null ? ` (${money(price / u)} ליחידה)` : '')
+    diffs.push({ key: 'lot', label: 'יחידות במחיר', ours: `${ou}${per(ours.price, ou)}`, theirs: `${tu}${per(theirs.price, tu)}`, effect: tu > ou ? 'higher' : 'lower' })
   }
 
   // גרסה / Rev
@@ -214,8 +214,10 @@ export function compareListings(ours: ListingSide, theirs: ListingSide, now = ne
   return diffs.map((d, i) => ({ d, i })).sort((a, b) => order[a.d.effect] - order[b.d.effect] || a.i - b.i).map((x) => x.d)
 }
 
-/** פער מחיר הפריט באחוזים: (שלהם − שלנו) / שלנו */
-export function gapPct(ours: number | null, theirs: number | null): number | null {
+/** פער מחיר באחוזים: (שלהם − שלנו) / שלנו. units — כשבמודעות כמות שונה, משווים מחיר ליחידה */
+export function gapPct(ours: number | null, theirs: number | null, units?: { ours: number; theirs: number }): number | null {
   if (ours == null || theirs == null || ours <= 0) return null
-  return Math.round(((theirs - ours) / ours) * 10000) / 100
+  const o = units ? ours / units.ours : ours
+  const t = units ? theirs / units.theirs : theirs
+  return Math.round(((t - o) / o) * 10000) / 100
 }

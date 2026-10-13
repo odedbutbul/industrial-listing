@@ -602,3 +602,8 @@ div.ax-row-btn:hover { background: transparent; }
 }
 .ax-tip strong { font-weight: 600; }
 .ax-tip ul { margin: 0; padding-inline-start: 16px; color: var(--ax-text2); }
+
+/* דיאלוג ארוך: גולל בתוך החלונית (לא נחתך מחוץ למסך). הכותרת והכפתורים נשארים גלויים. */
+.ax-dialog { max-height: calc(100dvh - 32px); overflow-y: auto; overscroll-behavior: contain; }
+.ax-dialog-head { position: sticky; top: -24px; z-index: 1; margin: -24px -24px 0; padding: 24px 24px 12px; background: var(--ax-dialog); }
+.ax-dialog-foot { position: sticky; bottom: -24px; z-index: 1; margin: 0 -24px -24px; padding: 12px 24px 24px; background: var(--ax-dialog); box-shadow: 0 -1px 0 var(--ax-line); }

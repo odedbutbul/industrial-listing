@@ -4,7 +4,7 @@ import { getItemDetails, htmlToText, type BrowseItemDetails } from '@/lib/ebay/b
 import { geminiConfig, geminiConfigured, geminiJson } from '@/lib/google/gemini'
 import { withJobLock } from '@/lib/sync/lock'
 import { writeSyncLog } from '@/lib/sync/log'
-import { compareListings, gapPct, type DiffEffect, type ListingDiff, type ListingSide } from './compare-rules'
+import { compareListings, gapPct, lotUnits, type DiffEffect, type ListingDiff, type ListingSide } from './compare-rules'
 
 // השוואה מעמיקה: המודעה שלנו מול מודעת מתחרה — מה שונה ולמה יש פער מחיר.
 // 1 קריאת GET ל-eBay (Browse getItem) לכל מודעת מתחרה; הצד שלנו מה-DB. הבדלים לפי כללים (חינם),
@@ -61,6 +61,7 @@ Decide:
 2. differences — the real differences a buyer would care about: condition and condition notes, tested/untested/for parts, what is included or missing (cables, power supply, software, accessories), revision/firmware, quantity in the lot, warranty, returns, seller location, anything else in the descriptions. Only list differences supported by the text. effect: "lower" if it explains THEIRS being cheaper than OURS, "higher" if it explains THEIRS being more expensive, "neutral" otherwise. Max 8.
 3. justified — is the price gap explained by those differences? "yes", "partly", "no" (same thing, the price is simply different), or "unclear".
 4. headline — max 8 words, the main reason for the gap. explanation — 2-4 short sentences: why the prices differ and what it means for our price.
+When the listings contain different quantities, compare the per-unit prices given in the data (never recompute them); a lower per-unit price is cheaper.
 Ignore generic seller boilerplate (shipping policy, "we test everything", payment terms) unless it is specific to the item.
 Write sameProductReason, headline, explanation, aspect, ours and theirs in HEBREW. Keep part numbers, brands and model names in English.`
 
@@ -182,6 +183,10 @@ function sideText(name: string, s: ListingSide): string {
     `Title: ${s.title}`,
     s.subtitle ? `Subtitle: ${s.subtitle}` : null,
     `Item price: ${s.price != null ? `$${s.price}` : 'unknown'}; shipping to US buyer: ${s.shipping != null ? `$${s.shipping}` : 'unknown'}`,
+    (() => {
+      const u = lotUnits(s)
+      return u > 1 ? `Units in this listing: ${u}; price per unit: ${s.price != null ? `$${(s.price / u).toFixed(2)}` : 'unknown'} (already calculated — use it, do not recompute)` : null
+    })(),
     `Condition: ${s.condition ?? 'not stated'}`,
     s.conditionDescription ? `Condition notes: ${s.conditionDescription}` : null,
     `Returns: ${s.returnsAccepted == null ? 'not stated' : s.returnsAccepted ? `accepted${s.returnDays ? `, ${s.returnDays} days` : ''}` : 'not accepted'}`,
@@ -233,7 +238,10 @@ async function compareOne(
     const theirs = theirsSide(details, n(t.offerShipping))
     const diffs = compareListings(ours, theirs)
     Object.assign(values, { theirs: details, diffs, theirPrice: details.price ?? t.offerPrice })
-    const g = gapPct(ourPrice, n(details.price ?? t.offerPrice))
+    // כמות שונה במודעות (3,000 יחידות מול 5) — הפער מחושב ליחידה
+    const ou = lotUnits(ours)
+    const tu = lotUnits(theirs)
+    const g = gapPct(ourPrice, n(details.price ?? t.offerPrice), ou !== tu ? { ours: ou, theirs: tu } : undefined)
     values.gapPct = g != null ? String(g) : null
 
     if (!aiBudget) {
