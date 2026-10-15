@@ -148,6 +148,13 @@
       "when": 1791876727971,
       "tag": "0020_offer_comparisons",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1792061451171,
+      "tag": "0021_woo_media",
+      "breakpoints": true
     }
   ]
 }

@@ -8,6 +8,7 @@ import { eq, sql } from 'drizzle-orm'
 import { db, schema } from '@/lib/db/client'
 import { JobLockedError, withJobLock } from './lock'
 import { writeSyncLog } from './log'
+import { GALLERY_MEDIA_META, galleryMediaOf } from './woo-gallery'
 import { loadSources } from './woo-products'
 
 // עדכון תוכן המוצר בחנות אחרי שהמודעה ב-eBay השתנתה (למשל אחרי תיקון מבדיקת המודעות).
@@ -74,6 +75,29 @@ function galleryKey(v: string): string {
   } catch {
     return text(v)
   }
+}
+
+/** סדר לא נבדק: אחרי מעבר הגלריה לספרייה המוסתרות נשארות ב-_sync_gallery והשאר ב-images, והסדר המקורי לא נשמר בחנות */
+// הערך של שדה gallery (metaOf): JSON של רשימה עם מחרוזת אחת — JSON של מזהי התמונות
+const gallerySetKey = (key: string) => {
+  try {
+    const inner = JSON.parse((JSON.parse(key) as string[])[0]) as string[]
+    return Array.isArray(inner) ? JSON.stringify([JSON.stringify(inner.slice().sort())]) : key
+  } catch {
+    return key
+  }
+}
+
+/**
+ * הגלריה בחנות אחרי המעבר לספריית המדיה (lib/sync/woo-gallery.ts), כמזהי תמונות של eBay.
+ * null = המוצר לא עבר. אם הגלריה בחנות כבר לא זהה למה שהסנכרון חיבר — "נערך בחנות".
+ */
+function migratedGallery(w: WooProductState): string | null {
+  const media = galleryMediaOf(w.meta_data)
+  if (!media.length) return null
+  if (JSON.stringify(w.images.slice(1).map((i) => i.id)) !== JSON.stringify(media.map((m) => m.attachmentId))) return '__edited_in_store__'
+  const rest = JSON.parse(galleryKey(String(w.meta_data.find((x) => x.key === '_sync_gallery')?.value ?? '[]'))) as string[]
+  return gallerySetKey(JSON.stringify([JSON.stringify([...media.map((m) => m.ebayId), ...rest])]))
 }
 
 const sortedIds = (xs: { id: number }[] | undefined) => JSON.stringify((xs ?? []).map((x) => x.id).sort((a, b) => a - b))
@@ -242,9 +266,10 @@ async function syncPairs(pairs: { before: SourceRow; after: SourceRow }[], runId
       const was = fieldValues(f, oldP, before, ctx.conditionAttributeId)
       const now = fieldValues(f, newP, after, ctx.conditionAttributeId)
       if (was === now) continue
-      const inStore = storeValue(f, w, ctx.conditionAttributeId)
-      if (inStore === now) continue
-      if (inStore !== null && inStore !== was) {
+      const migrated = f === 'gallery' ? migratedGallery(w) : null
+      const inStore = migrated ?? storeValue(f, w, ctx.conditionAttributeId)
+      if (inStore === (migrated ? gallerySetKey(now) : now)) continue
+      if (inStore !== null && inStore !== (migrated ? gallerySetKey(was) : was)) {
         r.keptStoreEdits.push(f)
         continue
       }
@@ -258,6 +283,11 @@ async function syncPairs(pairs: { before: SourceRow; after: SourceRow }[], runId
         // רק התמונה הראשית מוחלפת; תמונות נוספות שהועלו בחנות נשארות
         body.images = [...newP.images, ...w.images.slice(1).map((i) => ({ id: i.id }))]
         meta.push({ key: '_sync_main_image', value: now })
+      } else if (f === 'gallery' && migrated) {
+        // הגלריה כבר בספרייה: חוזרים לכתובות של eBay (הקבצים מתנתקים מהמוצר, לא נמחקים),
+        // והריצה הבאה של job:woo-gallery מעלה רק את מה שחדש (שימוש חוזר לפי woo_media)
+        body.images = ((body.images as unknown[] | undefined) ?? w.images.map((i) => ({ id: i.id }))).slice(0, 1)
+        meta.push({ key: '_sync_gallery', value: newP.meta_data.find((x) => x.key === '_sync_gallery')?.value ?? '[]' }, { key: GALLERY_MEDIA_META, value: '[]' })
       } else {
         const keys = META_FIELDS.find(([k]) => k === f)![1]
         for (const k of keys) meta.push({ key: k, value: newP.meta_data.find((x) => x.key === k)?.value ?? '' })
@@ -339,9 +369,11 @@ export async function auditStoreContent(limit = 50) {
       }
       const p = buildWooProduct(s, ctx)
       for (const f of FIELDS) {
-        const inStore = storeValue(f, w, ctx.conditionAttributeId)
+        const migrated = f === 'gallery' ? migratedGallery(w) : null
+        const inStore = migrated ?? storeValue(f, w, ctx.conditionAttributeId)
+        const sysValue = fieldValues(f, p, s, ctx.conditionAttributeId)
         if (inStore === null) perField[f].unknown++
-        else if (inStore === fieldValues(f, p, s, ctx.conditionAttributeId)) perField[f].same++
+        else if (inStore === (migrated ? gallerySetKey(sysValue) : sysValue)) perField[f].same++
         else {
           perField[f].differs++
           if (examples.filter((e) => e.field === f).length < 4) {

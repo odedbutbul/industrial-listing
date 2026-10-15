@@ -839,3 +839,19 @@ export const labelReads = pgTable(
   },
   (t) => [index('label_reads_read_at_idx').on(t.readAt)],
 )
+
+/**
+ * תמונות שהסנכרון העלה לספריית המדיה של החנות (docs/gallery-media-plan.md). שורה לכל תמונה של eBay —
+ * תמונה שכבר עלתה (גם ממוצר אחר) לא עולה שוב. לא נמחק כלום בחנות כשמוצר מפסיק להשתמש בתמונה.
+ */
+export const wooMedia = pgTable('woo_media', {
+  /** מזהה התמונה ב-eBay (/z/<id>/ או /images/g/<id>/) */
+  ebayImageId: text('ebay_image_id').primaryKey(),
+  wooAttachmentId: bigint('woo_attachment_id', { mode: 'number' }).notNull().unique(),
+  sourceUrl: text('source_url').notNull(),
+  fileName: text('file_name').notNull(),
+  /** המוצר שבשבילו התמונה עלתה לראשונה */
+  wooProductId: bigint('woo_product_id', { mode: 'number' }),
+  bytes: integer('bytes').notNull(),
+  uploadedAt: timestamp('uploaded_at', { withTimezone: true }).notNull().defaultNow(),
+})
