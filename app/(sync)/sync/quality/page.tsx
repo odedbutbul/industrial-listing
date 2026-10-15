@@ -2,8 +2,8 @@
 
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
-import { Suspense, useState } from 'react'
-import { Check, CircleCheckBig, ExternalLink, RotateCcw, ScanSearch } from 'lucide-react'
+import { Suspense, useId, useState } from 'react'
+import { Check, CircleCheckBig, ExternalLink, Pencil, RotateCcw, ScanSearch, StickyNote } from 'lucide-react'
 import { api } from '@/components/sync/api'
 import { ago, date, num } from '@/components/sync/format'
 import { useDataChanged } from '@/components/sync/hooks'
@@ -39,6 +39,14 @@ interface IssueRow {
   ebayItemId: string | null
   /** המוצר באתר — "תיקנתי" מעדכן גם שם */
   wooProductId: number | null
+  /** הערה פנימית למוצר (לשותף) — לא נשלחת ל-eBay ולא לחנות */
+  note: string | null
+  noteUpdatedAt: string | null
+}
+
+interface Note {
+  note: string | null
+  updatedAt: string | null
 }
 
 interface IssueList {
@@ -79,6 +87,8 @@ function Quality() {
   /** ממצאים שטופלו במסך הזה — יורדים מהרשימה עד הטעינה הבאה */
   const [done, setDone] = useState<Record<string, boolean>>({})
   const [saving, setSaving] = useState<string | null>(null)
+  /** הערות שנשמרו במסך הזה, לפי מוצר — כל הממצאים של אותו מוצר מציגים אותה הערה */
+  const [notes, setNotes] = useState<Record<string, Note>>({})
 
   const setFilter = (v: Filter) => {
     const sp = new URLSearchParams(params.toString())
@@ -91,6 +101,7 @@ function Quality() {
     const r = await api.get<IssueList>(`/api/sync/quality?filter=${filter}`)
     setMore([])
     setDone({})
+    setNotes({})
     setNextOffset(r.nextOffset)
     return r
   }, [filter])
@@ -154,6 +165,19 @@ function Quality() {
       setSaving(null)
     }
   }
+
+  const saveNote = async (productId: string, note: string) => {
+    try {
+      const r = await api.post<Note>(`/api/sync/products/${productId}/note`, { note })
+      setNotes((n) => ({ ...n, [productId]: r }))
+      toast(r.note ? 'ההערה נשמרה' : 'ההערה נמחקה')
+      return true
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'שמירת ההערה נכשלה', 'bad')
+      return false
+    }
+  }
+  const noteOf = (r: IssueRow): Note => notes[r.productId] ?? { note: r.note, updatedAt: r.noteUpdatedAt }
 
   const rows = data ? [...data.rows, ...more].filter((r) => !done[r.id]) : null
   const c = data?.counts
@@ -239,7 +263,7 @@ function Quality() {
                       {rows!.map((r) => (
                         <tr key={r.id}>
                           <td style={{ width: '34%', verticalAlign: 'top' }}>
-                            <ProductCell r={r} />
+                            <ProductCell r={r} note={noteOf(r)} onSaveNote={saveNote} />
                           </td>
                           <td style={{ verticalAlign: 'top' }}>
                             <IssueCell r={r} />
@@ -257,7 +281,7 @@ function Quality() {
               <div className="ax-only-mobile ax-mcards">
                 {rows!.map((r) => (
                   <div key={r.id} className="ax-mcard" style={{ gap: 12 }}>
-                    <ProductCell r={r} />
+                    <ProductCell r={r} note={noteOf(r)} onSaveNote={saveNote} />
                     <IssueCell r={r} />
                     <Actions r={r} busy={saving === r.id} onStatus={setStatus} onFixed={markFixed} />
                   </div>
@@ -290,7 +314,7 @@ function Quality() {
   )
 }
 
-function ProductCell({ r }: { r: IssueRow }) {
+function ProductCell({ r, note, onSaveNote }: { r: IssueRow; note: Note; onSaveNote: (productId: string, note: string) => Promise<boolean> }) {
   return (
     <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', minWidth: 0 }}>
       {r.image ? <ZoomThumb images={[r.image]} title={r.title} size={56} alt={`התמונה הראשונה של ${r.title}`} /> : null}
@@ -310,8 +334,94 @@ function ProductCell({ r }: { r: IssueRow }) {
             <Pill t="ok">באתר</Pill>
           </span>
         ) : null}
+        <NoteBlock productId={r.productId} title={r.title} note={note} onSave={onSaveNote} />
       </div>
     </div>
+  )
+}
+
+/** הערה פנימית למוצר — כשיש הערה היא מוצגת בולטת (תיבה בגוון אזהרה) */
+function NoteBlock({ productId, title, note, onSave }: { productId: string; title: string; note: Note; onSave: (productId: string, note: string) => Promise<boolean> }) {
+  const id = useId()
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const open = () => {
+    setDraft(note.note ?? '')
+    setEditing(true)
+  }
+  const save = async () => {
+    setBusy(true)
+    const ok = await onSave(productId, draft)
+    setBusy(false)
+    if (ok) setEditing(false)
+  }
+
+  if (editing)
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
+        <label htmlFor={id} className="ax-label">
+          הערה למוצר
+        </label>
+        <textarea
+          id={id}
+          dir="auto"
+          className="ax-textarea"
+          rows={3}
+          maxLength={2000}
+          value={draft}
+          autoFocus
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setEditing(false)
+            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) save()
+          }}
+          aria-describedby={`${id}-hint`}
+        />
+        <span id={`${id}-hint`} className="ax-hint">
+          הערה פנימית — לא נשלחת ל-eBay ולא לאתר. שמירת הערה ריקה מוחקת אותה.
+        </span>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button type="button" className="ax-btn is-primary is-sm" onClick={save} disabled={busy}>
+            {busy ? <Spin /> : <Check size={16} aria-hidden="true" />}
+            שמירה
+          </button>
+          <button type="button" className="ax-btn is-ghost is-sm" onClick={() => setEditing(false)} disabled={busy}>
+            ביטול
+          </button>
+        </div>
+      </div>
+    )
+
+  if (note.note)
+    return (
+      <div className="ax-alert is-warn" style={{ marginTop: 6 }} role="note" aria-label={`הערה על ${title}`}>
+        <StickyNote size={16} aria-hidden="true" />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0, flex: 1 }}>
+          <span style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', color: 'var(--ax-text)' }} dir="auto">
+            {note.note}
+          </span>
+          {note.updatedAt && (
+            <span className="ax-num" style={{ fontSize: 12, fontWeight: 400 }}>
+              {date(note.updatedAt)}
+            </span>
+          )}
+        </div>
+        <button type="button" className="ax-btn is-ghost is-sm" style={{ marginTop: -6, marginInlineEnd: -8 }} onClick={open}>
+          <Pencil size={16} aria-hidden="true" />
+          עריכה<span className="ax-sr"> של ההערה</span>
+        </button>
+      </div>
+    )
+
+  return (
+    <span>
+      <button type="button" className="ax-btn is-ghost is-sm" style={{ marginInlineStart: -14 }} onClick={open}>
+        <StickyNote size={16} aria-hidden="true" />
+        הוספת הערה
+      </button>
+    </span>
   )
 }
 

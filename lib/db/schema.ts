@@ -855,3 +855,15 @@ export const wooMedia = pgTable('woo_media', {
   bytes: integer('bytes').notNull(),
   uploadedAt: timestamp('uploaded_at', { withTimezone: true }).notNull().defaultNow(),
 })
+
+/**
+ * הערה חופשית למוצר — למשל הערה של ויקי לשותף שלה במסך בדיקת המודעות. שורה אחת לכל מוצר.
+ * פנימי בלבד: לא נשלח ל-eBay ולא לחנות. הערה ריקה = מחיקת השורה.
+ */
+export const productNotes = pgTable('product_notes', {
+  productId: uuid('product_id')
+    .primaryKey()
+    .references(() => products.id, { onDelete: 'cascade' }),
+  note: text('note').notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+})

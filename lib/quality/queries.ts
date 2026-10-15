@@ -6,6 +6,7 @@ import { QUALITY_SCAN_KEY, type QualityScanResult } from './scan'
 const I = schema.listingIssues
 const P = schema.products
 const M = schema.channelMappings
+const N = schema.productNotes
 
 export const ISSUE_CHECKS: IssueCheck[] = ['label_mismatch', 'title_content', 'shared_image', 'desc_mismatch', 'mpn_near_miss', 'specifics_other', 'brand_conflict']
 export type QualityFilter = 'open' | 'dismissed' | 'resolved' | IssueCheck
@@ -48,10 +49,13 @@ export async function listIssues(opts: { filter: QualityFilter; offset?: number;
       sku: M.sku,
       ebayItemId: M.ebayItemId,
       wooProductId: M.wooProductId,
+      note: N.note,
+      noteUpdatedAt: N.updatedAt,
     })
     .from(I)
     .innerJoin(P, eq(P.id, I.productId))
     .leftJoin(M, eq(M.productId, I.productId))
+    .leftJoin(N, eq(N.productId, I.productId))
     .where(filterSql(opts.filter))
     .orderBy(severityOrder, asc(I.check), desc(I.firstSeenAt), asc(I.id))
     .limit(limit + 1)
@@ -109,4 +113,23 @@ export async function setIssueStatus(id: string, action: 'dismiss' | 'reopen') {
     .where(and(eq(I.id, id), action === 'dismiss' ? eq(I.status, 'open') : eq(I.status, 'dismissed')))
     .returning({ id: I.id, status: I.status })
   return row ?? null
+}
+
+export const NOTE_MAX = 2000
+
+/** הערה פנימית למוצר (לשותף). ריקה = מחיקה. null = המוצר לא קיים */
+export async function setProductNote(productId: string, note: string) {
+  const [p] = await db.select({ id: P.id }).from(P).where(eq(P.id, productId))
+  if (!p) return null
+  const text = note.trim().slice(0, NOTE_MAX)
+  if (!text) {
+    await db.delete(N).where(eq(N.productId, productId))
+    return { note: null, updatedAt: null }
+  }
+  const [row] = await db
+    .insert(N)
+    .values({ productId, note: text })
+    .onConflictDoUpdate({ target: N.productId, set: { note: text, updatedAt: new Date() } })
+    .returning({ note: N.note, updatedAt: N.updatedAt })
+  return row
 }
