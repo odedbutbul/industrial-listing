@@ -68,14 +68,19 @@ async function readStoreMeta(ids: number[], onProgress?: (p: ImportProgress) => 
   return out
 }
 
-/** JSON עם מפתחות ממוינים — Postgres (jsonb) ו-WordPress לא שומרים על סדר המפתחות */
-function canonical(v: unknown): unknown {
-  if (Array.isArray(v)) return v.map(canonical)
+/**
+ * JSON עם מפתחות ממוינים — Postgres (jsonb) ו-WordPress לא שומרים על סדר המפתחות.
+ * רשימה של מחרוזות בלבד (excludeLocations, shipTo) היא קבוצה: eBay מחזיר אותה בסדר אחר בכל קריאה, ובלי מיון
+ * 67 מתוך 890 מוצרים נשלחו לחנות בכל ריצה בלי שום שינוי (נמדד 15/10/2026) — וכל שמירה מנקה את קאש העמודים בחנות.
+ * רשימות של אובייקטים (שירותי משלוח) נשארות לפי הסדר — הסדר שלהן הוא העדיפות.
+ */
+export function canonical(v: unknown): unknown {
+  if (Array.isArray(v)) return v.every((x) => typeof x === 'string') ? [...v].sort() : v.map(canonical)
   if (v && typeof v === 'object') return Object.fromEntries(Object.keys(v).sort().map((k) => [k, canonical((v as Record<string, unknown>)[k])]))
   return v
 }
 
-function sameMeta(have: string | undefined, want: string): boolean {
+export function sameMeta(have: string | undefined, want: string): boolean {
   if (have === want) return true
   if (have === undefined || !want.startsWith('{')) return false
   try {

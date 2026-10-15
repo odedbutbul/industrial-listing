@@ -20,6 +20,7 @@
     "job:pull-leads": "tsx jobs/pull-leads.ts",
     "job:fetch-shipping": "tsx jobs/fetch-shipping.ts",
     "job:woo-shipping": "tsx jobs/woo-shipping.ts",
+    "job:woo-gallery": "tsx jobs/woo-gallery.ts",
     "job:check-prices": "tsx jobs/check-prices.ts",
     "job:quote-check": "tsx jobs/quote-check.ts",
     "job:fetch-feedback": "tsx jobs/fetch-feedback.ts",

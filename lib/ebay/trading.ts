@@ -210,7 +210,8 @@ export function parseShippingCosts(item: XmlNode): ShippingCosts | null {
     domestic: dom.map((o) => o.option),
     international: intl.map((o) => o.option),
     globalShipping: String(d.GlobalShipping ?? '') === 'true',
-    excludeLocations: ((d.ExcludeShipToLocation as unknown[] | undefined) ?? []).map(String).filter(Boolean),
+    // ממוין: eBay מחזיר את הרשימה בסדר משתנה, וזה נראה כמו שינוי בכל משיכה
+    excludeLocations: ((d.ExcludeShipToLocation as unknown[] | undefined) ?? []).map(String).filter(Boolean).sort(),
     policyName: str(profile.ShippingProfileName),
   }
 }
